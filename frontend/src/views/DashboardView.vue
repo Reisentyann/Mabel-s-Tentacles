@@ -1,7 +1,10 @@
 <template>
   <div class="dashboard-container">
     <div class="header">
-      <h2>Dashboard</h2>
+      <div class="nav-links">
+        <h2>Dashboard</h2>
+        <router-link to="/files" class="nav-btn">Workspace Files</router-link>
+      </div>
       <button @click="handleLogout">Logout</button>
     </div>
 
@@ -88,6 +91,10 @@ const handleLogout = async () => {
 <style scoped>
 .dashboard-container { padding: 2rem; }
 .header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem; }
+.nav-links { display: flex; align-items: center; gap: 1.5rem; }
+.nav-links h2 { margin: 0; }
+.nav-btn { text-decoration: none; padding: 0.4rem 0.8rem; background-color: #e9ecef; color: #333; border-radius: 4px; font-weight: 500; }
+.nav-btn:hover { background-color: #dde0e3; }
 table { width: 100%; border-collapse: collapse; margin-bottom: 1rem; }
 th, td { border: 1px solid #ddd; padding: 0.5rem; text-align: left; }
 th { background-color: #f4f4f4; }
