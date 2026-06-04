@@ -1,0 +1,78 @@
+# 操作系统生成文件 (OS generated files)
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# 编辑器与 IDE (Editor directories and files)
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Python (Backend & MCP Server)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# 虚拟环境与环境变量 (Virtual Environments & Env files)
+.env
+.env.*
+!.env.example
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Node.js / Vue / Vite (Frontend)
+node_modules/
+dist/
+dist-ssr/
+*.local
+.npm
+
+# 日志文件 (Logs)
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# 数据库、持久化数据卷与临时测试文件 (Database, Data Volumes & Temp files)
+data/
+postgres_data/
+test.py
+
+# 缓存与测试覆盖率 (Cache & Coverage)
+.pytest_cache/
+.coverage
+htmlcov/
+.eslintcache
