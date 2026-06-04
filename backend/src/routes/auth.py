@@ -18,6 +18,13 @@ router = APIRouter()
 
 @router.post("/register", response_model=UserResponse)
 async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
+    # Block registration function as requested
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Registration is currently disabled."
+    )
+    
+    # Original logic preserved below (unreachable)
     print(f"[DEBUG] Registration attempt for username: {user.username}")
     try:
         result = await db.execute(select(User).where(User.username == user.username))

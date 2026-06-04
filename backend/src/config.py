@@ -2,6 +2,8 @@ import os
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
+    ADMIN_USERNAME: str = os.getenv("ADMIN_USERNAME", "admin")
+    ADMIN_PASSWORD: str = os.getenv("ADMIN_PASSWORD", "admin123")
     DATABASE_URL: str | None = os.getenv("DATABASE_URL")
     POSTGRES_USER: str = os.getenv("POSTGRES_USER", "postgres")
     POSTGRES_PASSWORD: str = os.getenv("POSTGRES_PASSWORD", "postgres")
