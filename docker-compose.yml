@@ -51,6 +51,10 @@ services:
     restart: always
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-agent_db}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-agent_db}
+      - POSTGRES_HOST=postgres
       - SMTP_SERVER=smtp.qq.com
       - SMTP_PORT=465
       - SMTP_USER=${SMTP_USER:-}
