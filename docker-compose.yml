@@ -32,6 +32,8 @@ services:
       - ACCESS_TOKEN_EXPIRE_MINUTES=30
       - REFRESH_TOKEN_EXPIRE_DAYS=7
       - CORS_ORIGINS=${CORS_ORIGINS:-}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
     ports:
       - "127.0.0.1:18000:8000" # Bind to localhost to prevent direct external access (accessed via Nginx)
     volumes:

@@ -1,8 +1,35 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from contextlib import asynccontextmanager
 from src.config import settings
 
-app = FastAPI(title="Agent API", version="0.1.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Auto-create admin user on startup
+    from src.database import AsyncSessionLocal
+    from src.models import User
+    from src.services.auth_service import get_password_hash
+    from sqlalchemy.future import select
+
+    try:
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(select(User).where(User.username == settings.ADMIN_USERNAME))
+            admin_user = result.scalars().first()
+            if not admin_user:
+                print(f"[INFO] Creating default admin user: {settings.ADMIN_USERNAME}")
+                new_admin = User(
+                    username=settings.ADMIN_USERNAME,
+                    email="admin@example.com",
+                    password_hash=get_password_hash(settings.ADMIN_PASSWORD)
+                )
+                session.add(new_admin)
+                await session.commit()
+    except Exception as e:
+        print(f"[WARNING] Could not create admin user during startup: {e}")
+        
+    yield
+
+app = FastAPI(title="Agent API", version="0.1.0", lifespan=lifespan)
 
 # Setup CORS origins
 origins = [
