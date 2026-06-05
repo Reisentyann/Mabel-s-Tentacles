@@ -16,7 +16,7 @@ MCP (Model Context Protocol) Server 是一个独立的代理服务进程，通�
 - `src/services/command_executor.py`: 处理命令行及 Shell 脚本的执行逻辑层。
 - `src/tools/`: 暴露给大模型调用的具体技能工具，例如：
   - `execute_command.py`: 运行终端命令。
-  - `write_file.py`: 写入或修改文件。
+  - `write_file.py`: 写入或修改文件。（注：为了配合前端展示，通过该工具创建/写入的所有文件均会自动保存在宿主机与容器共享的 `data` 目录下。）
   - `get_results.py`: 获取工具执行的结果等。
 - `mcp-config.json`: MCP 服务的元数据与启动配置声明。
 - `Dockerfile`: 构建 MCP 服务镜像。
