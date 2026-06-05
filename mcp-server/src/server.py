@@ -2,9 +2,13 @@ import asyncio
 import os
 import sys
 import json
+from contextlib import asynccontextmanager
+from fastapi import FastAPI
+import uvicorn
 from mcp.server import Server, NotificationOptions
 from mcp.server.models import InitializationOptions
-import mcp.server.stdio
+import mcp.server.sse
+from mcp.server.sse import SseServerTransport
 from mcp.types import Tool, TextContent, CallToolRequest
 
 from src.services.db import db
@@ -117,25 +121,51 @@ async def handle_call_tool(name: str, arguments: dict | None) -> list[TextConten
         
     raise ValueError(f"Unknown tool: {name}")
 
-async def main():
-    """Run the MCP server."""
-    # Initialize DB connection
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Initialize DB connection on startup
     await db.connect()
+    yield
+    # Disconnect on shutdown
+    await db.disconnect()
+
+app = FastAPI(title="Agent MCP Server", lifespan=lifespan)
+sse_transport = None
+
+@app.get("/sse")
+async def handle_sse():
+    """Handle SSE endpoint for MCP."""
+    global sse_transport
+    sse_transport = SseServerTransport("/messages")
     
-    # Start server with stdio transport
-    async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream,
-            write_stream,
-            InitializationOptions(
-                server_name="agent-mcp-server",
-                server_version="0.1.0",
-                capabilities=server.get_capabilities(
-                    notification_options=NotificationOptions(),
-                    experimental_capabilities={},
-                ),
+    # Run the server loop in the background
+    asyncio.create_task(server.run(
+        sse_transport.read_stream,
+        sse_transport.write_stream,
+        InitializationOptions(
+            server_name="agent-mcp-server",
+            server_version="0.1.0",
+            capabilities=server.get_capabilities(
+                notification_options=NotificationOptions(),
+                experimental_capabilities={},
             ),
-        )
+        ),
+    ))
+    return await sse_transport.handle_sse()
+
+@app.post("/messages")
+async def handle_messages(request: dict):
+    """Handle POST messages for MCP."""
+    global sse_transport
+    if sse_transport is None:
+        return {"error": "SSE connection not established"}, 400
+    await sse_transport.handle_post_message(request)
+    return {}
+
+def main():
+    """Run the FastAPI server."""
+    port = int(os.getenv("PORT", "8001"))
+    uvicorn.run("src.server:app", host="0.0.0.0", port=port)
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

@@ -10,59 +10,28 @@ AstrBot 是一款功能强大的聊天机器人框架，它支持通过 Model Co
 
 因此，为了让 AstrBot 连接，AstrBot 所在的机器/容器需要能够直接调用 python 命令启动我们的 MCP 脚本。
 
-## 2. AstrBot 端 MCP 配置
+## 2. AstrBot 接入配置 (SSE 模式)
 
-大多数支持 MCP 的客户端（如 AstrBot, Claude Desktop 等）使用的是类似如下的 JSON 配置来挂载基于 stdio 的 MCP 服务。
+考虑到大多数机器人框架和 Docker 跨容器通信的易用性，本项目已经将 `agent_mcp_server` 的通信模式由 stdio 升级为了基于网络的 **SSE (Server-Sent Events)** 模式。
 
-在 AstrBot 的 MCP 配置项中（或对应的插件配置），添加以下节点：
+这意味着，只要您的 AstrBot 能够 ping 通本项目部署机器的 IP 或通过 Docker 网络相互访问，就能直接通过 HTTP 协议挂载。
 
-```json
-{
-  "mcpServers": {
-    "agent-mcp-server": {
-      "command": "docker",
-      "args": [
-        "exec",
-        "-i",
-        "agent_mcp_server",
-        "python",
-        "-m",
-        "src.server"
-      ]
-    }
-  }
-}
-```
-
-### 💡 配置原理解释
-因为我们的 MCP Server 是运行在 Docker 容器 `agent_mcp_server` 内部的，而 AstrBot 如果运行在宿主机上，可以通过 `docker exec -i` 的方式将容器内的标准输入输出与宿主机的进程打通。
-
-**重要参数说明：**
-- `command`: 基础命令。
-- `args`: 命令参数。这里我们让它去执行运行中的 `agent_mcp_server` 容器内部的启动命令 `python -m src.server`。
-- `-i`: Interactive 参数，保证 stdin 流畅通，这对 stdio 模式的 MCP 至关重要。不要加 `-t`，因为 tty 终端控制字符会污染 MCP 的 JSON-RPC 消息流。
-
-## 3. 本地直接调用 (不通过 Docker)
-
-如果您的 AstrBot 与本项目代码放置在同一台机器的同一级目录，且环境安装了 Python 依赖，您也可以不借助 Docker，直接通过 Python 调用：
+在 AstrBot 的 MCP 配置文件或后台界面中，添加如下 **SSE 类型**的服务器节点：
 
 ```json
 {
   "mcpServers": {
     "agent-mcp-server": {
-      "command": "python",
-      "args": [
-        "-m",
-        "src.server"
-      ],
-      "env": {
-        "DATABASE_URL": "postgresql+asyncpg://agent_user:your_secure_db_password@localhost:54322/agent_db"
-      }
+      "type": "sse",
+      "url": "http://127.0.0.1:18001/sse"
     }
   }
 }
 ```
-*注意：本地调用需要根据您的 `.env` 手动传入 `DATABASE_URL`，并且数据库主机地址应指向映射的 `54322` 端口。*
+
+### 💡 注意事项：
+* 如果您的 AstrBot 和本项目是在**同一台物理机**的不同 Docker 环境运行的，且没有配置特定的 Docker 网络，`127.0.0.1` 可能会指向 AstrBot 容器自身。
+* 此时您可以将 `127.0.0.1` 替换为您物理机的 **局域网 IP** (例如 `192.168.1.100`)。或者是把 AstrBot 容器加入到 `agent_default` 网络中，并将 URL 改为容器名 `http://agent_mcp_server:8001/sse`。
 
 ## 4. 可用能力列表
 
