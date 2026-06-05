@@ -18,8 +18,10 @@ async def server_lifespan(server: FastMCP):
     # Disconnect on shutdown
     await db.disconnect()
 
+port = int(os.getenv("PORT", "8001"))
+
 # Create MCP server instance
-mcp = FastMCP("agent-mcp-server", lifespan=server_lifespan)
+mcp = FastMCP("agent-mcp-server", host="0.0.0.0", port=port, lifespan=server_lifespan)
 
 @mcp.tool()
 async def execute_command(command: str, user_id: int) -> str:
@@ -41,9 +43,6 @@ async def write_file(file_path: str, content: str) -> str:
 
 def main():
     """Run the FastMCP server."""
-    port = int(os.getenv("PORT", "8001"))
-    mcp.settings.host = "0.0.0.0"
-    mcp.settings.port = port
     mcp.run("sse")
 
 if __name__ == "__main__":
