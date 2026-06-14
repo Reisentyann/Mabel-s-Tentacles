@@ -9,6 +9,9 @@ from src.services.db import db
 from src.tools.execute_command import execute_command_tool
 from src.tools.get_results import get_results_tool
 from src.tools.write_file import write_file_tool
+from src.tools.list_data_files import list_data_files_tool
+from src.tools.modify_data_file import modify_data_file_tool
+from src.tools.segmented_reply import segmented_reply_tool
 
 @asynccontextmanager
 async def server_lifespan(server: FastMCP):
@@ -40,6 +43,27 @@ async def write_file(file_path: str, content: str) -> str:
     """Write generated content to a file. Use this when the user wants to generate code, write an article, or create a file."""
     result = await write_file_tool(file_path, content)
     return json.dumps(result)
+
+@mcp.tool()
+async def list_data_files() -> str:
+    """List all file names in the data folder."""
+    result = await list_data_files_tool()
+    return json.dumps(result)
+
+@mcp.tool()
+async def modify_data_file(file_path: str, content: str, mode: str = "append") -> str:
+    """Modify an existing file in the data folder.
+    Must use list_data_files first to get valid file_path.
+    mode="append": safely appends content to the end of the file.
+    mode="overwrite": replaces the entire file content."""
+    result = await modify_data_file_tool(file_path, content, mode)
+    return json.dumps(result)
+
+@mcp.tool()
+async def segmented_reply(content: str, session_id: str = "default") -> str:
+    """Create segmented reply files using local config in src/tools/segmented_reply/config.json."""
+    result = await segmented_reply_tool(content, session_id)
+    return json.dumps(result, ensure_ascii=False)
 
 def main():
     """Run the FastMCP server."""
