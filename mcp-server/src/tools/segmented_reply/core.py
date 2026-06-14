@@ -1,8 +1,9 @@
 import asyncio
+import json
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from src.tools.segmented_reply.config import CONFIG_PATH, load_segmented_reply_config
 
@@ -12,6 +13,7 @@ MAX_CONTENT_SIZE = 5 * 1024 * 1024
 MIN_SEGMENT_LENGTH = 50
 MAX_SEGMENT_LENGTH = 5000
 MAX_INTERVAL_SECONDS = 10.0
+QUEUE_DIR_NAME = ".queues"
 
 
 def _safe_session_id(session_id: str) -> str:
@@ -28,6 +30,43 @@ def _safe_output_dir(output_dir: str) -> Path:
     if not reply_dir.is_relative_to(BASE_DIR):
         return (BASE_DIR / "segmented_replies").resolve()
     return reply_dir
+
+
+def _queue_dir(output_dir: str) -> Path:
+    queue_dir = (_safe_output_dir(output_dir) / QUEUE_DIR_NAME).resolve()
+    queue_dir.mkdir(parents=True, exist_ok=True)
+    return queue_dir
+
+
+def _queue_path(session_id: str, output_dir: str) -> Path:
+    return (_queue_dir(output_dir) / f"{_safe_session_id(session_id)}.json").resolve()
+
+
+def _save_reply_queue(session_id: str, output_dir: str, queue: Dict[str, Any]) -> Path:
+    path = _queue_path(session_id, output_dir)
+    if not path.is_relative_to(_queue_dir(output_dir)):
+        raise ValueError("Invalid segmented reply queue path.")
+    path.write_text(json.dumps(queue, ensure_ascii=False, indent=2), encoding="utf-8")
+    return path
+
+
+def _load_reply_queue(session_id: str, output_dir: str) -> Optional[Dict[str, Any]]:
+    path = _queue_path(session_id, output_dir)
+    if not path.exists():
+        return None
+
+    with path.open("r", encoding="utf-8") as file:
+        queue = json.load(file)
+
+    if not isinstance(queue, dict):
+        return None
+    return queue
+
+
+def _delete_reply_queue(session_id: str, output_dir: str) -> None:
+    path = _queue_path(session_id, output_dir)
+    if path.exists():
+        path.unlink()
 
 
 def _apply_content_filter(content: str, content_filter: Dict[str, Any]) -> Tuple[bool, str, List[str]]:
@@ -101,7 +140,7 @@ def _build_segments(content: str, split_words: List[str], segment_length_thresho
 
 
 async def segmented_reply_tool(content: str, session_id: str = "default") -> Dict[str, Any]:
-    """Create segmented reply files based on local segmented reply config."""
+    """Create segmented reply files and initialize a queued multi-reply session."""
     try:
         if not content or not content.strip():
             return {"success": False, "message": "Error: content cannot be empty."}
@@ -161,19 +200,97 @@ async def segmented_reply_tool(content: str, session_id: str = "default") -> Dic
             target_path.write_text(segment, encoding="utf-8")
             files.append(target_path.relative_to(BASE_DIR).as_posix())
 
-            if index < len(segments) and interval_seconds > 0:
-                await asyncio.sleep(interval_seconds)
+        first_reply = segments[0]
+        remaining_segments = segments[1:]
+        queue_path = None
+        if remaining_segments:
+            queue_path = _save_reply_queue(
+                session_id,
+                config.get("output_dir", "segmented_replies"),
+                {
+                    "created_at": datetime.now().isoformat(),
+                    "session_id": safe_session_id,
+                    "interval_seconds": interval_seconds,
+                    "segments": remaining_segments,
+                    "next_index": 2,
+                    "total": len(segments),
+                },
+            )
+        else:
+            _delete_reply_queue(session_id, config.get("output_dir", "segmented_replies"))
 
         return {
             "success": True,
-            "message": f"Successfully created {len(files)} segmented reply file(s).",
+            "message": first_reply,
+            "reply": first_reply,
             "segment_count": len(files),
+            "remaining_count": len(remaining_segments),
+            "has_more": bool(remaining_segments),
+            "next_tool": "next_reply" if remaining_segments else None,
             "interval_seconds": interval_seconds,
             "force_segmented_reply": force_segmented_reply,
             "config_path": str(CONFIG_PATH),
+            "queue_path": queue_path.relative_to(BASE_DIR).as_posix() if queue_path else None,
             "files": files,
             "segments": segments,
         }
 
     except Exception as e:
         return {"success": False, "message": f"Segmented reply failed: {str(e)}"}
+
+
+async def next_reply_tool(session_id: str = "default") -> Dict[str, Any]:
+    """Return the next queued segmented reply to trigger another visible bot reply."""
+    try:
+        config = load_segmented_reply_config()
+        output_dir = config.get("output_dir", "segmented_replies")
+        queue = _load_reply_queue(session_id, output_dir)
+
+        if not queue:
+            return {
+                "success": False,
+                "message": "No pending segmented reply for this session.",
+                "reply": None,
+                "has_more": False,
+            }
+
+        segments = queue.get("segments", [])
+        if not isinstance(segments, list) or not segments:
+            _delete_reply_queue(session_id, output_dir)
+            return {
+                "success": False,
+                "message": "No pending segmented reply for this session.",
+                "reply": None,
+                "has_more": False,
+            }
+
+        interval_seconds = float(queue.get("interval_seconds", 0.0))
+        interval_seconds = max(0.0, min(interval_seconds, MAX_INTERVAL_SECONDS))
+        if interval_seconds > 0:
+            await asyncio.sleep(interval_seconds)
+
+        reply = str(segments.pop(0))
+        next_index = int(queue.get("next_index", 2))
+        total = int(queue.get("total", next_index))
+        has_more = bool(segments)
+
+        if has_more:
+            queue["segments"] = segments
+            queue["next_index"] = next_index + 1
+            _save_reply_queue(session_id, output_dir, queue)
+        else:
+            _delete_reply_queue(session_id, output_dir)
+
+        return {
+            "success": True,
+            "message": reply,
+            "reply": reply,
+            "segment_index": next_index,
+            "segment_count": total,
+            "remaining_count": len(segments),
+            "has_more": has_more,
+            "next_tool": "next_reply" if has_more else None,
+        }
+
+    except Exception as e:
+        return {"success": False, "message": f"Next reply failed: {str(e)}", "reply": None, "has_more": False}

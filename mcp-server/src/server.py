@@ -11,7 +11,7 @@ from src.tools.get_results import get_results_tool
 from src.tools.write_file import write_file_tool
 from src.tools.list_data_files import list_data_files_tool
 from src.tools.modify_data_file import modify_data_file_tool
-from src.tools.segmented_reply import segmented_reply_tool
+from src.tools.segmented_reply import next_reply_tool, segmented_reply_tool
 
 @asynccontextmanager
 async def server_lifespan(server: FastMCP):
@@ -61,8 +61,14 @@ async def modify_data_file(file_path: str, content: str, mode: str = "append") -
 
 @mcp.tool()
 async def segmented_reply(content: str, session_id: str = "default") -> str:
-    """Create segmented reply files using local config in src/tools/segmented_reply/config.json."""
+    """Start a multi-message reply. Send result.message as the visible reply, then call next_reply while has_more is true."""
     result = await segmented_reply_tool(content, session_id)
+    return json.dumps(result, ensure_ascii=False)
+
+@mcp.tool()
+async def next_reply(session_id: str = "default") -> str:
+    """Get the next queued reply segment. Send result.message as the visible reply and call next_reply again while has_more is true."""
+    result = await next_reply_tool(session_id)
     return json.dumps(result, ensure_ascii=False)
 
 def main():

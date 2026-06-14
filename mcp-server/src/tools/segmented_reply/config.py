@@ -11,7 +11,16 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "segment_length_threshold": 500,
     "max_segments": 20,
     "output_dir": "segmented_replies",
-    "split_words": ["---", "\n---\n", "【分段】", "[分段]"],
+    "split_words": [
+    "---",
+    "\n---\n",
+    "……",
+    "?",
+    "？",
+    "!",
+    "！",
+    "。"
+  ],
     "content_filter": {
         "blocked_words": [],
         "replace_rules": {},
