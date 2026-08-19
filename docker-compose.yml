@@ -10,7 +10,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: ${POSTGRES_DB:-agent_db}
     ports:
-      - "54322:5432" # Use custom port on host to avoid conflict
+      - "127.0.0.1:54322:5432" # Bind to localhost to prevent direct external access
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -31,8 +31,11 @@ services:
       - JWT_ALGORITHM=HS256
       - ACCESS_TOKEN_EXPIRE_MINUTES=30
       - REFRESH_TOKEN_EXPIRE_DAYS=7
+      - CORS_ORIGINS=${CORS_ORIGINS:-}
+      - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
     ports:
-      - "18000:8000" # Use custom port on host to avoid conflict
+      - "127.0.0.1:18000:8000" # Bind to localhost to prevent direct external access (accessed via Nginx)
     volumes:
       - ./backend:/app
       - ./data:/app/data
@@ -48,6 +51,10 @@ services:
     restart: always
     environment:
       - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-agent_db}
+      - POSTGRES_USER=${POSTGRES_USER:-postgres}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+      - POSTGRES_DB=${POSTGRES_DB:-agent_db}
+      - POSTGRES_HOST=postgres
       - SMTP_SERVER=smtp.qq.com
       - SMTP_PORT=465
       - SMTP_USER=${SMTP_USER:-}
@@ -59,7 +66,7 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "18001:8001" # Use custom port on host to avoid conflict
+      - "18001:8001" # Expose SSE endpoint. Secure via firewall if needed.
     command: python -m src.server
 
   frontend:

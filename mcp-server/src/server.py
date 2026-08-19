@@ -2,140 +2,72 @@ import asyncio
 import os
 import sys
 import json
-from mcp.server import Server, NotificationOptions
-from mcp.server.models import InitializationOptions
-import mcp.server.stdio
-from mcp.types import Tool, TextContent, CallToolRequest
+from contextlib import asynccontextmanager
+from mcp.server.fastmcp import FastMCP
 
 from src.services.db import db
 from src.tools.execute_command import execute_command_tool
 from src.tools.get_results import get_results_tool
 from src.tools.write_file import write_file_tool
+from src.tools.list_data_files import list_data_files_tool
+from src.tools.modify_data_file import modify_data_file_tool
+from src.tools.segmented_reply import segmented_reply_tool
+
+@asynccontextmanager
+async def server_lifespan(server: FastMCP):
+    # Initialize DB connection on startup
+    await db.connect()
+    yield
+    # Disconnect on shutdown
+    await db.disconnect()
+
+port = int(os.getenv("PORT", "8001"))
 
 # Create MCP server instance
-server = Server("agent-mcp-server")
+mcp = FastMCP("agent-mcp-server", host="0.0.0.0", port=port, lifespan=server_lifespan)
 
-@server.list_tools()
-async def handle_list_tools() -> list[Tool]:
-    """List available tools."""
-    return [
-        Tool(
-            name="execute_command",
-            description="Execute a shell command. Use this when the user's intent is to run a command or perform an action on the system.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "The shell command to execute."
-                    },
-                    "user_id": {
-                        "type": "integer",
-                        "description": "The ID of the user requesting the execution."
-                    }
-                },
-                "required": ["command", "user_id"]
-            }
-        ),
-        Tool(
-            name="get_results",
-            description="Get the history and results of previously executed commands for a user.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "user_id": {
-                        "type": "integer",
-                        "description": "The ID of the user whose command results are being requested."
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Maximum number of results to return (default 10)."
-                    }
-                },
-                "required": ["user_id"]
-            }
-        ),
-        Tool(
-            name="write_file",
-            description="Write generated content to a file. Use this when the user wants to generate code, write an article, or create a file.",
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "file_path": {
-                        "type": "string",
-                        "description": "The absolute or relative path where the file should be written."
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "The content to write into the file."
-                    }
-                },
-                "required": ["file_path", "content"]
-            }
-        )
-    ]
+@mcp.tool()
+async def execute_command(command: str, user_id: int) -> str:
+    """Execute a shell command. Use this when the user's intent is to run a command or perform an action on the system."""
+    result = await execute_command_tool(command, user_id)
+    return json.dumps(result)
 
-@server.call_tool()
-async def handle_call_tool(name: str, arguments: dict | None) -> list[TextContent]:
-    """Handle tool execution requests."""
-    if not arguments:
-        raise ValueError("Missing arguments")
+@mcp.tool()
+async def get_results(user_id: int, limit: int = 10) -> str:
+    """Get the history and results of previously executed commands for a user."""
+    result = await get_results_tool(user_id, limit)
+    return json.dumps(result)
 
-    if name == "execute_command":
-        command = arguments.get("command")
-        user_id = arguments.get("user_id")
-        
-        if not command:
-            raise ValueError("Missing command")
-        if not user_id:
-            raise ValueError("Missing user_id")
-            
-        result = await execute_command_tool(command, user_id)
-        return [TextContent(type="text", text=json.dumps(result))]
-        
-    elif name == "get_results":
-        user_id = arguments.get("user_id")
-        limit = arguments.get("limit", 10)
-        
-        if not user_id:
-            raise ValueError("Missing user_id")
-            
-        result = await get_results_tool(user_id, limit)
-        return [TextContent(type="text", text=json.dumps(result))]
-        
-    elif name == "write_file":
-        file_path = arguments.get("file_path")
-        content = arguments.get("content")
-        
-        if not file_path:
-            raise ValueError("Missing file_path")
-        if not content:
-            raise ValueError("Missing content")
-            
-        result = await write_file_tool(file_path, content)
-        return [TextContent(type="text", text=json.dumps(result))]
-        
-    raise ValueError(f"Unknown tool: {name}")
+@mcp.tool()
+async def write_file(file_path: str, content: str) -> str:
+    """Write generated content to a file. Use this when the user wants to generate code, write an article, or create a file."""
+    result = await write_file_tool(file_path, content)
+    return json.dumps(result)
 
-async def main():
-    """Run the MCP server."""
-    # Initialize DB connection
-    await db.connect()
-    
-    # Start server with stdio transport
-    async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream,
-            write_stream,
-            InitializationOptions(
-                server_name="agent-mcp-server",
-                server_version="0.1.0",
-                capabilities=server.get_capabilities(
-                    notification_options=NotificationOptions(),
-                    experimental_capabilities={},
-                ),
-            ),
-        )
+@mcp.tool()
+async def list_data_files() -> str:
+    """List all file names in the data folder."""
+    result = await list_data_files_tool()
+    return json.dumps(result)
+
+@mcp.tool()
+async def modify_data_file(file_path: str, content: str, mode: str = "append") -> str:
+    """Modify an existing file in the data folder.
+    Must use list_data_files first to get valid file_path.
+    mode="append": safely appends content to the end of the file.
+    mode="overwrite": replaces the entire file content."""
+    result = await modify_data_file_tool(file_path, content, mode)
+    return json.dumps(result)
+
+@mcp.tool()
+async def segmented_reply(content: str, session_id: str = "default") -> str:
+    """Create segmented reply files using local config in src/tools/segmented_reply/config.json."""
+    result = await segmented_reply_tool(content, session_id)
+    return json.dumps(result, ensure_ascii=False)
+
+def main():
+    """Run the FastMCP server."""
+    mcp.run("sse")
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

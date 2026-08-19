@@ -6,7 +6,7 @@ const router = createRouter({
   routes: [
     {
       path: '/',
-      redirect: '/dashboard'
+      redirect: '/files'
     },
     {
       path: '/login',
@@ -27,6 +27,12 @@ const router = createRouter({
       meta: { requiresAuth: true }
     },
     {
+      path: '/files',
+      name: 'files',
+      component: () => import('../views/FilesView.vue'),
+      meta: { requiresAuth: true }
+    },
+    {
       path: '/commands/:id',
       name: 'command-detail',
       component: () => import('../views/CommandDetail.vue'),
@@ -42,7 +48,7 @@ router.beforeEach((to, from, next) => {
   if (to.meta.requiresAuth && !isAuthenticated) {
     next({ name: 'login' });
   } else if (to.meta.requiresGuest && isAuthenticated) {
-    next({ name: 'dashboard' });
+    next({ name: 'files' });
   } else {
     next();
   }
