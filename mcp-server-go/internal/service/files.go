@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -38,6 +39,36 @@ func SafeWrite(baseDir, filePath, content string) error {
 	}
 
 	return nil
+}
+
+func SafeList(baseDir string) ([]string, error) {
+	absBase, err := filepath.Abs(baseDir)
+	if err != nil {
+		return nil, fmt.Errorf("resolve base dir: %w", err)
+	}
+	if err := os.MkdirAll(absBase, 0o755); err != nil {
+		return nil, fmt.Errorf("create base dir: %w", err)
+	}
+
+	var files []string
+	err = filepath.WalkDir(absBase, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			return nil
+		}
+		rel, rerr := filepath.Rel(absBase, path)
+		if rerr != nil {
+			return rerr
+		}
+		files = append(files, filepath.ToSlash(rel))
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("walk dir: %w", err)
+	}
+	return files, nil
 }
 
 func withinDir(dir, target string) bool {
