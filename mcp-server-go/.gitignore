@@ -2,3 +2,4 @@ bin/
 *.exe
 server
 data/
+config.yml
