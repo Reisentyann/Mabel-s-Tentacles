@@ -4,10 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"net/url"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/config"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 )
@@ -67,4 +70,17 @@ func StrPtr(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// DownloadURL 构造文件的对外下载地址。download_base_url 未配置时返回空串（不返回下载链接）。
+func DownloadURL(cfg *config.Config, filePath string) string {
+	base := strings.TrimRight(cfg.API.DownloadBaseURL, "/")
+	if base == "" {
+		return ""
+	}
+	u := base + "/api/files/download?path=" + url.QueryEscape(filePath)
+	if cfg.API.AccessToken != "" {
+		u += "&token=" + url.QueryEscape(cfg.API.AccessToken)
+	}
+	return u
 }

@@ -34,8 +34,9 @@ type MCPConfig struct {
 }
 
 type APIConfig struct {
-	AccessToken string `yaml:"access_token"`
-	RequireAuth bool   `yaml:"require_auth"` // true 时 /api/* 需要 JWT；开发阶段设 false
+	AccessToken     string `yaml:"access_token"`
+	RequireAuth     bool   `yaml:"require_auth"`      // true 时 /api/* 需要 JWT；开发阶段设 false
+	DownloadBaseURL string `yaml:"download_base_url"` // 对外下载地址前缀，如 http://host:18080（空=不返回下载链接）
 }
 
 type SecurityConfig struct {
@@ -142,6 +143,9 @@ func (c *Config) loadEnv() {
 	}
 	if v := os.Getenv("ACCESS_TOKEN"); v != "" {
 		c.API.AccessToken = v
+	}
+	if v := os.Getenv("DOWNLOAD_BASE_URL"); v != "" {
+		c.API.DownloadBaseURL = v
 	}
 	if v := os.Getenv("SECRET_KEY"); v != "" {
 		c.Security.SecretKey = v

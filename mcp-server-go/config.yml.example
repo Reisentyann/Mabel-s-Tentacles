@@ -24,6 +24,7 @@ mcp:
 api:
   access_token: ""    # HTTP 下载鉴权（query token），空 = 关闭
   require_auth: false # /api/* 是否需要 JWT；开发阶段 false，上线改 true
+  download_base_url: "" # 对外下载地址前缀（如 http://你的域名:18080），空=不返回下载链接
 
 security:
   secret_key: "supersecretkey"   # JWT 签名密钥（生产务必修改）

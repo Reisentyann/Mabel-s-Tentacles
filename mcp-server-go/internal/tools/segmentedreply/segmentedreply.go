@@ -69,6 +69,20 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		slog.Info("segmented_reply requested", "session", sessionID, "bytes", len(content))
 		result := run(deps.Cfg.DataDir, content, sessionID)
 
+		if result["success"] == true {
+			if files, ok := result["files"].([]string); ok {
+				urls := make([]string, 0, len(files))
+				for _, f := range files {
+					if u := tools.DownloadURL(deps.Cfg, f); u != "" {
+						urls = append(urls, u)
+					}
+				}
+				if len(urls) > 0 {
+					result["download_urls"] = urls
+				}
+			}
+		}
+
 		status := "failed"
 		if result["success"] == true {
 			status = "success"

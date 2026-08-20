@@ -35,6 +35,7 @@ func main() {
 		"require_auth", cfg.API.RequireAuth,
 		"mcp_api_key_set", cfg.MCP.APIKey != "",
 		"access_token_set", cfg.API.AccessToken != "",
+		"download_base_url", cfg.API.DownloadBaseURL,
 		"admin_username", cfg.Admin.Username,
 	)
 
