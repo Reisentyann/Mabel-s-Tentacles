@@ -80,6 +80,10 @@ func (s *pgxStore) UpsertMetadata(ctx context.Context, m *FileMetadata) error {
 	if scope == "" {
 		scope = "global"
 	}
+	attrs := m.Attributes
+	if len(attrs) == 0 {
+		attrs = json.RawMessage("{}")
+	}
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO file_metadata (file_path, scope, owner_id, title, description, tags, file_type, mime_type, extension, size_bytes, checksum, session_id, user_id, attributes, copied_from, expires_at)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
@@ -101,7 +105,7 @@ func (s *pgxStore) UpsertMetadata(ctx context.Context, m *FileMetadata) error {
 		   expires_at   = COALESCE(EXCLUDED.expires_at,   file_metadata.expires_at),
 		   updated_at   = NOW()`,
 		m.FilePath, scope, m.OwnerID, m.Title, m.Description, m.Tags, m.FileType, m.MimeType, m.Extension,
-		m.SizeBytes, m.Checksum, m.SessionID, m.UserID, m.Attributes, m.CopiedFrom, m.ExpiresAt,
+		m.SizeBytes, m.Checksum, m.SessionID, m.UserID, attrs, m.CopiedFrom, m.ExpiresAt,
 	)
 	return err
 }
