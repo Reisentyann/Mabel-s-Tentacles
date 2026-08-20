@@ -10,7 +10,6 @@ import (
 type ServerConfig struct {
 	Port    string `yaml:"port"`
 	BaseURL string `yaml:"base_url"`
-	DataDir string `yaml:"data_dir"`
 }
 
 type LogConfig struct {
@@ -28,15 +27,21 @@ type DatabaseConfig struct {
 	MaxConns int32  `yaml:"max_conns"`
 }
 
-type AuthConfig struct {
+type MCPConfig struct {
 	APIKey string `yaml:"api_key"`
+}
+
+type APIConfig struct {
+	AccessToken string `yaml:"access_token"`
 }
 
 type Config struct {
 	Server   ServerConfig   `yaml:"server"`
+	DataDir  string         `yaml:"data_dir"`
 	Log      LogConfig      `yaml:"log"`
 	Database DatabaseConfig `yaml:"database"`
-	Auth     AuthConfig     `yaml:"auth"`
+	MCP      MCPConfig      `yaml:"mcp"`
+	API      APIConfig      `yaml:"api"`
 }
 
 func Load() *Config {
@@ -51,8 +56,8 @@ func defaults() *Config {
 		Server: ServerConfig{
 			Port:    "8001",
 			BaseURL: "http://localhost:8001",
-			DataDir: "./data",
 		},
+		DataDir: "./data",
 		Log: LogConfig{
 			Level:  "info",
 			Format: "json",
@@ -65,7 +70,8 @@ func defaults() *Config {
 			Name:     "agent_db",
 			MaxConns: 10,
 		},
-		Auth: AuthConfig{},
+		MCP: MCPConfig{},
+		API: APIConfig{},
 	}
 }
 
@@ -89,7 +95,7 @@ func (c *Config) loadEnv() {
 		c.Server.BaseURL = v
 	}
 	if v := os.Getenv("DATA_DIR"); v != "" {
-		c.Server.DataDir = v
+		c.DataDir = v
 	}
 	if v := os.Getenv("LOG_LEVEL"); v != "" {
 		c.Log.Level = v
@@ -101,7 +107,10 @@ func (c *Config) loadEnv() {
 		c.Database.URL = v
 	}
 	if v := os.Getenv("MCP_API_KEY"); v != "" {
-		c.Auth.APIKey = v
+		c.MCP.APIKey = v
+	}
+	if v := os.Getenv("ACCESS_TOKEN"); v != "" {
+		c.API.AccessToken = v
 	}
 }
 

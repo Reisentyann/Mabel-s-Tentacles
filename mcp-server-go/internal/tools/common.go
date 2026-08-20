@@ -11,23 +11,23 @@ import (
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/store"
 )
 
-func jsonResult(v map[string]any) *mcp.CallToolResult {
+func Result(v map[string]any) *mcp.CallToolResult {
 	b, _ := json.Marshal(v)
 	return mcp.NewToolResultText(string(b))
 }
 
-func jsonError(message string) *mcp.CallToolResult {
-	return jsonResult(map[string]any{"success": false, "message": message})
+func ResultError(message string) *mcp.CallToolResult {
+	return Result(map[string]any{"success": false, "message": message})
 }
 
-func sessionIDFromContext(ctx context.Context) string {
+func SessionID(ctx context.Context) string {
 	if s := server.ClientSessionFromContext(ctx); s != nil {
 		return s.SessionID()
 	}
 	return ""
 }
 
-func recordOperation(ctx context.Context, st *store.Store, sessionID, tool, filePath, status, errMsg string, params map[string]any) {
+func RecordOperation(ctx context.Context, st store.Store, sessionID, tool, filePath, status, errMsg string, params map[string]any) {
 	if st == nil {
 		return
 	}
