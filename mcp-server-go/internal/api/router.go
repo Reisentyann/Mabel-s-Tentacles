@@ -6,16 +6,18 @@ import (
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/config"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/search"
 )
 
 type Server struct {
-	cfg  *config.Config
-	repo repo.Store
+	cfg      *config.Config
+	repo     repo.Store
+	searcher search.Searcher
 }
 
 // Register 把 HTTP API 路由挂到 mux 上。
-func Register(mux *http.ServeMux, cfg *config.Config, st repo.Store) {
-	s := &Server{cfg: cfg, repo: st}
+func Register(mux *http.ServeMux, cfg *config.Config, st repo.Store, searcher search.Searcher) {
+	s := &Server{cfg: cfg, repo: st, searcher: searcher}
 
 	// 公共路由
 	mux.HandleFunc("GET /health", s.health)

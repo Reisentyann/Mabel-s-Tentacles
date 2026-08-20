@@ -19,6 +19,7 @@ import (
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/logging"
 	mcpserver "github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/mcp"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/search"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 )
 
@@ -68,7 +69,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/sse", mcpAuth)
 	mux.Handle("/message", mcpAuth)
-	api.Register(mux, cfg, st)
+	api.Register(mux, cfg, st, search.NewSQLSearcher(st))
 
 	httpServer := &http.Server{
 		Addr:    ":" + cfg.Server.Port,

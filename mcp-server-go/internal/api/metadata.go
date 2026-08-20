@@ -11,14 +11,15 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/search"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 )
 
 // searchFiles 检索文件元数据：?q=&tag=&type=&creator=&color=&deleted=&page=&size=
 func (s *Server) searchFiles(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	fs := repo.FileSearch{
-		Query:          q.Get("q"),
+	sq := search.Query{
+		Text:           q.Get("q"),
 		Tags:           q["tag"],
 		FileType:       q.Get("type"),
 		Creator:        q.Get("creator"),
@@ -27,27 +28,27 @@ func (s *Server) searchFiles(w http.ResponseWriter, r *http.Request) {
 		Size:           20,
 	}
 	if color := q.Get("color"); color != "" {
-		fs.Attributes = map[string]any{"color": color}
+		sq.Attributes = map[string]any{"color": color}
 	}
 	if p, err := strconv.Atoi(q.Get("page")); err == nil && p >= 1 {
-		fs.Page = p
+		sq.Page = p
 	}
 	if sz, err := strconv.Atoi(q.Get("size")); err == nil && sz >= 1 && sz <= 200 {
-		fs.Size = sz
+		sq.Size = sz
 	}
 
-	if s.repo == nil {
-		writeJSON(w, http.StatusOK, map[string]any{"items": []any{}, "total": 0, "page": fs.Page, "size": fs.Size})
+	if s.searcher == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"items": []any{}, "total": 0, "page": sq.Page, "size": sq.Size})
 		return
 	}
 
-	items, total, err := s.repo.SearchFiles(r.Context(), fs)
+	items, total, err := s.searcher.Search(r.Context(), sq)
 	if err != nil {
 		slog.Error("search files failed", "error", err)
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": total, "page": fs.Page, "size": fs.Size})
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": total, "page": sq.Page, "size": sq.Size})
 }
 
 // getFileMetadata 获取单个文件的元数据：?path=<相对 data 路径>
