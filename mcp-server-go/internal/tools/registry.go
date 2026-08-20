@@ -4,14 +4,14 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/config"
-	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/store"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
 )
 
 // Deps 是注入给所有工具的统一依赖容器。保持字段精简，避免变成上帝对象；
 // 新依赖优先以接口形式加入。
 type Deps struct {
 	Cfg   *config.Config
-	Store store.Store
+	Store repo.Store
 }
 
 type Registrar func(s *server.MCPServer, deps Deps)

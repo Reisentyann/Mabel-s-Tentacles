@@ -16,6 +16,9 @@ func (s *Server) listFiles(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
+	if tree == nil {
+		tree = []*service.FileNode{}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"tree": tree})
 }
 

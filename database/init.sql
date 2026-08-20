@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS users (
 -- 命令记录表
 CREATE TABLE IF NOT EXISTS commands (
     id            SERIAL PRIMARY KEY,
-    user_id       INTEGER REFERENCES users(id),
+    user_id       INTEGER,
     source        VARCHAR(20) DEFAULT 'qq',
     command_text  TEXT NOT NULL,
     command_type  VARCHAR(30) DEFAULT 'shell',
@@ -66,3 +66,16 @@ CREATE TABLE IF NOT EXISTS token_blacklist (
     expires_at    TIMESTAMP NOT NULL,
     created_at    TIMESTAMP DEFAULT NOW()
 );
+
+-- 操作存档表（Go MCP 服务器写入，后端只读展示）
+CREATE TABLE IF NOT EXISTS operations (
+    id            BIGSERIAL PRIMARY KEY,
+    session_id    TEXT,
+    tool_name     TEXT NOT NULL,
+    file_path     TEXT,
+    params        JSONB DEFAULT '{}',
+    status        TEXT NOT NULL,
+    error         TEXT,
+    created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_operations_created_at ON operations (created_at DESC);

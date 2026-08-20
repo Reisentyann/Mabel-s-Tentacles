@@ -6,31 +6,12 @@
         <router-link to="/files" class="link">Files</router-link>
         <router-link to="/dashboard" class="link">Activity</router-link>
       </nav>
-      <div class="actions">
-        <span v-if="authStore.username" class="username">
-          {{ authStore.username }}
-        </span>
-        <button class="btn-ghost" @click="handleLogout">Logout</button>
-      </div>
     </header>
     <main class="content">
       <router-view />
     </main>
   </div>
 </template>
-
-<script setup>
-import { useRouter } from 'vue-router';
-import { useAuthStore } from '../stores/auth';
-
-const router = useRouter();
-const authStore = useAuthStore();
-
-const handleLogout = async () => {
-  await authStore.logoutAction();
-  router.push('/login');
-};
-</script>
 
 <style scoped>
 .app-layout {
@@ -71,15 +52,6 @@ const handleLogout = async () => {
 }
 .link.router-link-active {
   color: var(--color-primary);
-}
-.actions {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-}
-.username {
-  color: var(--color-text-muted);
-  font-size: 0.9rem;
 }
 .content {
   flex: 1;

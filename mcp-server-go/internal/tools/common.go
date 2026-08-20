@@ -8,7 +8,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/store"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
 )
 
 func Result(v map[string]any) *mcp.CallToolResult {
@@ -27,7 +27,7 @@ func SessionID(ctx context.Context) string {
 	return ""
 }
 
-func RecordOperation(ctx context.Context, st store.Store, sessionID, tool, filePath, status, errMsg string, params map[string]any) {
+func RecordOperation(ctx context.Context, st repo.Store, sessionID, tool, filePath, status, errMsg string, params map[string]any) {
 	if st == nil {
 		return
 	}

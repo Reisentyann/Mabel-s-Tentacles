@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   postgres:
@@ -15,59 +15,38 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./database/init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-agent_db}"]
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-agent_db}",
+        ]
       interval: 5s
       timeout: 5s
       retries: 5
 
   backend:
-    build: 
-      context: ./backend
+    build:
+      context: ./mcp-server-go
     container_name: agent_backend
     restart: always
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-agent_db}
-      - JWT_SECRET=${JWT_SECRET:-your_super_secret_key_change_me}
-      - JWT_ALGORITHM=HS256
-      - ACCESS_TOKEN_EXPIRE_MINUTES=30
-      - REFRESH_TOKEN_EXPIRE_DAYS=7
-      - CORS_ORIGINS=${CORS_ORIGINS:-}
+      - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-agent_db}
+      - MCP_PORT=8080
+      # base_url 需与 AstrBot 实际访问方式一致：Docker 内网用 http://backend:8080，
+      # 宿主机访问用 http://127.0.0.1:18001（按需覆盖）
+      - MCP_BASE_URL=http://backend:8080
+      - SECRET_KEY=${JWT_SECRET:-supersecretkey}
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - ACCESS_TOKEN=${ACCESS_TOKEN:-}
     ports:
-      - "127.0.0.1:18000:8000" # Bind to localhost to prevent direct external access (accessed via Nginx)
+      - "127.0.0.1:18001:8080" # MCP SSE：仅绑定 localhost，供同机 AstrBot 访问（不出公网）
     volumes:
-      - ./backend:/app
       - ./data:/app/data
+      - ./mcp-server-go/config.yml:/app/config.yml
     depends_on:
       postgres:
         condition: service_healthy
-    command: uvicorn src.main:app --host 0.0.0.0 --port 8000 --reload
-
-  mcp-server:
-    build: 
-      context: ./mcp-server
-    container_name: agent_mcp_server
-    restart: always
-    environment:
-      - DATABASE_URL=postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-agent_db}
-      - POSTGRES_USER=${POSTGRES_USER:-postgres}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
-      - POSTGRES_DB=${POSTGRES_DB:-agent_db}
-      - POSTGRES_HOST=postgres
-      - SMTP_SERVER=smtp.qq.com
-      - SMTP_PORT=465
-      - SMTP_USER=${SMTP_USER:-}
-      - SMTP_PASSWORD=${SMTP_PASSWORD:-}
-    volumes:
-      - ./mcp-server:/app
-      - ./data:/app/data
-    depends_on:
-      postgres:
-        condition: service_healthy
-    ports:
-      - "18001:8001" # Expose SSE endpoint. Secure via firewall if needed.
-    command: python -m src.server
 
   frontend:
     build:

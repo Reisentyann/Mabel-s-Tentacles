@@ -1,12 +1,13 @@
 server:
-  port: 8001
-  base_url: "http://localhost:8001"
+  port: 8080
+  base_url: "http://localhost:8080"
 
 data_dir: "./data"
 
 log:
   level: "info"       # debug | info | warn | error
   format: "json"      # json | text
+  file: "logs/server.log"   # 日志文件；空 = 只输出控制台
 
 database:
   url: ""             # 留空则使用下面字段拼接
@@ -22,3 +23,14 @@ mcp:
 
 api:
   access_token: ""    # HTTP 下载鉴权（query token），空 = 关闭
+  require_auth: false # /api/* 是否需要 JWT；开发阶段 false，上线改 true
+
+security:
+  secret_key: "supersecretkey"   # JWT 签名密钥（生产务必修改）
+  algorithm: "HS256"
+  access_token_expire_minutes: 30
+  refresh_token_expire_days: 7
+
+admin:
+  username: "admin"              # 启动时自动创建的管理员
+  password: "admin123"
