@@ -28,6 +28,10 @@ func Register(mux *http.ServeMux, cfg *config.Config, st repo.Store) {
 	// 受 JWT 保护
 	mux.Handle("GET /api/files", s.requireAuth(http.HandlerFunc(s.listFiles)))
 	mux.Handle("POST /api/files/download-zip", s.requireAuth(http.HandlerFunc(s.downloadZip)))
+	mux.Handle("GET /api/files/search", s.requireAuth(http.HandlerFunc(s.searchFiles)))
+	mux.Handle("GET /api/files/metadata", s.requireAuth(http.HandlerFunc(s.getFileMetadata)))
+	mux.Handle("PUT /api/files/metadata", s.requireAuth(http.HandlerFunc(s.describeFile)))
+	mux.Handle("POST /api/files/copy", s.requireAuth(http.HandlerFunc(s.copyFile)))
 	mux.Handle("GET /api/operations", s.requireAuth(http.HandlerFunc(s.listOperations)))
 	mux.Handle("GET /api/commands", s.requireAuth(http.HandlerFunc(s.listCommands)))
 	mux.Handle("GET /api/commands/{id}", s.requireAuth(http.HandlerFunc(s.getCommand)))

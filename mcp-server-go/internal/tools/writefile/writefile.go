@@ -48,6 +48,7 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		}
 
 		slog.Info("write_file ok", "path", filePath, "bytes", len(content))
+		tools.RecordFileMeta(ctx, deps.Store, filePath, []byte(content), sessionID)
 		tools.RecordOperation(ctx, deps.Store, sessionID, "write_file", filePath, "success", "", params)
 		return tools.Result(map[string]any{"success": true, "message": "Successfully wrote to " + filePath}), nil
 	})

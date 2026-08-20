@@ -128,6 +128,22 @@ func ResolvePath(baseDir, filePath string) (string, error) {
 	return resolveWithin(baseDir, filePath)
 }
 
+// SafeRead 读取 baseDir 内的文件内容，防目录穿越。
+func SafeRead(baseDir, filePath string) ([]byte, error) {
+	target, err := resolveWithin(baseDir, filePath)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(target)
+	if err != nil {
+		return nil, fmt.Errorf("error: file '%s' does not exist", filePath)
+	}
+	if info.IsDir() {
+		return nil, fmt.Errorf("error: path '%s' is not a file", filePath)
+	}
+	return os.ReadFile(target)
+}
+
 type FileNode struct {
 	Name       string      `json:"name"`
 	Path       string      `json:"path"`

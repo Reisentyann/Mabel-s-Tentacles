@@ -79,3 +79,35 @@ CREATE TABLE IF NOT EXISTS operations (
     created_at    TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_operations_created_at ON operations (created_at DESC);
+
+-- 文件元数据表（描述/标签/属性/软删除）
+CREATE TABLE IF NOT EXISTS file_metadata (
+    id               BIGSERIAL PRIMARY KEY,
+    file_path        TEXT UNIQUE NOT NULL,
+    scope            TEXT NOT NULL DEFAULT 'global',
+    owner_id         TEXT,
+    title            TEXT,
+    description      TEXT,
+    tags             TEXT[] DEFAULT '{}',
+    file_type        TEXT,
+    mime_type        TEXT,
+    extension        TEXT,
+    size_bytes       BIGINT,
+    checksum         TEXT,
+    session_id       TEXT,
+    user_id          TEXT,
+    attributes       JSONB DEFAULT '{}',
+    copied_from      TEXT,
+    download_count   BIGINT DEFAULT 0,
+    last_accessed_at TIMESTAMPTZ,
+    expires_at       TIMESTAMPTZ,
+    is_deleted       BOOLEAN DEFAULT FALSE,
+    deleted_at       TIMESTAMPTZ,
+    created_at       TIMESTAMPTZ DEFAULT NOW(),
+    updated_at       TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_meta_tags  ON file_metadata USING GIN (tags);
+CREATE INDEX IF NOT EXISTS idx_meta_attrs ON file_metadata USING GIN (attributes);
+CREATE INDEX IF NOT EXISTS idx_meta_type  ON file_metadata (file_type);
+CREATE INDEX IF NOT EXISTS idx_meta_by    ON file_metadata (user_id);
+CREATE INDEX IF NOT EXISTS idx_meta_del   ON file_metadata (is_deleted);

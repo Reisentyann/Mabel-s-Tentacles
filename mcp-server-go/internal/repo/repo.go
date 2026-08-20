@@ -29,6 +29,13 @@ type Store interface {
 	RecordOperation(ctx context.Context, sessionID, toolName, filePath, status, errMsg string, params map[string]any) error
 	GetOperations(ctx context.Context, page, size int) ([]OperationResult, int, error)
 
+	// 文件元数据
+	UpsertMetadata(ctx context.Context, m *FileMetadata) error
+	GetMetadata(ctx context.Context, filePath string) (*FileMetadata, error)
+	SearchFiles(ctx context.Context, fs FileSearch) ([]FileMetadata, int, error)
+	CopyMetadata(ctx context.Context, source, target, sessionID, userID string) error
+	SoftDeleteMetadata(ctx context.Context, filePath string) error
+
 	Close()
 }
 
@@ -86,6 +93,47 @@ var migrations = []string{
 	`ALTER TABLE commands ADD COLUMN IF NOT EXISTS source VARCHAR(20) DEFAULT 'qq'`,
 	// 兼容旧表：去掉 user_id 外键（MCP 写入的是 QQ 用户 ID，不在 users 表）
 	`ALTER TABLE commands DROP CONSTRAINT IF EXISTS commands_user_id_fkey`,
+
+	// 文件元数据表（描述/标签/属性/软删除）
+	`CREATE TABLE IF NOT EXISTS file_metadata (
+		id               BIGSERIAL PRIMARY KEY,
+		file_path        TEXT UNIQUE NOT NULL,
+		scope            TEXT NOT NULL DEFAULT 'global',
+		owner_id         TEXT,
+		title            TEXT,
+		description      TEXT,
+		tags             TEXT[] DEFAULT '{}',
+		file_type        TEXT,
+		mime_type        TEXT,
+		extension        TEXT,
+		size_bytes       BIGINT,
+		checksum         TEXT,
+		session_id       TEXT,
+		user_id          TEXT,
+		attributes       JSONB DEFAULT '{}',
+		copied_from      TEXT,
+		download_count   BIGINT DEFAULT 0,
+		last_accessed_at TIMESTAMPTZ,
+		expires_at       TIMESTAMPTZ,
+		is_deleted       BOOLEAN DEFAULT FALSE,
+		deleted_at       TIMESTAMPTZ,
+		created_at       TIMESTAMPTZ DEFAULT NOW(),
+		updated_at       TIMESTAMPTZ DEFAULT NOW()
+	)`,
+	// 兼容旧表：补齐新增字段
+	`ALTER TABLE file_metadata ADD COLUMN IF NOT EXISTS scope TEXT NOT NULL DEFAULT 'global'`,
+	`ALTER TABLE file_metadata ADD COLUMN IF NOT EXISTS owner_id TEXT`,
+	`ALTER TABLE file_metadata ADD COLUMN IF NOT EXISTS title TEXT`,
+	`ALTER TABLE file_metadata ADD COLUMN IF NOT EXISTS extension TEXT`,
+	`ALTER TABLE file_metadata ADD COLUMN IF NOT EXISTS checksum TEXT`,
+	`ALTER TABLE file_metadata ADD COLUMN IF NOT EXISTS download_count BIGINT DEFAULT 0`,
+	`ALTER TABLE file_metadata ADD COLUMN IF NOT EXISTS last_accessed_at TIMESTAMPTZ`,
+	`ALTER TABLE file_metadata ADD COLUMN IF NOT EXISTS expires_at TIMESTAMPTZ`,
+	`CREATE INDEX IF NOT EXISTS idx_meta_tags  ON file_metadata USING GIN (tags)`,
+	`CREATE INDEX IF NOT EXISTS idx_meta_attrs ON file_metadata USING GIN (attributes)`,
+	`CREATE INDEX IF NOT EXISTS idx_meta_type  ON file_metadata (file_type)`,
+	`CREATE INDEX IF NOT EXISTS idx_meta_by    ON file_metadata (user_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_meta_del   ON file_metadata (is_deleted)`,
 }
 
 func New(ctx context.Context, dsn string, maxConns int32) (Store, error) {

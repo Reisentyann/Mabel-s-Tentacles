@@ -9,6 +9,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 )
 
 func Result(v map[string]any) *mcp.CallToolResult {
@@ -34,4 +35,36 @@ func RecordOperation(ctx context.Context, st repo.Store, sessionID, tool, filePa
 	if err := st.RecordOperation(ctx, sessionID, tool, filePath, status, errMsg, params); err != nil {
 		slog.Warn("record operation failed", "tool", tool, "error", err)
 	}
+}
+
+// RecordFileMeta 写文件后自动记录元数据（类型/扩展名/大小/校验和/会话），供检索使用。
+func RecordFileMeta(ctx context.Context, st repo.Store, filePath string, content []byte, sessionID string) {
+	if st == nil {
+		return
+	}
+	ft, mt := service.InferFileMeta(filePath)
+	ext := service.InferExtension(filePath)
+	cs := service.ChecksumSHA256(content)
+	size := int64(len(content))
+	meta := &repo.FileMetadata{
+		FilePath:  filePath,
+		Scope:     "global",
+		FileType:  &ft,
+		MimeType:  &mt,
+		Extension: StrPtr(ext),
+		SizeBytes: &size,
+		Checksum:  &cs,
+		SessionID: StrPtr(sessionID),
+	}
+	if err := st.UpsertMetadata(ctx, meta); err != nil {
+		slog.Warn("record file metadata failed", "path", filePath, "error", err)
+	}
+}
+
+// StrPtr 空字符串返回 nil（表示「不覆盖原值」），非空返回指针。
+func StrPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }
