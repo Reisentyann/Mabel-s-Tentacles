@@ -32,9 +32,7 @@ services:
     environment:
       - DATABASE_URL=postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-agent_db}
       - MCP_PORT=8080
-      # base_url 需与 AstrBot 实际访问方式一致：Docker 内网用 http://backend:8080，
-      # 宿主机访问用 http://127.0.0.1:18001（按需覆盖）
-      - MCP_BASE_URL=http://backend:8080
+      - MCP_BASE_URL=http://agent_backend:8080
       - SECRET_KEY=${JWT_SECRET:-supersecretkey}
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
@@ -43,7 +41,6 @@ services:
       - "127.0.0.1:18001:8080" # MCP SSE：仅绑定 localhost，供同机 AstrBot 访问（不出公网）
     volumes:
       - ./data:/app/data
-      - ./mcp-server-go/config.yml:/app/config.yml
     depends_on:
       postgres:
         condition: service_healthy
