@@ -43,6 +43,10 @@ MANIFEST
 .env
 .env.*
 !.env.example
+
+# 配置文件 (Config files - contains sensitive credentials)
+backend/config.yml
+!backend/config.yml.example
 .venv
 env/
 venv/

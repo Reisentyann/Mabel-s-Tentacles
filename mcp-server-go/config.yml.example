@@ -1,7 +1,8 @@
 server:
   port: 8001
   base_url: "http://localhost:8001"
-  data_dir: "./data"
+
+data_dir: "./data"
 
 log:
   level: "info"       # debug | info | warn | error
@@ -16,5 +17,8 @@ database:
   name: "agent_db"
   max_conns: 10
 
-auth:
-  api_key: ""         # 留空 = 不启用鉴权；填了则客户端需带 Authorization: Bearer <key>
+mcp:
+  api_key: ""         # MCP 鉴权（Authorization: Bearer），空 = 关闭
+
+api:
+  access_token: ""    # HTTP 下载鉴权（query token），空 = 关闭

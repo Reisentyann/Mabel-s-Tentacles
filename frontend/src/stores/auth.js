@@ -1,31 +1,39 @@
 import { defineStore } from 'pinia';
-import { login, logout, register } from '../api/auth';
+import { login, logout } from '../api/auth';
+import {
+  getAccessToken,
+  getRefreshToken,
+  setTokens,
+  clearTokens,
+} from '../utils/token';
+import { decodeJwt } from '../utils/jwt';
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
-    token: localStorage.getItem('token') || null,
-    refreshToken: localStorage.getItem('refresh_token') || null,
-    user: JSON.parse(localStorage.getItem('user')) || null,
+    token: getAccessToken(),
+    refreshToken: getRefreshToken(),
   }),
   getters: {
-    isAuthenticated: (state) => !!state.token,
+    isAuthenticated: (state) => {
+      if (!state.token) return false;
+      const decoded = decodeJwt(state.token);
+      return !!decoded?.exp && decoded.exp * 1000 > Date.now();
+    },
+    username: (state) => decodeJwt(state.token)?.sub || null,
   },
   actions: {
     async loginAction(credentials) {
-      const response = await login(credentials);
-      this.setAuthData(response.data);
-      return response;
-    },
-    async registerAction(data) {
-      return await register(data);
+      const { data } = await login(credentials);
+      this.setAuthData(data);
+      return data;
     },
     async logoutAction() {
       try {
         if (this.refreshToken) {
           await logout(this.refreshToken);
         }
-      } catch (error) {
-        console.error('Logout failed:', error);
+      } catch {
+        // ignore logout API errors
       } finally {
         this.clearAuthData();
       }
@@ -33,22 +41,12 @@ export const useAuthStore = defineStore('auth', {
     setAuthData(data) {
       this.token = data.access_token;
       this.refreshToken = data.refresh_token;
-      
-      // Basic decode of JWT for username if needed, or just rely on state
-      // For now, storing a placeholder user
-      this.user = { username: 'user' }; 
-      
-      localStorage.setItem('token', this.token);
-      localStorage.setItem('refresh_token', this.refreshToken);
-      localStorage.setItem('user', JSON.stringify(this.user));
+      setTokens(data.access_token, data.refresh_token);
     },
     clearAuthData() {
       this.token = null;
       this.refreshToken = null;
-      this.user = null;
-      localStorage.removeItem('token');
-      localStorage.removeItem('refresh_token');
-      localStorage.removeItem('user');
-    }
-  }
+      clearTokens();
+    },
+  },
 });
