@@ -1,5 +1,5 @@
 bin/
 *.exe
-server
+/server
 data/
 config.yml
