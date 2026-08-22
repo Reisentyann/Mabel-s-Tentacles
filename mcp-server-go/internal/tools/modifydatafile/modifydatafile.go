@@ -51,6 +51,13 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			return tools.ResultError(err.Error()), nil
 		}
 
+		// 刷新元数据：append/overwrite 后 size 与 checksum 会变化，读取整文件重算
+		if full, rerr := service.SafeRead(deps.Cfg.DataDir, filePath); rerr == nil {
+			tools.RecordFileMeta(ctx, deps.Store, filePath, full, sessionID)
+		} else {
+			slog.Warn("refresh metadata after modify failed", "path", filePath, "error", rerr)
+		}
+
 		slog.Info("modify_data_file ok", "path", filePath, "mode", mode)
 		tools.RecordOperation(ctx, deps.Store, sessionID, "modify_data_file", filePath, "success", "", params)
 		return tools.Result(map[string]any{"success": true, "message": "Successfully modified " + filePath + " in " + mode + " mode"}), nil

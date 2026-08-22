@@ -41,6 +41,15 @@ func (s *Server) downloadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 软删除拦截 + 下载计数（best-effort，元数据缺失则放行）
+	if s.repo != nil {
+		if m, err := s.repo.GetMetadata(r.Context(), p); err == nil && m.IsDeleted {
+			writeError(w, http.StatusNotFound, "file not found")
+			return
+		}
+		_ = s.repo.IncrementDownloadCount(r.Context(), p)
+	}
+
 	w.Header().Set("Content-Disposition", `attachment; filename="`+filepath.Base(target)+`"`)
 	http.ServeFile(w, r, target)
 }

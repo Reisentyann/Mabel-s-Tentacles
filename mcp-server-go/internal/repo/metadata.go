@@ -115,6 +115,29 @@ func (s *pgxStore) GetMetadata(ctx context.Context, filePath string) (*FileMetad
 		`SELECT `+metaColumns+` FROM file_metadata WHERE file_path=$1`, filePath))
 }
 
+// GetMetadataByPaths 批量取多个文件的元数据，按 file_path 映射返回，供分页列表联表用。
+// 不存在的路径不出现在结果里，调用方按 nil 处理为「无元数据」。
+func (s *pgxStore) GetMetadataByPaths(ctx context.Context, paths []string) (map[string]*FileMetadata, error) {
+	out := make(map[string]*FileMetadata, len(paths))
+	if len(paths) == 0 {
+		return out, nil
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+metaColumns+` FROM file_metadata WHERE file_path = ANY($1)`, paths)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		m, err := scanMeta(rows)
+		if err != nil {
+			return nil, err
+		}
+		out[m.FilePath] = m
+	}
+	return out, rows.Err()
+}
+
 // SearchFiles 按条件检索元数据，返回分页结果与总数。
 func (s *pgxStore) SearchFiles(ctx context.Context, fs FileSearch) ([]FileMetadata, int, error) {
 	var q *string
@@ -204,5 +227,14 @@ func (s *pgxStore) CopyMetadata(ctx context.Context, source, target, sessionID, 
 func (s *pgxStore) SoftDeleteMetadata(ctx context.Context, filePath string) error {
 	_, err := s.pool.Exec(ctx,
 		`UPDATE file_metadata SET is_deleted=TRUE, deleted_at=NOW(), updated_at=NOW() WHERE file_path=$1`, filePath)
+	return err
+}
+
+// IncrementDownloadCount 递增下载计数并刷新最后访问时间。
+// 已软删除的文件不计入，便于通过下载入口阻断被回收的文件。
+func (s *pgxStore) IncrementDownloadCount(ctx context.Context, filePath string) error {
+	_, err := s.pool.Exec(ctx,
+		`UPDATE file_metadata SET download_count = download_count + 1, last_accessed_at = NOW(), updated_at = NOW()
+		 WHERE file_path=$1 AND is_deleted=FALSE`, filePath)
 	return err
 }

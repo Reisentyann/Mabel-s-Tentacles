@@ -32,9 +32,11 @@ type Store interface {
 	// 文件元数据
 	UpsertMetadata(ctx context.Context, m *FileMetadata) error
 	GetMetadata(ctx context.Context, filePath string) (*FileMetadata, error)
+	GetMetadataByPaths(ctx context.Context, paths []string) (map[string]*FileMetadata, error)
 	SearchFiles(ctx context.Context, fs FileSearch) ([]FileMetadata, int, error)
 	CopyMetadata(ctx context.Context, source, target, sessionID, userID string) error
 	SoftDeleteMetadata(ctx context.Context, filePath string) error
+	IncrementDownloadCount(ctx context.Context, filePath string) error
 
 	Close()
 }

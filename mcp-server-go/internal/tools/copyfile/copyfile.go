@@ -53,7 +53,9 @@ func register(s *server.MCPServer, deps tools.Deps) {
 
 		if deps.Store != nil {
 			if err := deps.Store.CopyMetadata(ctx, source, target, sessionID, ""); err != nil {
-				slog.Warn("copy metadata failed", "source", source, "error", err)
+				// 源文件可能没有元数据，复制失败不致命；回填目标基础元数据，避免检索遗漏
+				slog.Warn("copy metadata failed, recording basic meta", "source", source, "error", err)
+				tools.RecordFileMeta(ctx, deps.Store, target, content, sessionID)
 			}
 		}
 

@@ -157,8 +157,21 @@ func (s *Server) copyFile(w http.ResponseWriter, r *http.Request) {
 
 	if s.repo != nil {
 		if err := s.repo.CopyMetadata(r.Context(), req.Source, req.Target, "", ""); err != nil {
-			// 源文件可能没有元数据，复制失败不致命
-			slog.Warn("copy metadata failed", "source", req.Source, "error", err)
+			// 源文件可能没有元数据，复制失败不致命；回填目标基础元数据，避免检索遗漏
+			slog.Warn("copy metadata failed, recording basic meta", "source", req.Source, "error", err)
+			ft, mt := service.InferFileMeta(req.Target)
+			ext := service.InferExtension(req.Target)
+			cs := service.ChecksumSHA256(content)
+			size := int64(len(content))
+			_ = s.repo.UpsertMetadata(r.Context(), &repo.FileMetadata{
+				FilePath:  req.Target,
+				Scope:     "global",
+				FileType:  &ft,
+				MimeType:  &mt,
+				Extension: &ext,
+				SizeBytes: &size,
+				Checksum:  &cs,
+			})
 		}
 	}
 	slog.Info("copy file ok", "source", req.Source, "target", req.Target)
