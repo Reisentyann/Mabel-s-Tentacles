@@ -89,3 +89,6 @@ htmlcov/
 
 # 夹具验证报告（运行产物，不入库）
 test/fixtures-report.json
+
+# 本地小结备忘（不入库）
+小结.md
