@@ -12,6 +12,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go"
+	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go/llm"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
@@ -103,14 +104,14 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			if err := json.Unmarshal([]byte(raw), &in); err != nil {
 				return tools.ResultError("invalid attributes JSON: " + err.Error()), nil
 			}
-			st := describer.OpenLLM()
+			st := llm.OpenLLM()
 			st.SetMany(in)
 			for _, r := range st.Rejected() {
 				slog.Warn("describe_file attribute rejected by llm middleware",
 					"path", filePath, "key", r.Key, "op", r.Op, "reason", r.Reason)
 				rejectedList = append(rejectedList, r.Key+"("+r.Op+"): "+r.Reason)
 			}
-			existing = st.Commit(existing, describer.LLMSourceAgent, time.Now())
+			existing = st.Commit(existing, llm.LLMSourceAgent, time.Now())
 		}
 
 		meta := &repo.FileMetadata{

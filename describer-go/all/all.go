@@ -3,8 +3,8 @@
 package all
 
 import (
-	_ "github.com/Reisentyann/Mabel-s-Tentacles/describer-go/plugins/basic"
-	_ "github.com/Reisentyann/Mabel-s-Tentacles/describer-go/plugins/code"
-	_ "github.com/Reisentyann/Mabel-s-Tentacles/describer-go/plugins/image"
-	_ "github.com/Reisentyann/Mabel-s-Tentacles/describer-go/plugins/text"
+	_ "github.com/Reisentyann/Mabel-s-Tentacles/describer-go/basic"
+	_ "github.com/Reisentyann/Mabel-s-Tentacles/describer-go/code"
+	_ "github.com/Reisentyann/Mabel-s-Tentacles/describer-go/image"
+	_ "github.com/Reisentyann/Mabel-s-Tentacles/describer-go/text"
 )

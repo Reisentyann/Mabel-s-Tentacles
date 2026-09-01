@@ -1,9 +1,35 @@
-package describer
+package llm
 
 import (
 	"testing"
 	"time"
 )
+
+func TestCommitCOALESCE(t *testing.T) {
+	// 未提供的 llm 字段保留旧值（COALESCE 语义，经中间件验证）
+	existing := map[string]any{
+		"llm-tone":    "旧基调",
+		"llm-summary": "旧总结",
+		"sp-llm-x":    "旧",
+	}
+	st := OpenLLM()
+	st.Set("llm-tone", "新基调")
+	st.Set("llm-action", "新动作")
+	merged := st.Commit(existing, LLMSourceAgent, time.Unix(1700000000, 0))
+
+	if merged["llm-tone"] != "新基调" {
+		t.Fatalf("provided llm field should overwrite, got %v", merged["llm-tone"])
+	}
+	if merged["llm-summary"] != "旧总结" {
+		t.Fatal("unprovided llm field must keep old value (COALESCE)")
+	}
+	if merged["llm-action"] != "新动作" {
+		t.Fatal("new llm field should be written")
+	}
+	if merged["sp-llm-x"] != "旧" {
+		t.Fatal("sp-llm must survive")
+	}
+}
 
 func TestCodZoneUntouchable(t *testing.T) {
 	st := OpenLLM()

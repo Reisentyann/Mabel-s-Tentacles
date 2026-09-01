@@ -1,4 +1,6 @@
-package describer
+// Package llm 是模型轨：LLM 来源对 attributes 的一切写操作的前缀闸门与
+// LLMStore 中间件（唯一写入口）。策略见 docs/元数据字段说明.md 第 5 节。
+package llm
 
 import (
 	"fmt"
@@ -48,7 +50,6 @@ func SanitizeLLM(in map[string]any) (map[string]any, []string) {
 	sort.Strings(dropped)
 	return st.Fields(), dropped
 }
-
 func toStringSlice(v any, max int) ([]string, bool) {
 	switch arr := v.(type) {
 	case []string:

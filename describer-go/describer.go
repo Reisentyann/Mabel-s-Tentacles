@@ -1,11 +1,10 @@
 // Package describer 是确定性文件描述引擎：字节进、事实出。
 // 产出仅允许 cod- 前缀固定字段与 sp-cod- 自由字段，字段字典见仓库
-// docs/元数据字段说明.md；模型轨（llm-*）的前缀闸门与合并在 gate.go / merge.go。
+// docs/元数据字段说明.md；模型轨（llm-*）在 llm 子包。
 // 本包不做任何 IO（读文件由调用方完成），不做任何语义猜测。
 package describer
 
 import (
-	"strings"
 	"time"
 )
 
@@ -118,41 +117,4 @@ func Analyze(in Input, load Loader) []Result {
 		}
 	}
 	return results
-}
-
-// Round2 保留两位小数（数值字段统一精度）。
-func Round2(f float64) float64 {
-	return float64(int(f*100+0.5)) / 100
-}
-
-// Round1 保留一位小数。
-func Round1(f float64) float64 {
-	return float64(int(f*10+0.5)) / 10
-}
-
-// TrimRunes 按 rune 截断（多值字段防膨胀）。
-func TrimRunes(s string, max int) string {
-	r := []rune(s)
-	if len(r) <= max {
-		return s
-	}
-	return string(r[:max])
-}
-
-// IsCJK 判定中日韩字符（含兼容区与谚文）。
-func IsCJK(r rune) bool {
-	return (r >= 0x4E00 && r <= 0x9FFF) || // CJK 统一表意
-		(r >= 0x3400 && r <= 0x4DBF) || // 扩展 A
-		(r >= 0xF900 && r <= 0xFAFF) || // 兼容表意
-		(r >= 0xAC00 && r <= 0xD7AF) // 谚文
-}
-
-// IsKana 判定平假名/片假名（日语标志）。
-func IsKana(r rune) bool {
-	return r >= 0x3040 && r <= 0x30FF
-}
-
-// ToSlashLower 键名规范化：小写 + 下划线转中划线。
-func ToSlashLower(s string) string {
-	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(s)), "_", "-")
 }

@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"golang.org/x/text/encoding/simplifiedchinese"
+
+	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go"
 )
 
 const zhSample = `# 深夜来电
@@ -17,6 +19,10 @@ const zhSample = `# 深夜来电
 - 项目三
 
 数据与文件都井井有条。`
+
+func zeroInput() describer.Input {
+	return describer.Input{Path: "sample.txt"}
+}
 
 func TestAnalyzeZh(t *testing.T) {
 	d := descriptor{}

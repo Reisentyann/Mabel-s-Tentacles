@@ -12,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go"
+	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go/llm"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/search"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
@@ -141,13 +142,13 @@ func (s *Server) describeFile(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid attributes JSON")
 			return
 		}
-		st := describer.OpenLLM()
+		st := llm.OpenLLM()
 		st.SetMany(in)
 		for _, r := range st.Rejected() {
 			slog.Warn("describe attribute rejected by llm middleware", "path", req.Path, "key", r.Key, "op", r.Op, "reason", r.Reason)
 			rejectedList = append(rejectedList, r.Key+"("+r.Op+"): "+r.Reason)
 		}
-		existing = st.Commit(existing, describer.LLMSourceAgent, time.Now())
+		existing = st.Commit(existing, llm.LLMSourceAgent, time.Now())
 	}
 
 	m := &repo.FileMetadata{

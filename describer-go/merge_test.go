@@ -46,33 +46,6 @@ func TestMergeResultsFamilyReplace(t *testing.T) {
 	}
 }
 
-func TestMergeLLMCOALESCE(t *testing.T) {
-	existing := map[string]any{
-		"llm-tone":    "旧基调",
-		"llm-summary": "旧总结",
-		"sp-llm-x":    "旧",
-		"cod-at-x":    1,
-	}
-	attrs, _ := SanitizeLLM(map[string]any{"llm-tone": "新基调", "llm-action": "新动作"})
-	m := MergeLLM(existing, attrs, time.Unix(1700000000, 0))
-
-	if m["llm-tone"] != "新基调" {
-		t.Fatalf("provided llm field should overwrite, got %v", m["llm-tone"])
-	}
-	if m["llm-summary"] != "旧总结" {
-		t.Fatal("unprovided llm field must keep old value (COALESCE)")
-	}
-	if m["llm-action"] != "新动作" {
-		t.Fatal("new llm field should be written")
-	}
-	if m["sp-llm-x"] != "旧" {
-		t.Fatal("sp-llm must survive")
-	}
-	if _, ok := m["llm-at"]; !ok {
-		t.Fatal("llm-at should be refreshed")
-	}
-}
-
 func TestJSONRoundTrip(t *testing.T) {
 	if m := AttrsFromJSON(nil); m == nil || len(m) != 0 {
 		t.Fatalf("nil JSON should give empty map, got %#v", m)

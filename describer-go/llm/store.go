@@ -1,10 +1,18 @@
-package describer
+package llm
 
 import (
 	"fmt"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go"
+)
+
+// LLMSource 取值约定：agent（MCP 客户端模型）/ ollama:<model>（服务端模型）。
+const (
+	LLMSourceAgent  = "agent"
+	LLMSourceOllama = "ollama"
 )
 
 // 审计字段：系统专属。模型不可写、不可删，由 Commit 统一盖戳。
@@ -168,7 +176,7 @@ func validateLLMValue(key string, v any) (any, bool) {
 	case "llm-characters":
 		return toStringSlice(v, 10)
 	case "llm-summary":
-		return TrimRunes(fmt.Sprint(v), 100), true
+		return describer.TrimRunes(fmt.Sprint(v), 100), true
 	default:
 		s := strings.TrimSpace(fmt.Sprint(v))
 		if s == "" {

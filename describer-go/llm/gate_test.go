@@ -1,4 +1,4 @@
-package describer
+package llm
 
 import (
 	"reflect"
