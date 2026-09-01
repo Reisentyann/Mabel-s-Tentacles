@@ -25,7 +25,8 @@ func register(s *server.MCPServer, deps tools.Deps) {
 	tool := mcp.NewTool("describe_file",
 		mcp.WithDescription("Add description, tags, and semantic attributes to an existing file so it can be searched later. "+
 			"attributes accepts a JSON object: llm-* fixed fields (llm-semantic-type in [novel,game_guide,technical_doc,note,log,meme,illustration,photo,screenshot,code_artifact,data,other], "+
-			"llm-tone, llm-characters, llm-action, llm-style, llm-summary) and sp-llm-* free-form fields; any other prefixes are dropped."),
+			"llm-tone, llm-characters, llm-action, llm-style, llm-summary) and sp-llm-* free-form fields; set a value to null to delete that key. "+
+			"cod-* fields are read-only engine facts and are always rejected."),
 		mcp.WithString("file_path",
 			mcp.Required(),
 			mcp.Description("Path of the file, relative to the data directory."),
@@ -94,22 +95,22 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			description = oldDesc + "\n\n" + description
 		}
 
-		// llm 语义字段：前缀闸门（受控词表 + sp-llm-* 放行，其余丢弃并 WARN）
+		// llm 语义字段：LLMStore 中间件（唯一写入口）
+		// cod-* 只读 / 审计字段系统专属 / 受控词表 / null 墓碑删除
+		var rejectedList []string
 		if raw := req.GetString("attributes", ""); raw != "" {
 			var in map[string]any
 			if err := json.Unmarshal([]byte(raw), &in); err != nil {
 				return tools.ResultError("invalid attributes JSON: " + err.Error()), nil
 			}
-			kept, dropped := describer.SanitizeLLM(in)
-			for _, d := range dropped {
-				slog.Warn("describe_file attribute dropped by prefix gate", "path", filePath, "key", d)
+			st := describer.OpenLLM()
+			st.SetMany(in)
+			for _, r := range st.Rejected() {
+				slog.Warn("describe_file attribute rejected by llm middleware",
+					"path", filePath, "key", r.Key, "op", r.Op, "reason", r.Reason)
+				rejectedList = append(rejectedList, r.Key+"("+r.Op+"): "+r.Reason)
 			}
-			if len(kept) > 0 {
-				if _, ok := kept["llm-source"]; !ok {
-					kept["llm-source"] = describer.LLMSourceAgent
-				}
-				existing = describer.MergeLLM(existing, kept, time.Now())
-			}
+			existing = st.Commit(existing, describer.LLMSourceAgent, time.Now())
 		}
 
 		meta := &repo.FileMetadata{
@@ -130,6 +131,10 @@ func register(s *server.MCPServer, deps tools.Deps) {
 
 		slog.Info("describe_file ok", "path", filePath, "mode", mode)
 		tools.RecordOperation(ctx, deps.Store, sessionID, "describe_file", filePath, "success", "", map[string]any{"description": description, "tags": tags, "file_type": fileType, "mode": mode})
-		return tools.Result(map[string]any{"success": true, "message": "Successfully described " + filePath}), nil
+		result := map[string]any{"success": true, "message": "Successfully described " + filePath}
+		if len(rejectedList) > 0 {
+			result["rejected"] = rejectedList // 回传拒绝原因，模型可自纠错
+		}
+		return tools.Result(result), nil
 	})
 }

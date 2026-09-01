@@ -132,23 +132,22 @@ func (s *Server) describeFile(w http.ResponseWriter, r *http.Request) {
 		descPtr = &desc
 	}
 
-	// llm 语义字段：前缀闸门（受控词表 + sp-llm-* 放行，其余丢弃并 WARN）
+	// llm 语义字段：LLMStore 中间件（唯一写入口）
+	// cod-* 只读 / 审计字段系统专属 / 受控词表 / null 墓碑删除
+	var rejectedList []string
 	if len(req.Attributes) > 0 {
 		var in map[string]any
 		if err := json.Unmarshal(req.Attributes, &in); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid attributes JSON")
 			return
 		}
-		kept, dropped := describer.SanitizeLLM(in)
-		for _, d := range dropped {
-			slog.Warn("describe attribute dropped by prefix gate", "path", req.Path, "key", d)
+		st := describer.OpenLLM()
+		st.SetMany(in)
+		for _, r := range st.Rejected() {
+			slog.Warn("describe attribute rejected by llm middleware", "path", req.Path, "key", r.Key, "op", r.Op, "reason", r.Reason)
+			rejectedList = append(rejectedList, r.Key+"("+r.Op+"): "+r.Reason)
 		}
-		if len(kept) > 0 {
-			if _, ok := kept["llm-source"]; !ok {
-				kept["llm-source"] = describer.LLMSourceAgent
-			}
-			existing = describer.MergeLLM(existing, kept, time.Now())
-		}
+		existing = st.Commit(existing, describer.LLMSourceAgent, time.Now())
 	}
 
 	m := &repo.FileMetadata{
@@ -167,7 +166,12 @@ func (s *Server) describeFile(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	slog.Info("describe file ok", "path", req.Path, "mode", req.Mode)
-	writeJSON(w, http.StatusOK, map[string]string{"message": "metadata updated"})
+	resp := map[string]string{"message": "metadata updated"}
+	if len(rejectedList) > 0 {
+		writeJSON(w, http.StatusOK, map[string]any{"message": "metadata updated", "rejected": rejectedList})
+		return
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
 type copyRequest struct {
