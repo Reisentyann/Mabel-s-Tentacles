@@ -67,3 +67,13 @@ AstrBot 等 MCP 客户端的接入配置，见[部署指南](部署指南.md)第
 ## 文档
 
 - [部署指南](部署指南.md) —— 环境准备、Docker Compose 部署、安全组配置、MCP 客户端（AstrBot 等）接入方法、1Panel 反代挂载子域名
+
+## 许可证
+
+[PolyForm Noncommercial 1.0.0](https://polyformproject.org/licenses/noncommercial/1.0.0)，全文见 [LICENSE](LICENSE)。
+
+- ✅ 允许：个人学习、研究、爱好项目、教育与公益等**非商业**用途下使用、修改、再分发（须保留 LICENSE 与版权声明）
+- ❌ 禁止：任何**商业用途**（销售、商业服务、公司经营性使用等）
+- ❌ 禁止：去除版权声明后的搬运分发
+
+商用授权及其他许可事宜请联系作者。
