@@ -15,12 +15,12 @@ func (s *Server) listOperations(w http.ResponseWriter, r *http.Request) {
 		size = 20
 	}
 
-	if s.store == nil {
+	if s.repo == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"items": []any{}, "total": 0, "page": page, "size": size})
 		return
 	}
 
-	items, total, err := s.store.GetOperations(r.Context(), page, size)
+	items, total, err := s.repo.GetOperations(r.Context(), page, size)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return

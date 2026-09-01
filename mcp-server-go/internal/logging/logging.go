@@ -1,12 +1,15 @@
 package logging
 
 import (
+	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 )
 
-func Setup(level, format string) {
+// Setup 初始化 slog：同时输出到控制台（stdout）和日志文件（若 logFile 非空）。
+func Setup(level, format, logFile string) {
 	var lvl slog.Level
 	switch strings.ToLower(level) {
 	case "debug":
@@ -21,11 +24,21 @@ func Setup(level, format string) {
 
 	opts := &slog.HandlerOptions{Level: lvl}
 
+	var w io.Writer = os.Stdout
+	if logFile != "" {
+		if dir := filepath.Dir(logFile); dir != "." && dir != "" {
+			_ = os.MkdirAll(dir, 0o755)
+		}
+		if f, err := os.OpenFile(logFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644); err == nil {
+			w = io.MultiWriter(os.Stdout, f)
+		}
+	}
+
 	var handler slog.Handler
 	if format == "text" {
-		handler = slog.NewTextHandler(os.Stdout, opts)
+		handler = slog.NewTextHandler(w, opts)
 	} else {
-		handler = slog.NewJSONHandler(os.Stdout, opts)
+		handler = slog.NewJSONHandler(w, opts)
 	}
 
 	slog.SetDefault(slog.New(handler))

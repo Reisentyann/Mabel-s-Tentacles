@@ -42,7 +42,6 @@ MANIFEST
 # 虚拟环境与环境变量 (Virtual Environments & Env files)
 .env
 .env.*
-!.env.example
 
 # 配置文件 (Config files - contains sensitive credentials)
 backend/config.yml
@@ -80,3 +79,7 @@ test.py
 .coverage
 htmlcov/
 .eslintcache
+
+# 退役/清理内容（本地保留，不入库；旧代码已在 git 历史中）
+旧内容/
+旧文件/

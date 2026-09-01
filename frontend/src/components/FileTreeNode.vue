@@ -9,6 +9,8 @@
       <span class="name">{{ node.name }}</span>
       <span class="size">{{ formatBytes(node.size) }}</span>
       <button class="btn" @click="$emit('download', node.path)">Download</button>
+      <button class="btn-ghost" @click="$emit('describe', node.path)">Describe</button>
+      <button class="btn-ghost" @click="$emit('copy', node.path)">Copy</button>
     </div>
     <ul v-if="node.type === 'dir' && open" class="children">
       <FileTreeNode
@@ -16,6 +18,8 @@
         :key="child.path"
         :node="child"
         @download="$emit('download', $event)"
+        @describe="$emit('describe', $event)"
+        @copy="$emit('copy', $event)"
       />
     </ul>
   </li>
@@ -28,7 +32,7 @@ import { formatBytes } from '../utils/format';
 defineProps({
   node: { type: Object, required: true },
 });
-defineEmits(['download']);
+defineEmits(['download', 'describe', 'copy']);
 
 const open = ref(false);
 </script>

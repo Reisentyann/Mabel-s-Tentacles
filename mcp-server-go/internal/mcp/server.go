@@ -4,12 +4,12 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/config"
-	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/store"
-	_ "github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools/all"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
+	_ "github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools/all"
 )
 
-func New(cfg *config.Config, st store.Store) *server.MCPServer {
+func New(cfg *config.Config, st repo.Store) *server.MCPServer {
 	s := server.NewMCPServer(
 		"agent-mcp-server",
 		"0.1.0",

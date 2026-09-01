@@ -3,10 +3,11 @@
 package all
 
 import (
+	_ "github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools/copyfile"
+	_ "github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools/describefile"
 	_ "github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools/executecommand"
 	_ "github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools/getresults"
 	_ "github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools/listdatafiles"
 	_ "github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools/modifydatafile"
-	_ "github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools/segmentedreply"
 	_ "github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools/writefile"
 )
