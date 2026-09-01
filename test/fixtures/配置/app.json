@@ -1,0 +1,14 @@
+{
+  "server": {
+    "port": 8080,
+    "base_url": "http://localhost:8080"
+  },
+  "log": {
+    "level": "info",
+    "format": "json"
+  },
+  "admin": {
+    "username": "admin",
+    "password": "change-me"
+  }
+}

@@ -1,0 +1,16 @@
+2026-08-27 23:02:02 INFO server listening port=8080
+2026-08-27 23:02:03 INFO database connected pool=10
+2026-08-27 23:02:05 INFO request GET /api/files duration=12ms
+2026-08-27 23:02:05 INFO request GET /api/files duration=9ms
+2026-08-27 23:02:07 WARN slow query files search duration=890ms
+2026-08-27 23:02:07 INFO request GET /api/files duration=12ms
+2026-08-27 23:03:01 INFO request GET /api/files/search duration=45ms
+2026-08-27 23:03:01 INFO request GET /api/files/search duration=52ms
+2026-08-27 23:03:02 INFO heartbeat ok
+2026-08-27 23:03:02 INFO heartbeat ok
+2026-08-27 23:04:00 INFO request POST /api/files/metadata duration=33ms
+2026-08-27 23:04:00 INFO request POST /api/files/metadata duration=31ms
+2026-08-27 23:05:00 INFO heartbeat ok
+2026-08-27 23:05:00 INFO heartbeat ok
+2026-08-27 23:05:11 ERROR db ping failed timeout=5s
+2026-08-27 23:05:12 INFO database reconnected pool=10

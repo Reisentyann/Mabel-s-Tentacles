@@ -83,3 +83,9 @@ htmlcov/
 # 退役/清理内容（本地保留，不入库；旧代码已在 git 历史中）
 旧内容/
 旧文件/
+
+# 测试夹具（含 .log 样本，豁免上方 *.log 规则）
+!test/fixtures/**
+
+# 夹具验证报告（运行产物，不入库）
+test/fixtures-report.json
