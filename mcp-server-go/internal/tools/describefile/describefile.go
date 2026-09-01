@@ -2,13 +2,16 @@ package describefile
 
 import (
 	"context"
+	"encoding/json"
 	"log/slog"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
@@ -20,7 +23,9 @@ func init() {
 
 func register(s *server.MCPServer, deps tools.Deps) {
 	tool := mcp.NewTool("describe_file",
-		mcp.WithDescription("Add a description, tags, and type to an existing file so it can be searched later."),
+		mcp.WithDescription("Add description, tags, and semantic attributes to an existing file so it can be searched later. "+
+			"attributes accepts a JSON object: llm-* fixed fields (llm-semantic-type in [novel,game_guide,technical_doc,note,log,meme,illustration,photo,screenshot,code_artifact,data,other], "+
+			"llm-tone, llm-characters, llm-action, llm-style, llm-summary) and sp-llm-* free-form fields; any other prefixes are dropped."),
 		mcp.WithString("file_path",
 			mcp.Required(),
 			mcp.Description("Path of the file, relative to the data directory."),
@@ -37,6 +42,12 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		mcp.WithString("file_type",
 			mcp.Description("File type, e.g. text / image / code / other."),
 		),
+		mcp.WithString("mode",
+			mcp.Description("'append' adds the description as a new paragraph after the existing one; 'replace' (default) overwrites."),
+		),
+		mcp.WithString("attributes",
+			mcp.Description(`Optional JSON object of LLM semantic fields, e.g. {"llm-semantic-type":"novel","llm-characters":["梅贝尔"],"sp-llm-游戏名":"狼人杀"}.`),
+		),
 	)
 
 	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -47,6 +58,7 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		title := req.GetString("title", "")
 		description := req.GetString("description", "")
 		fileType := req.GetString("file_type", "")
+		mode := req.GetString("mode", "replace")
 
 		var tags []string
 		if raw := req.GetString("tags", ""); raw != "" {
@@ -67,6 +79,39 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			return tools.ResultError("error: file '" + filePath + "' does not exist"), nil
 		}
 
+		// 既有元数据：追加模式与 llm 字段合并都需要
+		var existing map[string]any
+		var oldDesc string
+		if deps.Store != nil {
+			if m, err := deps.Store.GetMetadata(ctx, filePath); err == nil && m != nil {
+				existing = describer.AttrsFromJSON(m.Attributes)
+				if m.Description != nil {
+					oldDesc = *m.Description
+				}
+			}
+		}
+		if mode == "append" && oldDesc != "" && description != "" {
+			description = oldDesc + "\n\n" + description
+		}
+
+		// llm 语义字段：前缀闸门（受控词表 + sp-llm-* 放行，其余丢弃并 WARN）
+		if raw := req.GetString("attributes", ""); raw != "" {
+			var in map[string]any
+			if err := json.Unmarshal([]byte(raw), &in); err != nil {
+				return tools.ResultError("invalid attributes JSON: " + err.Error()), nil
+			}
+			kept, dropped := describer.SanitizeLLM(in)
+			for _, d := range dropped {
+				slog.Warn("describe_file attribute dropped by prefix gate", "path", filePath, "key", d)
+			}
+			if len(kept) > 0 {
+				if _, ok := kept["llm-source"]; !ok {
+					kept["llm-source"] = describer.LLMSourceAgent
+				}
+				existing = describer.MergeLLM(existing, kept, time.Now())
+			}
+		}
+
 		meta := &repo.FileMetadata{
 			FilePath:    filePath,
 			Title:       tools.StrPtr(title),
@@ -74,6 +119,7 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			Tags:        tags,
 			FileType:    tools.StrPtr(fileType),
 			SessionID:   tools.StrPtr(sessionID),
+			Attributes:  describer.JSONFromAttrs(existing),
 		}
 		if deps.Store != nil {
 			if err := deps.Store.UpsertMetadata(ctx, meta); err != nil {
@@ -82,8 +128,8 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			}
 		}
 
-		slog.Info("describe_file ok", "path", filePath)
-		tools.RecordOperation(ctx, deps.Store, sessionID, "describe_file", filePath, "success", "", map[string]any{"description": description, "tags": tags, "file_type": fileType})
+		slog.Info("describe_file ok", "path", filePath, "mode", mode)
+		tools.RecordOperation(ctx, deps.Store, sessionID, "describe_file", filePath, "success", "", map[string]any{"description": description, "tags": tags, "file_type": fileType, "mode": mode})
 		return tools.Result(map[string]any{"success": true, "message": "Successfully described " + filePath}), nil
 	})
 }

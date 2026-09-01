@@ -7,9 +7,11 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/search"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
@@ -81,10 +83,11 @@ type describeRequest struct {
 	Description *string         `json:"description"`
 	Tags        []string        `json:"tags"`
 	FileType    *string         `json:"file_type"`
+	Mode        string          `json:"mode"` // replace（默认）| append
 	Attributes  json.RawMessage `json:"attributes"`
 }
 
-// describeFile 手动补充文件描述/标签/属性。
+// describeFile 手动补充文件描述/标签/属性（llm 轨：前缀闸门 + 追加模式）。
 func (s *Server) describeFile(w http.ResponseWriter, r *http.Request) {
 	var req describeRequest
 	if err := decodeJSON(r, &req); err != nil {
@@ -106,13 +109,55 @@ func (s *Server) describeFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 既有元数据：追加模式与 llm 字段合并都需要
+	var existing map[string]any
+	var oldDesc string
+	if s.repo != nil {
+		if m, err := s.repo.GetMetadata(r.Context(), req.Path); err == nil && m != nil {
+			existing = describer.AttrsFromJSON(m.Attributes)
+			if m.Description != nil {
+				oldDesc = *m.Description
+			}
+		}
+	}
+	desc := ""
+	if req.Description != nil {
+		desc = *req.Description
+	}
+	if req.Mode == "append" && oldDesc != "" && desc != "" {
+		desc = oldDesc + "\n\n" + desc
+	}
+	var descPtr *string
+	if desc != "" {
+		descPtr = &desc
+	}
+
+	// llm 语义字段：前缀闸门（受控词表 + sp-llm-* 放行，其余丢弃并 WARN）
+	if len(req.Attributes) > 0 {
+		var in map[string]any
+		if err := json.Unmarshal(req.Attributes, &in); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid attributes JSON")
+			return
+		}
+		kept, dropped := describer.SanitizeLLM(in)
+		for _, d := range dropped {
+			slog.Warn("describe attribute dropped by prefix gate", "path", req.Path, "key", d)
+		}
+		if len(kept) > 0 {
+			if _, ok := kept["llm-source"]; !ok {
+				kept["llm-source"] = describer.LLMSourceAgent
+			}
+			existing = describer.MergeLLM(existing, kept, time.Now())
+		}
+	}
+
 	m := &repo.FileMetadata{
 		FilePath:    req.Path,
 		Title:       req.Title,
-		Description: req.Description,
+		Description: descPtr,
 		Tags:        req.Tags,
 		FileType:    req.FileType,
-		Attributes:  req.Attributes,
+		Attributes:  describer.JSONFromAttrs(existing),
 	}
 	if s.repo != nil {
 		if err := s.repo.UpsertMetadata(r.Context(), m); err != nil {
@@ -121,7 +166,7 @@ func (s *Server) describeFile(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	slog.Info("describe file ok", "path", req.Path)
+	slog.Info("describe file ok", "path", req.Path, "mode", req.Mode)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "metadata updated"})
 }
 

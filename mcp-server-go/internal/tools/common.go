@@ -6,10 +6,13 @@ import (
 	"log/slog"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go"
+	_ "github.com/Reisentyann/Mabel-s-Tentacles/describer-go/all"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/config"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
@@ -40,29 +43,61 @@ func RecordOperation(ctx context.Context, st repo.Store, sessionID, tool, filePa
 	}
 }
 
-// RecordFileMeta 写文件后自动记录元数据（类型/扩展名/大小/校验和/会话/分区），供检索使用。
+// RecordFileMeta 写文件后自动记录元数据：确定性描述（describer-go 全插件流水线，
+// cod-* 事实）+ 技术元数据（类型/大小/校验和/会话/分区）。
+// attributes 走读-改-写合并，保留 llm-* / sp-* 既有字段（docs/元数据字段说明.md）；
 // game/ 前缀的文件自动归入 game 分区（游戏室预留命名空间）。
 func RecordFileMeta(ctx context.Context, st repo.Store, filePath string, content []byte, sessionID string) {
 	if st == nil {
 		return
 	}
+	now := time.Now()
+
+	// 确定性描述：字节进、事实出（head 512B 嗅探 + 全量分析）
+	head := content
+	if len(head) > 512 {
+		head = head[:512]
+	}
+	results := describer.Analyze(describer.Input{
+		Path:    filePath,
+		Head:    head,
+		Full:    content,
+		Size:    int64(len(content)),
+		MTime:   now,
+		ExtMime: extMime(filePath),
+	}, nil)
+
+	// 读-改-写：整族合并 cod-*，保留 llm-* / sp-*（单会话写单文件，竞态窗口极小）
+	var existing map[string]any
+	if m, err := st.GetMetadata(ctx, filePath); err == nil && m != nil {
+		existing = describer.AttrsFromJSON(m.Attributes)
+	}
+	merged := describer.MergeResults(existing, results, now)
+
 	ft, mt := service.InferFileMeta(filePath)
 	ext := service.InferExtension(filePath)
 	cs := service.ChecksumSHA256(content)
 	size := int64(len(content))
 	meta := &repo.FileMetadata{
-		FilePath:  filePath,
-		Scope:     service.InferScope(filePath),
-		FileType:  &ft,
-		MimeType:  &mt,
-		Extension: StrPtr(ext),
-		SizeBytes: &size,
-		Checksum:  &cs,
-		SessionID: StrPtr(sessionID),
+		FilePath:   filePath,
+		Scope:      service.InferScope(filePath),
+		FileType:   &ft,
+		MimeType:   &mt,
+		Extension:  StrPtr(ext),
+		SizeBytes:  &size,
+		Checksum:   &cs,
+		SessionID:  StrPtr(sessionID),
+		Attributes: describer.JSONFromAttrs(merged),
 	}
 	if err := st.UpsertMetadata(ctx, meta); err != nil {
 		slog.Warn("record file metadata failed", "path", filePath, "error", err)
 	}
+}
+
+// extMime 扩展名推断的 MIME（供 cod-basic-mime-match 对比嗅探结果）。
+func extMime(path string) string {
+	_, mt := service.InferFileMeta(path)
+	return mt
 }
 
 // StrPtr 空字符串返回 nil（表示「不覆盖原值」），非空返回指针。

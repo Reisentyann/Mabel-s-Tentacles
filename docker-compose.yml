@@ -26,7 +26,8 @@ services:
 
   backend:
     build:
-      context: ./mcp-server-go
+      context: . # 仓库根：后端依赖同级 describer-go 模块（go.mod replace ../describer-go）
+      dockerfile: mcp-server-go/Dockerfile
     container_name: agent_backend
     restart: always
     environment:
