@@ -15,7 +15,7 @@ import (
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 )
 
-// searchFiles 检索文件元数据：?q=&tag=&type=&creator=&color=&deleted=&page=&size=
+// searchFiles 检索文件元数据：?q=&tag=&type=&creator=&scope=&color=&deleted=&page=&size=
 func (s *Server) searchFiles(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	sq := search.Query{
@@ -23,6 +23,7 @@ func (s *Server) searchFiles(w http.ResponseWriter, r *http.Request) {
 		Tags:           q["tag"],
 		FileType:       q.Get("type"),
 		Creator:        q.Get("creator"),
+		Scope:          q.Get("scope"),
 		IncludeDeleted: q.Get("deleted") == "true",
 		Page:           1,
 		Size:           20,

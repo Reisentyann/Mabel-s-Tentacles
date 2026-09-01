@@ -12,7 +12,7 @@ import (
 type FileMetadata struct {
 	ID             int64           `json:"id"`
 	FilePath       string          `json:"file_path"`
-	Scope          string          `json:"scope"` // global | user（默认 global）
+	Scope          string          `json:"scope"` // global | user | game（默认 global；game 为游戏室预留分区，按 game/ 路径前缀自动推导）
 	OwnerID        *string         `json:"owner_id"`
 	Title          *string         `json:"title"`
 	Description    *string         `json:"description"`
@@ -41,6 +41,7 @@ type FileSearch struct {
 	Tags           []string
 	FileType       string
 	Creator        string
+	Scope          string // 分区过滤：global / user / game（空 = 不过滤）
 	Attributes     map[string]any
 	IncludeDeleted bool
 	Page           int
@@ -54,7 +55,8 @@ const metaWhere = `is_deleted = $1
  AND ($3::text[] IS NULL OR tags @> $3)
  AND ($4::text   IS NULL OR file_type = $4)
  AND ($5::text   IS NULL OR user_id = $5)
- AND ($6::jsonb  IS NULL OR attributes @> $6)`
+ AND ($6::jsonb  IS NULL OR attributes @> $6)
+ AND ($7::text   IS NULL OR scope    = $7)`
 
 func scanMeta(row pgx.Row) (*FileMetadata, error) {
 	var m FileMetadata
@@ -156,6 +158,10 @@ func (s *pgxStore) SearchFiles(ctx context.Context, fs FileSearch) ([]FileMetada
 	if fs.Creator != "" {
 		creator = &fs.Creator
 	}
+	var scope *string
+	if fs.Scope != "" {
+		scope = &fs.Scope
+	}
 	var attrs json.RawMessage
 	if len(fs.Attributes) > 0 {
 		attrs, _ = json.Marshal(fs.Attributes)
@@ -164,15 +170,15 @@ func (s *pgxStore) SearchFiles(ctx context.Context, fs FileSearch) ([]FileMetada
 	var total int
 	if err := s.pool.QueryRow(ctx,
 		`SELECT count(*) FROM file_metadata WHERE `+metaWhere,
-		fs.IncludeDeleted, q, tags, ft, creator, attrs,
+		fs.IncludeDeleted, q, tags, ft, creator, attrs, scope,
 	).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
 	offset := (fs.Page - 1) * fs.Size
 	rows, err := s.pool.Query(ctx,
-		`SELECT `+metaColumns+` FROM file_metadata WHERE `+metaWhere+` ORDER BY updated_at DESC LIMIT $7 OFFSET $8`,
-		fs.IncludeDeleted, q, tags, ft, creator, attrs, fs.Size, offset,
+		`SELECT `+metaColumns+` FROM file_metadata WHERE `+metaWhere+` ORDER BY updated_at DESC LIMIT $8 OFFSET $9`,
+		fs.IncludeDeleted, q, tags, ft, creator, attrs, scope, fs.Size, offset,
 	)
 	if err != nil {
 		return nil, 0, err

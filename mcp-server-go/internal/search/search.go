@@ -12,6 +12,7 @@ type Query struct {
 	Tags           []string       // 标签（AND 包含）
 	FileType       string         // 文件类型
 	Creator        string         // 创建者
+	Scope          string         // 分区：global / user / game（游戏室预留分区，空 = 不过滤）
 	Attributes     map[string]any // 属性过滤（如 color）
 	IncludeDeleted bool           // 是否含已删除
 	Page           int

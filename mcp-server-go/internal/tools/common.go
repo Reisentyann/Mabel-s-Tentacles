@@ -40,7 +40,8 @@ func RecordOperation(ctx context.Context, st repo.Store, sessionID, tool, filePa
 	}
 }
 
-// RecordFileMeta 写文件后自动记录元数据（类型/扩展名/大小/校验和/会话），供检索使用。
+// RecordFileMeta 写文件后自动记录元数据（类型/扩展名/大小/校验和/会话/分区），供检索使用。
+// game/ 前缀的文件自动归入 game 分区（游戏室预留命名空间）。
 func RecordFileMeta(ctx context.Context, st repo.Store, filePath string, content []byte, sessionID string) {
 	if st == nil {
 		return
@@ -51,7 +52,7 @@ func RecordFileMeta(ctx context.Context, st repo.Store, filePath string, content
 	size := int64(len(content))
 	meta := &repo.FileMetadata{
 		FilePath:  filePath,
-		Scope:     "global",
+		Scope:     service.InferScope(filePath),
 		FileType:  &ft,
 		MimeType:  &mt,
 		Extension: StrPtr(ext),

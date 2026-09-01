@@ -7,6 +7,15 @@ import (
 	"strings"
 )
 
+// InferScope 按保留命名空间推导文件分区：game/<分组>/<房间>/ 前缀的文件属于 game 分区，
+// 其余为 global（UpsertMetadata 对空值兜底为 global）。游戏室功能预留此命名空间。
+func InferScope(path string) string {
+	if strings.HasPrefix(strings.ToLower(path), "game/") {
+		return "game"
+	}
+	return ""
+}
+
 // InferExtension 返回文件扩展名（含点，小写），无扩展名返回空串。
 func InferExtension(path string) string {
 	return strings.ToLower(filepath.Ext(path))
