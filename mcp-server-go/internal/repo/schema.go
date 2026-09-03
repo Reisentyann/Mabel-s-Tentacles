@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/repo/schema.go —— 启动前 schema 校验：数据模型字段与数据库对账
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package repo
 
 import (

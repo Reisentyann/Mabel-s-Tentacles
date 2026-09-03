@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/service/auth.go —— 认证服务：bcrypt 哈希 / JWT 签发与解析
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package service
 
 import (

@@ -1,3 +1,6 @@
+// 文件：describer-go/text/text_test.go —— cod-text 单元测试：zh/gbk/en/frontmatter + 量化计数 + 指纹 + 时间戳 + eol/bom
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package text
 
 import (

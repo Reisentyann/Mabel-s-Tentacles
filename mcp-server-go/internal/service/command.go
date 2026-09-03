@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/service/command.go —— 命令执行：60s 超时 + 256KB 输出截断（limitWriter）
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package service
 
 import (

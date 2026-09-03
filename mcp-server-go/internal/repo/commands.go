@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/repo/commands.go —— commands 表：命令执行记录插入 / 更新 / 查询
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package repo
 
 import (

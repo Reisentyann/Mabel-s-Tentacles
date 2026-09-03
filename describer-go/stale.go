@@ -1,3 +1,6 @@
+// 文件：describer-go/stale.go —— 陈旧判定纯函数 IsStale（字典 10.2 四条：缺 ver / 版本落后 / checksum 变 / mtime 新）
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package describer
 
 import (

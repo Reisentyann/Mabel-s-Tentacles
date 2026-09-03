@@ -1,9 +1,13 @@
+// 文件：mcp-server-go/internal/tools/listdatafiles/listdatafiles.go —— MCP 工具 list_data_files：分页列表 + 路径过滤 + 简略元数据
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package listdatafiles
 
 import (
 	"context"
 	"log/slog"
 	"strings"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -43,10 +47,11 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		q := req.GetString("q", "")
 
 		sessionID := tools.SessionID(ctx)
+		begin := time.Now()
 
 		all, err := service.SafeList(deps.Cfg.DataDir)
 		if err != nil {
-			slog.Error("list_data_files failed", "error", err)
+			slog.Error("list_data_files failed", "q", q, "session", sessionID, "error", err, "duration", time.Since(begin).String())
 			tools.RecordOperation(ctx, deps.Store, sessionID, "list_data_files", "", "failed", err.Error(), nil)
 			return tools.ResultError(err.Error()), nil
 		}
@@ -114,7 +119,7 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			items = append(items, item)
 		}
 
-		slog.Info("list_data_files ok", "page", page, "returned", len(items), "total", total)
+		slog.Info("list_data_files ok", "page", page, "size", size, "q", q, "returned", len(items), "total", total, "session", sessionID, "duration", time.Since(begin).String())
 		tools.RecordOperation(ctx, deps.Store, sessionID, "list_data_files", "", "success", "", map[string]any{"count": len(items), "page": page, "total": total})
 		return tools.Result(map[string]any{
 			"success": true,

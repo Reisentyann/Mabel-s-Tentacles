@@ -1,3 +1,6 @@
+// 文件：describer-go/merge.go —— cod 轨合并：家族整族替换 + cod-<family>-ver/-at 刷新（纯 JSON 操作）
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package describer
 
 import (

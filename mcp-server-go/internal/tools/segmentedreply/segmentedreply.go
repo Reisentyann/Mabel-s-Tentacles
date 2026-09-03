@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/tools/segmentedreply/segmentedreply.go —— 机器人分段回复（已禁用退役，保留归档）
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package segmentedreply
 
 import (
@@ -29,13 +32,13 @@ const (
 )
 
 type Config struct {
-	ForceSegmentedReply    bool              `json:"force_segmented_reply"`
-	IntervalSeconds        float64           `json:"interval_seconds"`
-	SegmentLengthThreshold int               `json:"segment_length_threshold"`
-	MaxSegments            int               `json:"max_segments"`
-	OutputDir              string            `json:"output_dir"`
-	SplitWords             []string          `json:"split_words"`
-	ContentFilter          ContentFilter     `json:"content_filter"`
+	ForceSegmentedReply    bool          `json:"force_segmented_reply"`
+	IntervalSeconds        float64       `json:"interval_seconds"`
+	SegmentLengthThreshold int           `json:"segment_length_threshold"`
+	MaxSegments            int           `json:"max_segments"`
+	OutputDir              string        `json:"output_dir"`
+	SplitWords             []string      `json:"split_words"`
+	ContentFilter          ContentFilter `json:"content_filter"`
 }
 
 type ContentFilter struct {

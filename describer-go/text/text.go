@@ -1,3 +1,6 @@
+// 文件：describer-go/text/text.go —— cod-text 插件主编排：建 ctx + 遍历 extractor 注册表（加字段不碰这里）
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 // Package text cod-text 插件：文本统计事实（无语义）。
 // 字段字典见 docs/元数据字段说明.md 第 4.3 节。
 //

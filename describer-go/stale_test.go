@@ -1,3 +1,6 @@
+// 文件：describer-go/stale_test.go —— IsStale 单元测试：新鲜不陈旧 / 四条陈旧路径 / JSON float64 兼容
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package describer
 
 import (

@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/tools/common.go —— 工具共享层：Result 构造 / SessionID / RecordOperation / RecordFileMeta（T1 管线）/ DownloadURL
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package tools
 
 import (
@@ -51,7 +54,8 @@ func RecordFileMeta(ctx context.Context, st repo.Store, filePath string, content
 	if st == nil {
 		return
 	}
-	now := time.Now()
+	start := time.Now()
+	now := start
 
 	// 确定性描述：字节进、事实出（head 512B 嗅探 + 全量分析）
 	head := content
@@ -90,8 +94,38 @@ func RecordFileMeta(ctx context.Context, st repo.Store, filePath string, content
 		Attributes: describer.JSONFromAttrs(merged),
 	}
 	if err := st.UpsertMetadata(ctx, meta); err != nil {
-		slog.Warn("record file metadata failed", "path", filePath, "error", err)
+		slog.Warn("record file metadata failed",
+			"path", filePath, "session", sessionID,
+			"families", familyNames(results), "error", err,
+			"duration", time.Since(start).String())
+		return
 	}
+	slog.Info("file metadata recorded",
+		"path", filePath,
+		"session", sessionID,
+		"scope", meta.Scope,
+		"families", familyNames(results),
+		"cod_keys", attrKeyCount(results),
+		"size", size,
+		"duration", time.Since(start).String())
+}
+
+// familyNames 本次分析命中的插件家族（路由正确与否的第一现场）。
+func familyNames(results []describer.Result) []string {
+	out := make([]string, 0, len(results))
+	for _, r := range results {
+		out = append(out, r.Family)
+	}
+	return out
+}
+
+// attrKeyCount 本次新产出的 cod/sp-cod 键总数（字段缺失类 bug 的对照基线）。
+func attrKeyCount(results []describer.Result) int {
+	n := 0
+	for _, r := range results {
+		n += len(r.Attrs)
+	}
+	return n
 }
 
 // extMime 扩展名推断的 MIME（供 cod-basic-mime-match 对比嗅探结果）。

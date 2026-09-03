@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/config/config.go —— 配置加载：config.yml + 环境变量覆盖（服务器/日志/DB/JWT/API/管理员）
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package config
 
 import (

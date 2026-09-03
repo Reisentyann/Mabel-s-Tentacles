@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/api/auth.go —— 认证端点：login / refresh / logout / register
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package api
 
 import (

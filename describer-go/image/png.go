@@ -1,3 +1,6 @@
+// 文件：describer-go/image/png.go —— PNG tEXt/zTXt/iTXt 提取 → sp-cod-png-*（AI 生图 prompt 与参数）
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package image
 
 import (

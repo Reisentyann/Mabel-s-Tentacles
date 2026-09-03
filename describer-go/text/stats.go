@@ -1,3 +1,6 @@
+// 文件：describer-go/text/stats.go —— 基础统计字段：encoding/lines/chars/cjk-ratio/language/blank-ratio/top-keywords
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 // Package text 内的 stats.go：cod-text 基础统计字段（无语义、纯计数）。
 // 字段字典见 docs/元数据字段说明.md 第 4.3 节基础统计部分。
 package text

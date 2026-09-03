@@ -1,3 +1,6 @@
+// 文件：describer-go/llm/gate.go —— 模型轨前缀闸门：llm 受控词表 / sp-llm 放行 / 其余拒绝
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 // Package llm 是模型轨：LLM 来源对 attributes 的一切写操作的前缀闸门与
 // LLMStore 中间件（唯一写入口）。策略见 docs/元数据字段说明.md 第 5 节。
 package llm

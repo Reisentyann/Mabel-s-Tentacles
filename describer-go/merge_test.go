@@ -1,3 +1,6 @@
+// 文件：describer-go/merge_test.go —— 合并语义测试：整族替换 / sp 清除 / llm 保留 / ver 写入 / JSON 往返
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package describer
 
 import (

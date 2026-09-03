@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/service/metadata.go —— 元数据推断：InferFileMeta / InferExtension / InferScope / ChecksumSHA256
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package service
 
 import (

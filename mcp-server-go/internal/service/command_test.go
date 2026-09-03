@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/service/command_test.go —— 命令执行单元测试：超时 / 截断 / 退出码
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package service
 
 import (

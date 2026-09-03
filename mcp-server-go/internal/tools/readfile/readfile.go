@@ -1,8 +1,12 @@
+// 文件：mcp-server-go/internal/tools/readfile/readfile.go —— MCP 工具 read_file：读文件（1MB 截断防上下文撑爆）
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package readfile
 
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -38,9 +42,11 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		}
 
 		sessionID := tools.SessionID(ctx)
+		start := time.Now()
 
 		content, err := service.SafeRead(deps.Cfg.DataDir, path)
 		if err != nil {
+			slog.Error("read_file failed", "path", path, "session", sessionID, "error", err, "duration", time.Since(start).String())
 			tools.RecordOperation(ctx, deps.Store, sessionID, "read_file", path, "failed", err.Error(), map[string]any{"path": path})
 			return tools.ResultError(err.Error()), nil
 		}
@@ -50,7 +56,7 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			content = content[:maxReadSize]
 		}
 
-		slog.Info("read_file ok", "path", path, "size", len(content), "truncated", truncated)
+		slog.Info("read_file ok", "path", path, "size", len(content), "truncated", truncated, "session", sessionID, "duration", time.Since(start).String())
 		tools.RecordOperation(ctx, deps.Store, sessionID, "read_file", path, "success", "", map[string]any{"path": path, "truncated": truncated})
 
 		return tools.Result(map[string]any{

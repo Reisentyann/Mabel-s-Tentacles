@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/cmd/server/main.go —— 服务入口：装配 config/logging/repo/search/api/mcp + 优雅关停 + 不安全默认值告警
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package main
 
 import (

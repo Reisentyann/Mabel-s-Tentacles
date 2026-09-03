@@ -1,3 +1,6 @@
+// 文件：describer-go/basic/basic_test.go —— cod-basic 单元测试
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package basic
 
 import "testing"

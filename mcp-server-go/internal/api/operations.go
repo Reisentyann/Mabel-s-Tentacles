@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/api/operations.go —— 操作记录端点：分页列表（谁在什么时候调了什么工具）
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package api
 
 import (

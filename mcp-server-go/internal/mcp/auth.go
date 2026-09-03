@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/mcp/auth.go —— MCP API Key 中间件：Bearer 常量时间比对（未配置则放行）
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package mcp
 
 import (

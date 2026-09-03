@@ -1,3 +1,6 @@
+// 文件：describer-go/image/exif.go —— JPEG EXIF 提取：固定三件套 + sp-cod-exif-* 长尾
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package image
 
 import (

@@ -1,3 +1,6 @@
+// 文件：describer-go/image/image.go —— cod-image 插件：尺寸/长宽比/调色板/色系/亮度对比（k-means 确定性）
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 // Package image cod-image 插件：图像确定性事实（尺寸/调色板/色系/亮度）。
 // 字段字典见 docs/元数据字段说明.md 第 4.2 节。
 // 全部算法确定性：k-means 固定迭代 + 确定性初始化，同一输入永远同一输出。

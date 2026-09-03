@@ -1,8 +1,12 @@
+// 文件：mcp-server-go/internal/tools/modifydatafile/modifydatafile.go —— MCP 工具 modify_data_file：append/overwrite + 元数据刷新
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package modifydatafile
 
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -43,10 +47,11 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		mode := req.GetString("mode", "append")
 
 		sessionID := tools.SessionID(ctx)
+		start := time.Now()
 		params := map[string]any{"file_path": filePath, "mode": mode, "content_size": len(content)}
 
 		if err := service.SafeModify(deps.Cfg.DataDir, filePath, content, mode); err != nil {
-			slog.Error("modify_data_file failed", "path", filePath, "mode", mode, "error", err)
+			slog.Error("modify_data_file failed", "path", filePath, "mode", mode, "session", sessionID, "error", err, "duration", time.Since(start).String())
 			tools.RecordOperation(ctx, deps.Store, sessionID, "modify_data_file", filePath, "failed", err.Error(), params)
 			return tools.ResultError(err.Error()), nil
 		}
@@ -55,10 +60,10 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		if full, rerr := service.SafeRead(deps.Cfg.DataDir, filePath); rerr == nil {
 			tools.RecordFileMeta(ctx, deps.Store, filePath, full, sessionID)
 		} else {
-			slog.Warn("refresh metadata after modify failed", "path", filePath, "error", rerr)
+			slog.Warn("refresh metadata after modify failed", "path", filePath, "session", sessionID, "error", rerr)
 		}
 
-		slog.Info("modify_data_file ok", "path", filePath, "mode", mode)
+		slog.Info("modify_data_file ok", "path", filePath, "mode", mode, "session", sessionID, "duration", time.Since(start).String())
 		tools.RecordOperation(ctx, deps.Store, sessionID, "modify_data_file", filePath, "success", "", params)
 		return tools.Result(map[string]any{"success": true, "message": "Successfully modified " + filePath + " in " + mode + " mode"}), nil
 	})

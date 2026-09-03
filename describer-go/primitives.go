@@ -1,3 +1,6 @@
+// 文件：describer-go/primitives.go —— 共享原语（≈ image/color）：Round2/Round1/TrimRunes/IsCJK/IsKana/ToSlashLower
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package describer
 
 import "strings"

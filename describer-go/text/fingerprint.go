@@ -1,3 +1,6 @@
+// 文件：describer-go/text/fingerprint.go —— 行文指纹字段：行长/数字/时间戳/重复/段落/句子/对话/标点/多样性/实体计数/eol/bom
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 // Package text 内的 fingerprint.go：cod-text 行文指纹字段（文体侧写，纯统计）。
 // 字段字典见 docs/元数据字段说明.md 第 4.3.3 节。
 // 全部共享 textCtx（decoded/lines/runes），一遍 rune + 一遍行 + 正则扫描。

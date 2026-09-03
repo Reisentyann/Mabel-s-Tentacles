@@ -1,3 +1,6 @@
+// 文件：describer-go/llm/store_test.go —— LLMStore 策略单元测试
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package llm
 
 import (

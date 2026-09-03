@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/api/metadata.go —— 元数据端点：搜索 / 查看元数据 / 描述（llm 闸门）/ 复制
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package api
 
 import (

@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/mcp/server.go —— MCP 服务器装配：SSE 端点 + 工具注册（tools/all）
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package mcp
 
 import (

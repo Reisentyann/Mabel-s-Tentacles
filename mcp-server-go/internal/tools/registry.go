@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/tools/registry.go —— 工具注册表：Deps 依赖集 + Register / RegisterAll
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package tools
 
 import (

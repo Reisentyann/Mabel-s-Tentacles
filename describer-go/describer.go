@@ -1,3 +1,6 @@
+// 文件：describer-go/describer.go —— 描述引擎本体：Descriptor 接口 + 注册表 + Analyze 编排（basic 恒跑 + 路由 + 共享全量加载）
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 // Package describer 是确定性文件描述引擎：字节进、事实出。
 // 产出仅允许 cod- 前缀固定字段与 sp-cod- 自由字段，字段字典见仓库
 // docs/元数据字段说明.md；模型轨（llm-*）在 llm 子包。

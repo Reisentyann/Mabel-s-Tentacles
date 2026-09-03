@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/tools/all/all.go —— MCP 工具聚合 blank import
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 // Package all 集中 blank import 所有工具子包，触发各自的 init() 自注册。
 // 新增工具：新建子包后，在这里加一行 import。
 package all

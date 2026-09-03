@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/tools/describefile/describefile.go —— MCP 工具 describe_file：描述三件套 + llm 字段（过 LLMStore 闸门）
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package describefile
 
 import (
@@ -72,6 +75,7 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		}
 
 		sessionID := tools.SessionID(ctx)
+		start := time.Now()
 
 		target, err := service.ResolvePath(deps.Cfg.DataDir, filePath)
 		if err != nil {
@@ -108,7 +112,7 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			st.SetMany(in)
 			for _, r := range st.Rejected() {
 				slog.Warn("describe_file attribute rejected by llm middleware",
-					"path", filePath, "key", r.Key, "op", r.Op, "reason", r.Reason)
+					"path", filePath, "session", sessionID, "key", r.Key, "op", r.Op, "reason", r.Reason)
 				rejectedList = append(rejectedList, r.Key+"("+r.Op+"): "+r.Reason)
 			}
 			existing = st.Commit(existing, llm.LLMSourceAgent, time.Now())
@@ -125,12 +129,12 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		}
 		if deps.Store != nil {
 			if err := deps.Store.UpsertMetadata(ctx, meta); err != nil {
-				slog.Error("describe_file failed", "path", filePath, "error", err)
+				slog.Error("describe_file failed", "path", filePath, "session", sessionID, "error", err, "duration", time.Since(start).String())
 				return tools.ResultError("Database error: " + err.Error()), nil
 			}
 		}
 
-		slog.Info("describe_file ok", "path", filePath, "mode", mode)
+		slog.Info("describe_file ok", "path", filePath, "mode", mode, "rejected", len(rejectedList), "session", sessionID, "duration", time.Since(start).String())
 		tools.RecordOperation(ctx, deps.Store, sessionID, "describe_file", filePath, "success", "", map[string]any{"description": description, "tags": tags, "file_type": fileType, "mode": mode})
 		result := map[string]any{"success": true, "message": "Successfully described " + filePath}
 		if len(rejectedList) > 0 {

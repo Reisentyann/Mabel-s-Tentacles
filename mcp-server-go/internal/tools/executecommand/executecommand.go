@@ -1,8 +1,12 @@
+// 文件：mcp-server-go/internal/tools/executecommand/executecommand.go —— MCP 工具 execute_command：Shell 执行 + 记录入库
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package executecommand
 
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -39,11 +43,12 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		}
 
 		sessionID := tools.SessionID(ctx)
+		start := time.Now()
 
 		var commandID int64
 		if deps.Store != nil {
 			if commandID, err = deps.Store.InsertCommand(ctx, userID, command); err != nil {
-				slog.Error("insert command record failed", "error", err)
+				slog.Error("insert command record failed", "command", command, "user", userID, "session", sessionID, "error", err)
 				return tools.ResultError("Database error: " + err.Error()), nil
 			}
 		}
@@ -56,11 +61,14 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		}
 		if deps.Store != nil {
 			if err := deps.Store.UpdateCommand(ctx, commandID, status, stdout, stderr, exitCode); err != nil {
-				slog.Error("update command record failed", "error", err)
+				slog.Error("update command record failed", "command_id", commandID, "session", sessionID, "error", err)
 			}
 		}
 
-		slog.Info("execute_command finished", "command", command, "exit_code", exitCode)
+		slog.Info("execute_command finished",
+			"command", command, "user", userID, "session", sessionID,
+			"exit_code", exitCode, "bytes_out", len(stdout), "bytes_err", len(stderr),
+			"duration", time.Since(start).String())
 
 		opStatus := "success"
 		if exitCode != 0 {

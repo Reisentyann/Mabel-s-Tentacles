@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/service/files.go —— 文件安全操作：SafeWrite/SafeRead/SafeModify/SafeList + 防目录穿越 + 5MB 上限
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package service
 
 import (

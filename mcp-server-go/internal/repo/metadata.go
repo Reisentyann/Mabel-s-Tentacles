@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/repo/metadata.go —— file_metadata 表存取：FileMetadata 模型 / Upsert(COALESCE) / 搜索 / 软删
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package repo
 
 import (

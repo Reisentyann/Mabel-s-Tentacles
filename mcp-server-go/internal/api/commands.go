@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/api/commands.go —— 命令记录端点：分页列表 / 单条详情（Dashboard 数据源）
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package api
 
 import (
