@@ -92,3 +92,6 @@ test/fixtures-report.json
 
 # 本地小结备忘（不入库）
 小结.md
+
+# 本地个人工作规则 skill（不入库；build-test-fixtures 是共享测试设施，保留入库）
+.opencode/skill/code-modify-rules/
