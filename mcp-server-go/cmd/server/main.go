@@ -39,6 +39,7 @@ func main() {
 		"download_base_url", cfg.API.DownloadBaseURL,
 		"admin_username", cfg.Admin.Username,
 	)
+	warnInsecureDefaults(cfg)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -88,6 +89,22 @@ func main() {
 	slog.Info("shutting down")
 	sse.CloseSessions()
 	_ = httpServer.Shutdown(context.Background())
+}
+
+// warnInsecureDefaults 检测仍在使用示例默认值的安全配置，启动时大声告警（不阻断启动）。
+func warnInsecureDefaults(cfg *config.Config) {
+	if cfg.Security.SecretKey == "supersecretkey" {
+		slog.Warn("insecure config: security.secret_key 还是示例默认值 supersecretkey，JWT 可被伪造，生产环境必须修改（config.yml 或 SECRET_KEY 环境变量）")
+	}
+	if cfg.Admin.Password == "admin123" {
+		slog.Warn("insecure config: admin.password 还是示例默认值 admin123，任何人都能登录管理端，生产环境必须修改（config.yml 或 ADMIN_PASSWORD 环境变量）")
+	}
+	if cfg.API.RequireAuth {
+		// 开着鉴权却没配下载 token 时，/api/files/download 会裸奔，这里只提示一句
+		if cfg.API.AccessToken == "" {
+			slog.Warn("insecure config: require_auth 已开启但 api.access_token 为空，/api/files/download 下载端点将不做鉴权")
+		}
+	}
 }
 
 // bootstrapAdmin 启动时确保默认管理员存在（等价 Python 的 lifespan）。

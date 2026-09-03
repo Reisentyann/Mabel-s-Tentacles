@@ -9,5 +9,6 @@ import (
 	_ "github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools/getresults"
 	_ "github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools/listdatafiles"
 	_ "github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools/modifydatafile"
+	_ "github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools/readfile"
 	_ "github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools/writefile"
 )
