@@ -89,7 +89,7 @@ func TestNullTombstoneDeletes(t *testing.T) {
 	st := OpenLLM()
 	st.SetMany(map[string]any{
 		"sp-llm-游戏名": nil, // JSON null = 删除墓碑
-		"llm-tone":    "新基调",
+		"llm-tone":   "新基调",
 	})
 	existing := map[string]any{
 		"sp-llm-游戏名": "狼人杀",

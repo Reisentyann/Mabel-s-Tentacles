@@ -25,6 +25,9 @@ func init() { describer.Register(descriptor{}) }
 type descriptor struct{}
 
 func (descriptor) Family() string { return "image" }
+
+// FamilyVersion=1：首发版本（尺寸/调色板/色系/亮度/EXIF/PNG tEXt）。
+func (descriptor) FamilyVersion() int { return 1 }
 func (descriptor) SPNamespaces() []string {
 	return []string{"sp-cod-exif-", "sp-cod-png-"}
 }

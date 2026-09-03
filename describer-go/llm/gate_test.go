@@ -7,15 +7,15 @@ import (
 
 func TestSanitizeLLM(t *testing.T) {
 	in := map[string]any{
-		"llm-semantic-type": "game_guide",      // 合法枚举
-		"llm-tone":          "暖橙温馨",          // 合法自由短语
-		"llm-characters":    []any{"梅贝尔", "铃仙"}, // 数组
-		"llm-summary":       "一句话",             //
-		"sp-llm-游戏名":        "狼人杀",            // 自由字段放行
-		"llm-semantic-type-x": "bad",            // 未定义 llm- 字段
-		"cod-image-width":     64,               // 模型试图写 cod 前缀
-		"llm-foo":             "x",              // 未定义 llm- 字段
-		"llm-semantic-type2":  "novel",          // 未定义
+		"llm-semantic-type":   "game_guide",       // 合法枚举
+		"llm-tone":            "暖橙温馨",             // 合法自由短语
+		"llm-characters":      []any{"梅贝尔", "铃仙"}, // 数组
+		"llm-summary":         "一句话",              //
+		"sp-llm-游戏名":          "狼人杀",              // 自由字段放行
+		"llm-semantic-type-x": "bad",              // 未定义 llm- 字段
+		"cod-image-width":     64,                 // 模型试图写 cod 前缀
+		"llm-foo":             "x",                // 未定义 llm- 字段
+		"llm-semantic-type2":  "novel",            // 未定义
 	}
 	out, dropped := SanitizeLLM(in)
 	if out["llm-semantic-type"] != "game_guide" {

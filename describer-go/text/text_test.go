@@ -124,3 +124,104 @@ func TestFrontmatter(t *testing.T) {
 		t.Fatalf("frontmatter not detected: %#v", st)
 	}
 }
+
+func TestQuantCounts(t *testing.T) {
+	src := "# 标题\n\n" +
+		"- 项一\n- 项二\n  - 嵌套项\n1. 有序项\n\n" +
+		"| a | b |\n|---|---|\n| 1 | 2 |\n\n" +
+		"> 引用行\n\n" +
+		"- [ ] 待办\n- [x] 完成\n\n" +
+		"```\nline1\nline2\n```\n"
+	d := descriptor{}
+	attrs, _ := d.Analyze(zeroInput(), []byte(src))
+
+	if attrs["cod-text-table-blocks"].(int) != 1 {
+		t.Fatalf("table-blocks = %v", attrs["cod-text-table-blocks"])
+	}
+	if attrs["cod-text-table-rows"].(int) != 3 {
+		t.Fatalf("table-rows = %v", attrs["cod-text-table-rows"])
+	}
+	if attrs["cod-text-table-cols"].(int) != 2 {
+		t.Fatalf("table-cols = %v", attrs["cod-text-table-cols"])
+	}
+	if attrs["cod-text-list-items"].(int) != 6 {
+		t.Fatalf("list-items = %v, want 6", attrs["cod-text-list-items"])
+	}
+	if attrs["cod-text-list-nesting-max"].(int) != 2 {
+		t.Fatalf("list-nesting-max = %v", attrs["cod-text-list-nesting-max"])
+	}
+	if attrs["cod-text-ordered-ratio"].(float64) != 0.17 {
+		t.Fatalf("ordered-ratio = %v, want 0.17", attrs["cod-text-ordered-ratio"])
+	}
+	if attrs["cod-text-code-lines"].(int) != 2 {
+		t.Fatalf("code-lines = %v", attrs["cod-text-code-lines"])
+	}
+	if attrs["cod-text-quote-lines"].(int) != 1 {
+		t.Fatalf("quote-lines = %v", attrs["cod-text-quote-lines"])
+	}
+	if attrs["cod-text-checkboxes"].(int) != 2 {
+		t.Fatalf("checkboxes = %v", attrs["cod-text-checkboxes"])
+	}
+	if attrs["cod-text-indent-max"].(int) != 1 {
+		t.Fatalf("indent-max = %v", attrs["cod-text-indent-max"])
+	}
+}
+
+func TestFingerprint(t *testing.T) {
+	src := "第一段。第二句！\n\n“对话内容”叙述。\n复读行\n复读行\n"
+	d := descriptor{}
+	attrs, _ := d.Analyze(zeroInput(), []byte(src))
+
+	if attrs["cod-text-sentences"].(int) != 3 {
+		t.Fatalf("sentences = %v, want 3", attrs["cod-text-sentences"])
+	}
+	if attrs["cod-text-dialog-ratio"].(float64) != 0.14 {
+		t.Fatalf("dialog-ratio = %v, want 0.14", attrs["cod-text-dialog-ratio"])
+	}
+	if attrs["cod-text-repeat-line-ratio"].(float64) != 0.5 {
+		t.Fatalf("repeat-line-ratio = %v, want 0.5", attrs["cod-text-repeat-line-ratio"])
+	}
+	if attrs["cod-text-paragraphs"].(int) != 2 {
+		t.Fatalf("paragraphs = %v, want 2", attrs["cod-text-paragraphs"])
+	}
+	if attrs["cod-text-avg-para-len"].(float64) != 11.5 {
+		t.Fatalf("avg-para-len = %v, want 11.5", attrs["cod-text-avg-para-len"])
+	}
+	if attrs["cod-text-eol"] != "lf" {
+		t.Fatalf("eol = %v, want lf", attrs["cod-text-eol"])
+	}
+	if attrs["cod-text-has-bom"] != false {
+		t.Fatalf("has-bom = %v", attrs["cod-text-has-bom"])
+	}
+	if attrs["cod-text-digit-ratio"].(float64) != 0 {
+		t.Fatalf("digit-ratio = %v", attrs["cod-text-digit-ratio"])
+	}
+}
+
+func TestTimestampSpan(t *testing.T) {
+	src := "2026-08-27 23:02:02 start\n2026-08-27 23:05:12 end\n"
+	d := descriptor{}
+	attrs, _ := d.Analyze(zeroInput(), []byte(src))
+
+	if attrs["cod-text-timestamp-count"].(int) != 2 {
+		t.Fatalf("timestamp-count = %v", attrs["cod-text-timestamp-count"])
+	}
+	if attrs["cod-text-time-span"].(int64) != 190 {
+		t.Fatalf("time-span = %v, want 190", attrs["cod-text-time-span"])
+	}
+}
+
+func TestEOLAndBOM(t *testing.T) {
+	d := descriptor{}
+
+	attrs, _ := d.Analyze(zeroInput(), []byte("行一\r\n行二\r\n"))
+	if attrs["cod-text-eol"] != "crlf" {
+		t.Fatalf("eol = %v, want crlf", attrs["cod-text-eol"])
+	}
+
+	bom := append([]byte{0xEF, 0xBB, 0xBF}, []byte("BOM 文本")...)
+	attrs, _ = d.Analyze(zeroInput(), bom)
+	if attrs["cod-text-has-bom"] != true {
+		t.Fatalf("has-bom = %v, want true", attrs["cod-text-has-bom"])
+	}
+}

@@ -4,15 +4,15 @@ import "testing"
 
 func TestNamePattern(t *testing.T) {
 	cases := map[string]string{
-		"IMG_1234.jpg":       "camera",
-		"DSC00856.png":       "camera",
-		"截图2026-09-01.png":  "screenshot",
-		"Screenshot_12.png":  "screenshot",
-		"2026-09-01_2353.md": "timestamped",
+		"IMG_1234.jpg":        "camera",
+		"DSC00856.png":        "camera",
+		"截图2026-09-01.png":    "screenshot",
+		"Screenshot_12.png":   "screenshot",
+		"2026-09-01_2353.md":  "timestamped",
 		"20260901_235301.txt": "timestamped",
-		"deadbeefdeadbeef":   "hashlike",
-		"report_v1.2.pdf":    "versioned",
-		"随便什么.md":           "plain",
+		"deadbeefdeadbeef":    "hashlike",
+		"report_v1.2.pdf":     "versioned",
+		"随便什么.md":             "plain",
 	}
 	for name, want := range cases {
 		if got := namePattern(name); got != want {

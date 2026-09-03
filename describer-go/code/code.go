@@ -23,7 +23,8 @@ var codeLangs = map[string]string{
 	".html": "html", ".swift": "swift", ".kt": "kotlin",
 }
 
-func (descriptor) Family() string { return "code" }
+func (descriptor) Family() string         { return "code" }
+func (descriptor) FamilyVersion() int     { return 1 }
 func (descriptor) SPNamespaces() []string { return nil }
 func (descriptor) Supports(path string, _ []byte, b describer.Basic) bool {
 	if !b.Textish {
@@ -34,15 +35,15 @@ func (descriptor) Supports(path string, _ []byte, b describer.Basic) bool {
 }
 
 var (
-	reGoImport   = regexp.MustCompile(`(?m)^\s*import\s+(?:_\s+|\w+\s+)?"([^"]+)"`)
-	reGoBlock    = regexp.MustCompile(`(?m)^\s*"([^"]+)"\s*$`)
-	reESFrom     = regexp.MustCompile(`(?m)^\s*(?:import|export)\s+[^\n]*?from\s+["']([^"']+)["']`)
-	reESImport   = regexp.MustCompile(`(?m)^\s*import\s+["']([^"']+)["']`)
-	reRequire    = regexp.MustCompile(`(?m)^\s*(?:const|let|var)\s+\w+(?:\s*=\s*)?\w*\s*=\s*require\(\s*["']([^"']+)["']`)
-	rePyFrom     = regexp.MustCompile(`(?m)^\s*from\s+([\w.]+)\s+import\b`)
-	rePyImport   = regexp.MustCompile(`(?m)^\s*import\s+([\w.]+)`)
-	reCInclude   = regexp.MustCompile(`(?m)^\s*#\s*include\s+[<"]([^>"]+)[>"]`)
-	reTODO       = regexp.MustCompile(`(?i)\b(TODO|FIXME)\b`)
+	reGoImport    = regexp.MustCompile(`(?m)^\s*import\s+(?:_\s+|\w+\s+)?"([^"]+)"`)
+	reGoBlock     = regexp.MustCompile(`(?m)^\s*"([^"]+)"\s*$`)
+	reESFrom      = regexp.MustCompile(`(?m)^\s*(?:import|export)\s+[^\n]*?from\s+["']([^"']+)["']`)
+	reESImport    = regexp.MustCompile(`(?m)^\s*import\s+["']([^"']+)["']`)
+	reRequire     = regexp.MustCompile(`(?m)^\s*(?:const|let|var)\s+\w+(?:\s*=\s*)?\w*\s*=\s*require\(\s*["']([^"']+)["']`)
+	rePyFrom      = regexp.MustCompile(`(?m)^\s*from\s+([\w.]+)\s+import\b`)
+	rePyImport    = regexp.MustCompile(`(?m)^\s*import\s+([\w.]+)`)
+	reCInclude    = regexp.MustCompile(`(?m)^\s*#\s*include\s+[<"]([^>"]+)[>"]`)
+	reTODO        = regexp.MustCompile(`(?i)\b(TODO|FIXME)\b`)
 	reGoImportBlk = regexp.MustCompile(`(?s)import\s*\(([^)]*)\)`)
 )
 

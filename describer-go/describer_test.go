@@ -92,6 +92,12 @@ func TestAnalyzeEnginePNG(t *testing.T) {
 	if merged["cod-image-at"] != mtime.Unix() {
 		t.Fatal("cod-image-at should be set")
 	}
+	if merged["cod-image-ver"] != 1 {
+		t.Fatal("cod-image-ver should be set")
+	}
+	if merged["cod-basic-ver"] != 1 {
+		t.Fatal("cod-basic-ver should be set")
+	}
 	b, _ := json.Marshal(merged)
 	if string(b) == "" {
 		t.Fatal("unreachable")

@@ -16,9 +16,10 @@ func init() { describer.Register(descriptor{}) }
 
 type descriptor struct{}
 
-func (descriptor) Family() string                                    { return "basic" }
-func (descriptor) Supports(string, []byte, describer.Basic) bool     { return true }
-func (descriptor) SPNamespaces() []string                            { return nil }
+func (descriptor) Family() string                                { return "basic" }
+func (descriptor) FamilyVersion() int                            { return 1 }
+func (descriptor) Supports(string, []byte, describer.Basic) bool { return true }
+func (descriptor) SPNamespaces() []string                        { return nil }
 func (descriptor) Analyze(in describer.Input, _ []byte) (map[string]any, map[string]string) {
 	a := map[string]any{}
 

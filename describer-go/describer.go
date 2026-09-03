@@ -25,6 +25,7 @@ type Loader func() ([]byte, error)
 // （cod-<family>-<字段> 与 sp-cod-<自由字段>），nil 字段族不会出现键。
 type Result struct {
 	Family  string
+	Ver     int // 家族算法版本（FamilyVersion()），合并时落 cod-<family>-ver
 	Attrs   map[string]any
 	SPPurge []string // 本家族负责的 sp-cod- 前缀（整族替换时一并清除旧键）
 }
@@ -39,6 +40,9 @@ type Basic struct {
 // （键为代码中的字面量，不存在任意键出口）与 SP 自由字段。
 type Descriptor interface {
 	Family() string
+	// FamilyVersion 家族算法版本（字段字典第 10.1 节）：
+	// 新增字段 / 改算法输出 / 删字段 → +1；纯重构不改输出 → 不动。
+	FamilyVersion() int
 	Supports(path string, head []byte, b Basic) bool
 	SPNamespaces() []string
 	Analyze(in Input, full []byte) (attrs map[string]any, sp map[string]string)
@@ -66,7 +70,7 @@ func Analyze(in Input, load Loader) []Result {
 		if len(attrs) == 0 {
 			continue
 		}
-		results = append(results, Result{Family: "basic", Attrs: attrs})
+		results = append(results, Result{Family: "basic", Ver: d.FamilyVersion(), Attrs: attrs})
 		if v, ok := attrs["cod-basic-mime"].(string); ok {
 			b.Mime = v
 		}
@@ -113,7 +117,7 @@ func Analyze(in Input, load Loader) []Result {
 			attrs["sp-cod-"+k] = v
 		}
 		if len(attrs) > 0 {
-			results = append(results, Result{Family: d.Family(), Attrs: attrs, SPPurge: d.SPNamespaces()})
+			results = append(results, Result{Family: d.Family(), Ver: d.FamilyVersion(), Attrs: attrs, SPPurge: d.SPNamespaces()})
 		}
 	}
 	return results
