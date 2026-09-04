@@ -1,5 +1,5 @@
 // 文件：describer-go/text/extractor.go —— cod-text 字段注册表：一个字段一个 extractor，注册序即产出序
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-04（日期由 fresh-header.ps1 刷新）
 
 // Package text 内的 extractor.go 定义字段注册表：一个字段一个 extractor，
 // 注册序即产出序（确定）。加字段不动 text.go 主编排，只动本文件 + 对应分类文件。
@@ -39,6 +39,12 @@ var extractors = []extractor{
 	{name: "language", extract: extractLanguage},
 	{name: "blank-ratio", extract: extractBlankRatio},
 	{name: "top-keywords", extract: extractTopKeywords},
+	{name: "shebang", extract: extractShebang},
+	{name: "final-newline", extract: extractFinalNewline},
+	{name: "non-ascii-ratio", extract: extractNonASCIIRatio},
+	{name: "upper-ratio", extract: extractUpperRatio},
+	{name: "word-count", extract: extractWordCount},
+	{name: "avg-word-len", extract: extractAvgWordLen},
 
 	// —— 结构（structure.go，4.3.1）——
 	{name: "title-line", extract: extractTitleLine},
@@ -56,6 +62,9 @@ var extractors = []extractor{
 	{name: "quote-lines", extract: extractQuoteLines},
 	{name: "checkboxes", extract: extractCheckboxes},
 	{name: "indent-max", extract: extractIndentMax},
+	{name: "trailing-space-lines", extract: extractTrailingSpaceLines},
+	{name: "consecutive-blank-max", extract: extractConsecutiveBlankMax},
+	{name: "indent-style", extract: extractIndentStyle},
 
 	// —— 行文指纹（fingerprint.go，4.3.3）——
 	{name: "avg-line-len", extract: extractAvgLineLen},
@@ -79,4 +88,8 @@ var extractors = []extractor{
 	{name: "link-count", extract: extractLinkCount},
 	{name: "eol", extract: extractEOL},
 	{name: "has-bom", extract: extractHasBOM},
+	{name: "longest-line", extract: extractLongestLine},
+	{name: "minified", extract: extractMinified},
+	{name: "timestamp-line-ratio", extract: extractTimestampLineRatio},
+	{name: "bracket-balance", extract: extractBracketBalance},
 }

@@ -1,5 +1,5 @@
 // 文件：describer-go/text/structure.go —— 结构字段：title-line/headings/structure + 结构量化计数（table/list/code/quote/checkbox/indent）
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-04（日期由 fresh-header.ps1 刷新）
 
 // Package text 内的 structure.go：cod-text 结构类字段。
 // 字段字典见 docs/元数据字段说明.md 第 4.3 节结构部分（title-line/headings/structure）
@@ -146,16 +146,20 @@ func structure(lines []string) []string {
 
 // quantCounts 结构量化计数（字段字典 4.3.2）。纯计数 0 也是事实（0 也产键）。
 type quantCounts struct {
-	tableBlocks int
-	tableRows   int
-	tableCols   int
-	listItems   int
-	listNest    int
-	orderedN    int
-	codeLines   int
-	quoteLines  int
-	checkboxes  int
-	indentMax   int
+	tableBlocks   int
+	tableRows     int
+	tableCols     int
+	listItems     int
+	listNest      int
+	orderedN      int
+	codeLines     int
+	quoteLines    int
+	checkboxes    int
+	indentMax     int
+	trailingSpace int // 行尾空白行（脏文件/lint 指纹）
+	blankRunMax   int // 最大连续空行数
+	tabIndentN    int // tab 缩进行数
+	spaceIndentN  int // 空格缩进行数
 }
 
 // countQuant 一次行遍历产出全部结构量化计数。
@@ -164,9 +168,29 @@ func countQuant(lines []string) *quantCounts {
 	q := &quantCounts{}
 	inTable := false
 	inFence := false
+	blankRun := 0
 	for _, raw := range lines {
 		l := strings.TrimRight(raw, "\r")
 		trimmed := strings.TrimSpace(l)
+
+		// 行尾空白 / 连续空行 / 缩进风格（fence 内外都算：物理行事实）
+		if trimmed == "" {
+			blankRun++
+			if blankRun > q.blankRunMax {
+				q.blankRunMax = blankRun
+			}
+		} else {
+			blankRun = 0
+			if strings.HasSuffix(l, " ") || strings.HasSuffix(l, "\t") {
+				q.trailingSpace++
+			}
+			switch l[0] {
+			case '\t':
+				q.tabIndentN++
+			case ' ':
+				q.spaceIndentN++
+			}
+		}
 
 		if strings.HasPrefix(trimmed, "```") {
 			inFence = !inFence
@@ -250,6 +274,27 @@ func extractCodeLines(ctx *textCtx) any      { return ctx.Quant().codeLines }
 func extractQuoteLines(ctx *textCtx) any     { return ctx.Quant().quoteLines }
 func extractCheckboxes(ctx *textCtx) any     { return ctx.Quant().checkboxes }
 func extractIndentMax(ctx *textCtx) any      { return ctx.Quant().indentMax }
+func extractTrailingSpaceLines(ctx *textCtx) any {
+	return ctx.Quant().trailingSpace
+}
+func extractConsecutiveBlankMax(ctx *textCtx) any {
+	return ctx.Quant().blankRunMax
+}
+
+// extractIndentStyle 缩进风格：tab / space / mixed / none（无缩进行）。
+func extractIndentStyle(ctx *textCtx) any {
+	q := ctx.Quant()
+	switch {
+	case q.tabIndentN > 0 && q.spaceIndentN > 0:
+		return "mixed"
+	case q.tabIndentN > 0:
+		return "tab"
+	case q.spaceIndentN > 0:
+		return "space"
+	default:
+		return "none"
+	}
+}
 
 func extractOrderedRatio(ctx *textCtx) any {
 	q := ctx.Quant()

@@ -1,5 +1,5 @@
-// 文件：indexer-go/mem.go —— 索引机进程内内存实现：字段级独立桶 + RWMutex 并发保护
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 文件：indexer-go/mem.go —— 索引机进程内内存实现：字段级独立桶 + RWMutex 并发保护 + Stats 自省
+// 修改：2026-09-04（日期由 fresh-header.ps1 刷新）
 
 // Package indexer 的 mem.go 是进程内内存实现：field → 桶。
 // DB 是唯一事实源，本实现是派生缓存——可丢弃可重建（Rebuild），
@@ -94,6 +94,20 @@ func combine(sets []map[string]struct{}, mode Combine) map[string]struct{} {
 		}
 	}
 	return out
+}
+
+// Stats 运行计量：桶数 / 键·条目数 / 挂载点数。读锁遍历，纯自省。
+// 排查"索引与 DB 不一致"时的第一抓手（空索引/超预期膨胀一眼可见）。
+func (m *memIndexer) Stats() Stats {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	s := Stats{Fields: len(m.buckets)}
+	for _, b := range m.buckets {
+		k, mo := b.stats()
+		s.Keys += k
+		s.Mounts += mo
+	}
+	return s
 }
 
 // Update 写路径喂食：old/new 为该文件变更前后的 attributes（读-改-写

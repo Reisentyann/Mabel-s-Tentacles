@@ -1,5 +1,5 @@
-// 文件：describer-go/image/image.go —— cod-image 插件：尺寸/长宽比/调色板/色系/亮度对比（k-means 确定性）
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 文件：describer-go/image/image.go —— cod-image 插件：尺寸/长宽比/调色板/色系/亮度对比/明暗/冷暖/肤色/梯度/对称（k-means 确定性）
+// 修改：2026-09-04（日期由 fresh-header.ps1 刷新）
 
 // Package image cod-image 插件：图像确定性事实（尺寸/调色板/色系/亮度）。
 // 字段字典见 docs/元数据字段说明.md 第 4.2 节。
@@ -31,7 +31,10 @@ func (descriptor) Family() string { return "image" }
 
 // FamilyVersion=2：v1 首发；v2 修 contrast 纯色图 NaN——方差浮点误差可微负，
 // 须钳非负再开方（旧实现产出 NaN，经旧 Round1 截断成垃圾整数）。
-func (descriptor) FamilyVersion() int { return 2 }
+// v3 增补 P2 画像字段 13 个（字段字典 4.2 节）：color-count/flat-ratio/dark/
+// light/saturation/warm-ratio/cool-ratio/edge-density/sharpness/symmetry/
+// alpha-ratio/skin-tone-ratio/entropy。
+func (descriptor) FamilyVersion() int { return 3 }
 func (descriptor) SPNamespaces() []string {
 	return []string{"sp-cod-exif-", "sp-cod-png-"}
 }
@@ -65,23 +68,78 @@ func (descriptor) Analyze(_ describer.Input, full []byte) (map[string]any, map[s
 	a["cod-image-megapixels"] = describer.Round1(float64(w*h) / 1e6)
 
 	// 降采样到 ≤128×128（步长采样，确定性）
-	px := sample(img, 128)
+	px, gw, gh := sampleGrid(img, 128)
 	if len(px) == 0 {
 		return a, sp
 	}
+	n := float64(len(px))
 
 	// 亮度 / 对比度（luma 均值与标准差，0-100）。方差钳非负：纯色图的
 	// 浮点累计误差可致 sumsq/n-mean² 微负，直接开方会得 NaN。
 	var sum, sumsq float64
-	for _, p := range px {
+	lumas := make([]float64, len(px))
+	for i, p := range px {
 		l := luma(p)
+		lumas[i] = l
 		sum += l
 		sumsq += l * l
 	}
-	n := float64(len(px))
 	mean := sum / n
-	a["cod-image-brightness"] = describer.Round1(mean * 100 / 255)
+	brightness := mean * 100 / 255
+	a["cod-image-brightness"] = describer.Round1(brightness)
 	a["cod-image-contrast"] = describer.Round1(math.Sqrt(math.Max(0, sumsq/n-mean*mean)) * 100 / 255)
+
+	// P2：明暗整体判定（复用 mean luma）
+	a["cod-image-dark"] = brightness < 25
+	a["cod-image-light"] = brightness > 80
+
+	// P2 画像统计：一遍像素遍历（冷暖/肤色/alpha/luma 直方图/量化色桶）
+	var warmN, coolN, skinN, alphaN int
+	hist := [32]int{}
+	quant := map[uint32]int{} // 4bit/通道量化色桶 → 计数（color-count / flat-ratio）
+	for _, p := range px {
+		h, s, _ := rgbToHSL(p)
+		// 冷暖判定带饱和度门槛：灰/近灰（H 无意义）不算任何色系
+		if s >= 0.1 {
+			if h <= 60 || h >= 330 {
+				warmN++
+			}
+			if h >= 180 && h < 300 {
+				coolN++
+			}
+		}
+		if isSkinTone(p) {
+			skinN++
+		}
+		if p.a < 250 {
+			alphaN++
+		}
+		hist[int(luma(p))*32/256]++
+		quant[uint32(p.r>>4)<<8|uint32(p.g>>4)<<4|uint32(p.b>>4)]++
+	}
+	a["cod-image-warm-ratio"] = describer.Round2(float64(warmN) / n)
+	a["cod-image-cool-ratio"] = describer.Round2(float64(coolN) / n)
+	a["cod-image-skin-tone-ratio"] = describer.Round2(float64(skinN) / n)
+	a["cod-image-alpha-ratio"] = describer.Round2(float64(alphaN) / n)
+	a["cod-image-color-count"] = len(quant)
+	var flat float64
+	for _, c := range quant {
+		r := float64(c) / n
+		if r >= 0.05 {
+			flat += r
+		}
+	}
+	a["cod-image-flat-ratio"] = describer.Round2(flat)
+	// luma 直方图（32 桶）香农熵：纯色图 0，噪声图趋近 log2(32)
+	var ent float64
+	for _, c := range hist {
+		if c == 0 {
+			continue
+		}
+		p := float64(c) / n
+		ent -= p * math.Log2(p)
+	}
+	a["cod-image-entropy"] = describer.Round2(ent)
 
 	// 透明通道
 	for _, p := range px {
@@ -124,10 +182,59 @@ func (descriptor) Analyze(_ describer.Input, full []byte) (map[string]any, map[s
 		satSum += s
 	}
 	avgSat := satSum / n
+	a["cod-image-saturation"] = describer.Round1(avgSat * 100)
 	fam := familyOf(clusters[0].rgb(), avgSat)
 	a["cod-image-family"] = fam
 	if fam == "grayscale" {
 		a["cod-image-grayscale"] = true
+	}
+
+	// P2：梯度统计（Sobel 幅值曼哈顿 + 拉普拉斯响应方差，采样网格内部点）
+	if gw >= 3 && gh >= 3 {
+		inner, edges := 0, 0
+		var lapSum, lapSq float64
+		for y := 1; y < gh-1; y++ {
+			for x := 1; x < gw-1; x++ {
+				c := lumas[y*gw+x]
+				l := lumas[y*gw+x-1]
+				r := lumas[y*gw+x+1]
+				t := lumas[(y-1)*gw+x]
+				bt := lumas[(y+1)*gw+x]
+				gx := -lumas[(y-1)*gw+x-1] + lumas[(y-1)*gw+x+1] -
+					2*l + 2*r - lumas[(y+1)*gw+x-1] + lumas[(y+1)*gw+x+1]
+				gy := -lumas[(y-1)*gw+x-1] - 2*t - lumas[(y-1)*gw+x+1] +
+					lumas[(y+1)*gw+x-1] + 2*bt + lumas[(y+1)*gw+x+1]
+				inner++
+				if math.Abs(gx)+math.Abs(gy) > 40 {
+					edges++
+				}
+				lap := 4*c - l - r - t - bt
+				lapSum += lap
+				lapSq += lap * lap
+			}
+		}
+		if inner > 0 {
+			a["cod-image-edge-density"] = describer.Round2(float64(edges) / float64(inner))
+			lm := lapSum / float64(inner)
+			// 方差钳非负（同 contrast：浮点误差可微负）
+			a["cod-image-sharpness"] = describer.Round1(math.Max(0, lapSq/float64(inner)-lm*lm))
+		}
+	}
+
+	// P2：水平镜像对称度（左右半 luma 差 <16 的配对占比；海报/封面构图高）
+	if gw >= 2 {
+		pairs, sym := 0, 0
+		for y := 0; y < gh; y++ {
+			for x := 0; x < gw/2; x++ {
+				pairs++
+				if math.Abs(lumas[y*gw+x]-lumas[y*gw+(gw-1-x)]) < 16 {
+					sym++
+				}
+			}
+		}
+		if pairs > 0 {
+			a["cod-image-symmetry"] = describer.Round2(float64(sym) / float64(pairs))
+		}
 	}
 
 	// EXIF（JPEG）/ PNG 文本块
@@ -165,10 +272,17 @@ func aspect(w, h int) string {
 }
 
 func sample(img image.Image, maxDim int) []pixel {
+	px, _, _ := sampleGrid(img, maxDim)
+	return px
+}
+
+// sampleGrid 步长采样到 ≤maxDim×maxDim 网格（确定性），返回一维像素切片
+// 与网格宽高（P2 梯度/对称类字段按 px[y*gw+x] 二维访问）。
+func sampleGrid(img image.Image, maxDim int) ([]pixel, int, int) {
 	b := img.Bounds()
 	w, h := b.Dx(), b.Dy()
 	if w <= 0 || h <= 0 {
-		return nil
+		return nil, 0, 0
 	}
 	sx := (w + maxDim - 1) / maxDim
 	sy := (h + maxDim - 1) / maxDim
@@ -179,17 +293,30 @@ func sample(img image.Image, maxDim int) []pixel {
 		sy = 1
 	}
 	var px []pixel
+	gw, gh := 0, 0
 	for y := b.Min.Y; y < b.Max.Y; y += sy {
+		gh++
+		gw = 0
 		for x := b.Min.X; x < b.Max.X; x += sx {
 			r16, g16, b16, a16 := img.At(x, y).RGBA()
 			px = append(px, pixel{uint8(r16 >> 8), uint8(g16 >> 8), uint8(b16 >> 8), uint8(a16 >> 8)})
+			gw++
 		}
 	}
-	return px
+	return px, gw, gh
 }
 
 func luma(p pixel) float64 {
 	return 0.299*float64(p.r) + 0.587*float64(p.g) + 0.114*float64(p.b)
+}
+
+// isSkinTone 肤色范围判定（RGB 规则）：R>60 且 R>G>B 且 R-B>15 且 |R-G|<80。
+// int 转换防 uint8 相减下溢。
+func isSkinTone(p pixel) bool {
+	rg := int(p.r) - int(p.g)
+	return p.r > 60 && p.r > p.g && p.g > p.b &&
+		int(p.r)-int(p.b) > 15 &&
+		rg < 80 && rg > -80
 }
 
 func hex(p pixel) string {

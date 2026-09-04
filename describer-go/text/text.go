@@ -1,5 +1,5 @@
 // 文件：describer-go/text/text.go —— cod-text 插件主编排：建 ctx + 遍历 extractor 注册表（加字段不碰这里）
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-04（日期由 fresh-header.ps1 刷新）
 
 // Package text cod-text 插件：文本统计事实（无语义）。
 // 字段字典见 docs/元数据字段说明.md 第 4.3 节。
@@ -26,8 +26,12 @@ func (descriptor) Family() string { return "text" }
 // FamilyVersion=3：v2 增补 P0 结构量化（4.3.2）与行文指纹（4.3.3）；
 // v3 解码链增 UTF-16（BOM 判定 LE/BE）、GBK 要求零替换符（坏序列落
 // latin-1 兜底）、has-bom 口径扩展为任意 BOM（UTF-8 / UTF-16）。
-// 存量 cod-text-ver<3 由回填重算。
-func (descriptor) FamilyVersion() int { return 3 }
+// v4 增补 P2 字段 13 个（字段字典 4.3 各节末尾）：
+// shebang/final-newline/non-ascii-ratio/upper-ratio/word-count/avg-word-len、
+// trailing-space-lines/consecutive-blank-max/indent-style、
+// longest-line/minified/timestamp-line-ratio/bracket-balance。
+// 存量 cod-text-ver<4 由回填重算。
+func (descriptor) FamilyVersion() int { return 4 }
 
 func (descriptor) SPNamespaces() []string { return nil }
 func (descriptor) Supports(_ string, _ []byte, b describer.Basic) bool {

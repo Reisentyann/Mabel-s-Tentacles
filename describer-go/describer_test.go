@@ -1,5 +1,5 @@
-// 文件：describer-go/describer_test.go —— 引擎端到端测试：basic+路由+sp 前缀拼装 / 文本路由不串味 / 惰性加载只调一次
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 文件：describer-go/describer_test.go —— 引擎端到端测试：basic+路由+sp 前缀拼装 / 文本路由不串味 / 惰性加载只调一次 / 预算截断
+// 修改：2026-09-04（日期由 fresh-header.ps1 刷新）
 
 // 端到端：引擎把 basic + 路由 + sp 前缀拼起来。
 package describer_test
@@ -12,6 +12,7 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"strings"
 	"testing"
 	"time"
 
@@ -95,11 +96,11 @@ func TestAnalyzeEnginePNG(t *testing.T) {
 	if merged["cod-image-at"] != mtime.Unix() {
 		t.Fatal("cod-image-at should be set")
 	}
-	if merged["cod-image-ver"] != 2 {
-		t.Fatal("cod-image-ver should be set (image v2)")
+	if merged["cod-image-ver"] != 3 {
+		t.Fatal("cod-image-ver should be set (image v3)")
 	}
-	if merged["cod-basic-ver"] != 2 {
-		t.Fatal("cod-basic-ver should be set (basic v2)")
+	if merged["cod-basic-ver"] != 3 {
+		t.Fatal("cod-basic-ver should be set (basic v3)")
 	}
 	b, _ := json.Marshal(merged)
 	if string(b) == "" {
@@ -239,5 +240,40 @@ func TestAnalyzeEngineEmptyTextStampsFamily(t *testing.T) {
 	}
 	if m["llm-tone"] != "保留" {
 		t.Fatal("llm field must survive")
+	}
+}
+
+func TestAnalyzeEngineBudgetTruncation(t *testing.T) {
+	// 全量预算：5MB+1000B 文本截到 5MB（尾部 b 不得进入分析）
+	big := make([]byte, describer.MaxFullBytes+1000)
+	for i := range big {
+		big[i] = 'a'
+	}
+	copy(big[describer.MaxFullBytes:], []byte(strings.Repeat("b", 1000)))
+	in := describer.Input{Path: "big.txt", Head: big[:512], Full: big, ExtMime: "text/plain"}
+	rs := describer.Analyze(in, nil)
+	var chars any
+	for _, r := range rs {
+		if r.Family == "text" {
+			chars = r.Attrs["cod-text-chars"]
+		}
+	}
+	if chars == nil {
+		t.Fatal("text family should run on truncated full")
+	}
+	if chars.(int) != describer.MaxFullBytes {
+		t.Fatalf("chars = %v, want %d (5MB 截断)", chars, describer.MaxFullBytes)
+	}
+
+	// 头部预算：512B 全 'a' + 488B NUL → 截断后 entropy=0（纯 'a'）；
+	// 未截断则混合 NUL 的 entropy > 0。textish=false 不影响 entropy 产出。
+	head := append(bytes.Repeat([]byte{'a'}, 512), bytes.Repeat([]byte{0x00}, 488)...)
+	rs = describer.Analyze(describer.Input{Path: "x.bin", Head: head, Full: head}, nil)
+	for _, r := range rs {
+		if r.Family == "basic" {
+			if e, ok := r.Attrs["cod-basic-entropy"].(float64); !ok || e != 0 {
+				t.Fatalf("entropy = %v, want 0 (head truncated to 512B of 'a')", r.Attrs["cod-basic-entropy"])
+			}
+		}
 	}
 }

@@ -1,5 +1,5 @@
 // 文件：indexer-go/bucket.go —— 三型桶数据结构：每字段独立索引，加字段=加桶（架构设计.md 第 3 节）
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-04（日期由 fresh-header.ps1 刷新）
 
 // Package indexer 的 bucket.go 实现三型索引桶与归一化原语。
 //
@@ -31,6 +31,8 @@ type bucket interface {
 	remove(uuid string, v any)
 	// query 按条件求命中 uuid 集合（桶型只支持自己语义的 Op）。
 	query(cond Condition) (map[string]struct{}, error)
+	// stats 键数与挂载数（Stats 自省用；num 桶 keys 按条目计）。
+	stats() (keys, mounts int)
 }
 
 // enumBucket 枚举 / bool / 单值字符串桶：map[值]→uuid 集合，等值 O(1)。
@@ -69,6 +71,10 @@ func (b *enumBucket) query(cond Condition) (map[string]struct{}, error) {
 	return queryKeyed(b.m, cond)
 }
 
+func (b *enumBucket) stats() (int, int) {
+	return keyedStats(b.m)
+}
+
 // multiBucket 数组多值桶：值→uuid 集合，一个文件可挂多个值。
 // 适用：tags、llm-characters、cod-text-structure、cod-text-top-keywords
 // 等一切 array 字段（OpEq/OpIn 命中任一元素即整文件命中）。
@@ -94,6 +100,19 @@ func (b *multiBucket) remove(uuid string, v any) {
 
 func (b *multiBucket) query(cond Condition) (map[string]struct{}, error) {
 	return queryKeyed(b.m, cond)
+}
+
+func (b *multiBucket) stats() (int, int) {
+	return keyedStats(b.m)
+}
+
+// keyedStats 键值桶（enum/multi 同构）的计量：键数 + 挂载总数。
+func keyedStats(m map[string]map[string]struct{}) (int, int) {
+	mounts := 0
+	for _, set := range m {
+		mounts += len(set)
+	}
+	return len(m), mounts
 }
 
 func (b *multiBucket) mount(k, uuid string) {
@@ -229,6 +248,11 @@ func (b *numBucket) query(cond Condition) (map[string]struct{}, error) {
 		return out, nil
 	}
 	return nil, fmt.Errorf("indexer: 数值桶只支持 eq/gt/lt/range/in，字段 %s 收到 %s", cond.Field, cond.Op)
+}
+
+// stats 数值桶计量：keys 与 mounts 都按条目计（一个条目即一次挂载）。
+func (b *numBucket) stats() (int, int) {
+	return len(b.sorted), len(b.sorted)
 }
 
 // lowerBound 首个 val >= f 的下标；upperBound 首个 val > f 的下标。

@@ -1,5 +1,5 @@
-// 文件：describer-go/text/fingerprint.go —— 行文指纹字段：行长/数字/时间戳/重复/段落/句子/对话/标点/多样性/实体计数/eol/bom
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 文件：describer-go/text/fingerprint.go —— 行文指纹字段：行长/最长行/minified/数字/时间戳/时间戳行占比/括号配平/重复/段落/句子/对话/标点/多样性/实体计数/eol/bom
+// 修改：2026-09-04（日期由 fresh-header.ps1 刷新）
 
 // Package text 内的 fingerprint.go：cod-text 行文指纹字段（文体侧写，纯统计）。
 // 字段字典见 docs/元数据字段说明.md 第 4.3.3 节。
@@ -16,14 +16,18 @@ import (
 	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go"
 )
 
-// fpCounts 行文指纹计数（4.3.3）。spanOK/paraOK/sentOK=false 时对应均值不产键。
+// fpCounts 行文指纹计数（4.3.3）。spanOK/paraOK/sentOK/bracketOK=false 时对应键不产。
 type fpCounts struct {
 	avgLineLen    float64
 	lineLenStd    float64
+	longestLine   int
+	effLines      int // 有效行数（末尾伪影空行除外），minified 判定用
 	digitRatio    float64
 	tsCount       int
 	tsSpan        int64
 	spanOK        bool
+	tsLineRatio   float64
+	tsLineOK      bool
 	repeatRatio   float64
 	paragraphs    int
 	avgParaLen    float64
@@ -34,6 +38,8 @@ type fpCounts struct {
 	dialogRatio   float64
 	punctDensity  float64
 	charDiversity float64
+	bracketBal    float64
+	bracketOK     bool
 	urlN          int
 	emailN        int
 	mentionN      int
@@ -50,6 +56,7 @@ var (
 	reHashtag   = regexp.MustCompile(`(?:^|\s)#[^\s#]+`)
 	reLink      = regexp.MustCompile(`\[[^\]]*\]\([^)]+\)`)
 	reTimestamp = regexp.MustCompile(`\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2})?)?`)
+	reTsLine    = regexp.MustCompile(`^\s*\d{4}-\d{2}-\d{2}`)
 )
 
 var tsLayouts = []string{
@@ -66,11 +73,12 @@ func countFP(c *textCtx) *fpCounts {
 	decoded, runes := c.decoded, c.runes
 	rn := float64(len(runes))
 
-	// —— rune 遍历：数字 / 标点 / 字符多样性 / 句数 / 对话 / emoji ——
+	// —— rune 遍历：数字 / 标点 / 字符多样性 / 句数 / 对话 / emoji / 括号配平 ——
 	distinct := map[rune]struct{}{}
 	digitN, punctN, dialogChars, emojiN := 0, 0, 0, 0
 	sents, prevEnd := 0, false
 	inDialog := false
+	var parenO, parenC, braceO, braceC, brackO, brackC int
 	for _, r := range runes {
 		distinct[r] = struct{}{}
 		if unicode.IsDigit(r) {
@@ -95,6 +103,18 @@ func countFP(c *textCtx) *fpCounts {
 			inDialog = true
 		case '”', '」', '』', '’':
 			inDialog = false
+		case '(':
+			parenO++
+		case ')':
+			parenC++
+		case '{':
+			braceO++
+		case '}':
+			braceC++
+		case '[':
+			brackO++
+		case ']':
+			brackC++
 		default:
 			if inDialog {
 				dialogChars++
@@ -103,6 +123,11 @@ func countFP(c *textCtx) *fpCounts {
 	}
 	fp.emojiN = emojiN
 	fp.sentences = sents
+	if total := parenO + parenC + braceO + braceC + brackO + brackC; total > 0 {
+		paired := min(parenO, parenC) + min(braceO, braceC) + min(brackO, brackC)
+		fp.bracketOK = true
+		fp.bracketBal = describer.Round2(2 * float64(paired) / float64(total))
+	}
 	if rn > 0 {
 		fp.digitRatio = describer.Round2(float64(digitN) / rn)
 		fp.punctDensity = describer.Round2(float64(punctN) / rn)
@@ -121,10 +146,14 @@ func countFP(c *textCtx) *fpCounts {
 				continue
 			}
 			w := len([]rune(l))
+			if w > fp.longestLine {
+				fp.longestLine = w
+			}
 			sum += float64(w)
 			sumSq += float64(w) * float64(w)
 			n++
 		}
+		fp.effLines = n
 		if n > 0 {
 			mean := sum / float64(n)
 			fp.avgLineLen = describer.Round2(mean)
@@ -205,6 +234,18 @@ func countFP(c *textCtx) *fpCounts {
 		fp.tsSpan = maxT.Unix() - minT.Unix()
 	}
 
+	// —— 时间戳行占比（日志规整度指纹）——
+	tsLines := 0
+	for _, raw := range c.lines {
+		if reTsLine.MatchString(strings.TrimRight(raw, "\r")) {
+			tsLines++
+		}
+	}
+	if fp.effLines > 0 {
+		fp.tsLineOK = true
+		fp.tsLineRatio = describer.Round2(float64(tsLines) / float64(fp.effLines))
+	}
+
 	// —— 换行符类型 ——
 	crlf := strings.Count(decoded, "\r\n")
 	lf := strings.Count(decoded, "\n") - crlf
@@ -279,4 +320,31 @@ func extractAvgSentLen(ctx *textCtx) any {
 		return nil
 	}
 	return fp.avgSentLen
+}
+
+func extractLongestLine(ctx *textCtx) any { return ctx.FP().longestLine }
+
+// extractMinified 压缩单行文件判定：有效行数 ≤3 且最长行 >500 rune
+// （minified js/json / data URI dump；纯计数口径，确定性）。
+func extractMinified(ctx *textCtx) any {
+	fp := ctx.FP()
+	return fp.effLines > 0 && fp.effLines <= 3 && fp.longestLine > 500
+}
+
+func extractTimestampLineRatio(ctx *textCtx) any {
+	fp := ctx.FP()
+	if !fp.tsLineOK {
+		return nil
+	}
+	return fp.tsLineRatio
+}
+
+// extractBracketBalance 括号配平率：Σmin(开,闭)/Σ(开+闭)×2，全配平=1；
+// 无任何括号不产键（1.0 与"无括号"不可区分时宁可缺失）。
+func extractBracketBalance(ctx *textCtx) any {
+	fp := ctx.FP()
+	if !fp.bracketOK {
+		return nil
+	}
+	return fp.bracketBal
 }

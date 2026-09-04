@@ -1,5 +1,5 @@
-// 文件：indexer-go/indexer.go —— 索引机接口与类型：字段条件 → uuid 纯查询（架构设计.md 第 3 节）
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 文件：indexer-go/indexer.go —— 索引机接口与类型：字段条件 → uuid 纯查询 + Stats 自省（架构设计.md 第 3 节）
+// 修改：2026-09-04（日期由 fresh-header.ps1 刷新）
 
 // Package indexer 是字段索引机：纯查询服务——输入字段条件，输出文件 uuid 集合
 // （docs/架构设计.md 第 3 节）。uuid 是组件间货币，管理机凭 uuid 取件。
@@ -40,6 +40,13 @@ const (
 	Or                 // 任一命中（并集）
 )
 
+// Stats 索引机运行计量（自省接口）：排查"索引与 DB 不一致"时的抓手。
+type Stats struct {
+	Fields int `json:"fields"` // 桶数（被索引的字段数）
+	Keys   int `json:"keys"`   // 全部桶的键/条目总数（enum·multi 的值键数 + num 的条目数）
+	Mounts int `json:"mounts"` // 挂载点总数（uuid×值 关联数）
+}
+
 // Indexer 索引机接口。进程内内存实现见 mem.go；
 // 将来若需多实例外部化，换实现不动调用方。
 type Indexer interface {
@@ -51,4 +58,6 @@ type Indexer interface {
 	Update(uuid string, old, new map[string]any)
 	// Rebuild 全量重建（服务启动时从 DB 载入 uuid→attributes）。
 	Rebuild(all map[string]map[string]any) error
+	// Stats 返回运行计量（fields/keys/mounts）。纯读操作，运维排障抓手。
+	Stats() Stats
 }

@@ -1,5 +1,5 @@
-// 文件：indexer-go/mem_test.go —— 索引机单元测试：三型桶查询 / And-Or 组合 / Update diff 幂等 / Rebuild / 脏值 / 并发
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 文件：indexer-go/mem_test.go —— 索引机单元测试：三型桶查询 / And-Or 组合 / Update diff 幂等 / Rebuild / 脏值 / 并发 / Stats 自省
+// 修改：2026-09-04（日期由 fresh-header.ps1 刷新）
 
 package indexer
 
@@ -273,6 +273,49 @@ func TestDirtyValues(t *testing.T) {
 	ix.Update("u3", map[string]any{"cod-text-lines": 7}, map[string]any{"cod-text-lines": float64(7)})
 	if got := mustQuery(t, ix, eq("cod-text-lines", 7), And); !reflect.DeepEqual(got, []string{"u3"}) {
 		t.Fatalf("int/float64 同值 → %v", got)
+	}
+}
+
+func TestStats(t *testing.T) {
+	// 空索引：全零
+	ix := New()
+	if s := ix.Stats(); s.Fields != 0 || s.Keys != 0 || s.Mounts != 0 {
+		t.Fatalf("空索引 Stats = %+v, want 全零", s)
+	}
+
+	// sampleAll：4 桶（language·enum / lines·num / textish·enum / tags·multi）
+	// keys：language 2 + textish 2 + lines 3 + tags 3 = 10
+	// mounts：u1 5 + u2 4 + u3 3 = 12（tags 多值字段一桶多挂）
+	if err := ix.Rebuild(sampleAll()); err != nil {
+		t.Fatal(err)
+	}
+	if s := ix.Stats(); s.Fields != 4 || s.Keys != 10 || s.Mounts != 12 {
+		t.Fatalf("Rebuild 后 Stats = %+v, want {4 10 12}", s)
+	}
+
+	// 增量挂载：language 新值 ja → 键 +1、挂载 +1
+	ix.Update("u4", nil, map[string]any{"cod-text-language": "ja"})
+	if s := ix.Stats(); s.Keys != 11 || s.Mounts != 13 {
+		t.Fatalf("增挂后 Stats = %+v, want Keys=11 Mounts=13", s)
+	}
+
+	// 值变：旧值移除新值挂入 → 挂载数不变（一移一挂）
+	ix.Update("u4", map[string]any{"cod-text-language": "ja"}, map[string]any{"cod-text-language": "zh"})
+	if s := ix.Stats(); s.Mounts != 13 {
+		t.Fatalf("值变后 Stats = %+v, want Mounts=13", s)
+	}
+
+	// 删除路径：整体移除 → 挂载 -1
+	ix.Update("u4", map[string]any{"cod-text-language": "zh"}, nil)
+	if s := ix.Stats(); s.Mounts != 12 {
+		t.Fatalf("移除后 Stats = %+v, want Mounts=12", s)
+	}
+
+	// 幂等：重复喂食同一状态不重复挂载
+	ix.Update("u5", nil, map[string]any{"cod-text-language": "zh"})
+	ix.Update("u5", nil, map[string]any{"cod-text-language": "zh"})
+	if s := ix.Stats(); s.Mounts != 13 {
+		t.Fatalf("幂等喂食后 Stats = %+v, want Mounts=13", s)
 	}
 }
 
