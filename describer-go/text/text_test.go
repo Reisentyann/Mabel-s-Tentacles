@@ -1,5 +1,5 @@
-// 文件：describer-go/text/text_test.go —— cod-text 单元测试：zh/gbk/en/frontmatter + 量化计数 + 指纹 + 时间戳 + eol/bom
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 文件：describer-go/text/text_test.go —— cod-text 单元测试：zh/gbk/en/frontmatter + 量化计数 + 指纹 + 时间戳 + eol/bom + P2 字段
+// 修改：2026-09-04（日期由 fresh-header.ps1 刷新）
 
 package text
 
@@ -288,5 +288,137 @@ func TestEOLAndBOM(t *testing.T) {
 	attrs, _ = d.Analyze(zeroInput(), bom)
 	if attrs["cod-text-has-bom"] != true {
 		t.Fatalf("has-bom = %v, want true", attrs["cod-text-has-bom"])
+	}
+}
+
+func TestP2Minified(t *testing.T) {
+	d := descriptor{}
+	// 单行 600 字符 → minified
+	attrs, _ := d.Analyze(zeroInput(), []byte(strings.Repeat("a", 600)+"\n"))
+	if attrs["cod-text-minified"] != true {
+		t.Fatalf("minified = %v, want true (1 行 600 字符)", attrs["cod-text-minified"])
+	}
+	if attrs["cod-text-longest-line"].(int) != 600 {
+		t.Fatalf("longest-line = %v, want 600", attrs["cod-text-longest-line"])
+	}
+	// 普通多行短行 → 非 minified
+	attrs, _ = d.Analyze(zeroInput(), []byte("line one\nline two\nline three\n"))
+	if attrs["cod-text-minified"] != false {
+		t.Fatalf("minified = %v, want false", attrs["cod-text-minified"])
+	}
+	// 行多但行长不够 → 非 minified
+	attrs, _ = d.Analyze(zeroInput(), []byte(strings.Repeat("x", 600)+"\n"+strings.Repeat("y", 600)+"\n"+strings.Repeat("z", 600)+"\n"+strings.Repeat("w", 600)+"\n"))
+	if attrs["cod-text-minified"] != false {
+		t.Fatalf("minified = %v, want false (4 行超出 ≤3 口径)", attrs["cod-text-minified"])
+	}
+}
+
+func TestP2Shebang(t *testing.T) {
+	d := descriptor{}
+	attrs, _ := d.Analyze(zeroInput(), []byte("#!/bin/bash\nls -la\n"))
+	if attrs["cod-text-shebang"] != "#!/bin/bash" {
+		t.Fatalf("shebang = %v", attrs["cod-text-shebang"])
+	}
+	attrs, _ = d.Analyze(zeroInput(), []byte("no script here\n"))
+	if _, ok := attrs["cod-text-shebang"]; ok {
+		t.Fatal("无 shebang 不应产键")
+	}
+}
+
+func TestP2IndentStyle(t *testing.T) {
+	d := descriptor{}
+	cases := map[string]string{
+		"def a():\n\treturn 1\n":      "tab",
+		"if x:\n    y = 1\n":          "space",
+		"plain\nlines\n":              "none",
+		"if x:\n\tif y:\n        z\n": "mixed",
+	}
+	for src, want := range cases {
+		attrs, _ := d.Analyze(zeroInput(), []byte(src))
+		if got := attrs["cod-text-indent-style"]; got != want {
+			t.Errorf("indent-style(%q) = %v, want %q", src, got, want)
+		}
+	}
+}
+
+func TestP2BracketBalance(t *testing.T) {
+	d := descriptor{}
+	cases := map[string]float64{
+		"{} () []\n": 1.0,
+		"() ((\n":    0.5,
+		"{ (\n":      0.0,
+	}
+	for src, want := range cases {
+		attrs, _ := d.Analyze(zeroInput(), []byte(src))
+		if got := attrs["cod-text-bracket-balance"].(float64); got != want {
+			t.Errorf("bracket-balance(%q) = %v, want %v", src, got, want)
+		}
+	}
+	attrs, _ := d.Analyze(zeroInput(), []byte("无括号文本\n"))
+	if _, ok := attrs["cod-text-bracket-balance"]; ok {
+		t.Fatal("无括号不应产键")
+	}
+}
+
+func TestP2TimestampLineRatio(t *testing.T) {
+	d := descriptor{}
+	src := "2026-01-01 10:00:00 event a\n2026-01-01 10:00:01 event b\nplain line\n"
+	attrs, _ := d.Analyze(zeroInput(), []byte(src))
+	if got := attrs["cod-text-timestamp-line-ratio"].(float64); got != 0.67 {
+		t.Fatalf("timestamp-line-ratio = %v, want 0.67 (2/3)", got)
+	}
+}
+
+func TestP2TextStats(t *testing.T) {
+	d := descriptor{}
+
+	attrs, _ := d.Analyze(zeroInput(), []byte("abc\n"))
+	if attrs["cod-text-final-newline"] != true {
+		t.Fatalf("final-newline = %v, want true", attrs["cod-text-final-newline"])
+	}
+	attrs, _ = d.Analyze(zeroInput(), []byte("abc"))
+	if attrs["cod-text-final-newline"] != false {
+		t.Fatalf("final-newline = %v, want false", attrs["cod-text-final-newline"])
+	}
+
+	// non-ascii-ratio：hello 世界 = 8 rune（含空格）中 2 个 CJK → 0.25
+	attrs, _ = d.Analyze(zeroInput(), []byte("hello 世界"))
+	if got := attrs["cod-text-non-ascii-ratio"].(float64); got != 0.25 {
+		t.Fatalf("non-ascii-ratio = %v, want 0.25", got)
+	}
+
+	// upper-ratio：HELLO world = 10 字母中 5 大写 → 0.5
+	attrs, _ = d.Analyze(zeroInput(), []byte("HELLO world"))
+	if got := attrs["cod-text-upper-ratio"].(float64); got != 0.5 {
+		t.Fatalf("upper-ratio = %v, want 0.5", got)
+	}
+	// 无拉丁字母不产
+	attrs, _ = d.Analyze(zeroInput(), []byte("中文内容"))
+	if _, ok := attrs["cod-text-upper-ratio"]; ok {
+		t.Fatal("无拉丁字母不应产 upper-ratio")
+	}
+
+	// word-count：拉丁词 1 + CJK 4 = 5
+	attrs, _ = d.Analyze(zeroInput(), []byte("hello 世界你好"))
+	if got := attrs["cod-text-word-count"].(int); got != 5 {
+		t.Fatalf("word-count = %v, want 5", got)
+	}
+
+	// avg-word-len：(5+2)/2 = 3.5
+	attrs, _ = d.Analyze(zeroInput(), []byte("hello hi"))
+	if got := attrs["cod-text-avg-word-len"].(float64); got != 3.5 {
+		t.Fatalf("avg-word-len = %v, want 3.5", got)
+	}
+
+	// trailing-space-lines：1 行行尾空白
+	attrs, _ = d.Analyze(zeroInput(), []byte("abc \ndef\n"))
+	if got := attrs["cod-text-trailing-space-lines"].(int); got != 1 {
+		t.Fatalf("trailing-space-lines = %v, want 1", got)
+	}
+
+	// consecutive-blank-max：3 连空行
+	attrs, _ = d.Analyze(zeroInput(), []byte("a\n\n\n\nb\n"))
+	if got := attrs["cod-text-consecutive-blank-max"].(int); got != 3 {
+		t.Fatalf("consecutive-blank-max = %v, want 3", got)
 	}
 }

@@ -1,5 +1,5 @@
-// 文件：describer-go/image/image_test.go —— cod-image 单元测试
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 文件：describer-go/image/image_test.go —— cod-image 单元测试（含 v3：P2 画像字段）
+// 修改：2026-09-04（日期由 fresh-header.ps1 刷新）
 
 package image
 
@@ -121,5 +121,101 @@ func TestSupports(t *testing.T) {
 	}
 	if d.Supports("x.png", nil, describer.Basic{Mime: "text/plain"}) {
 		t.Fatal("text mime should not hit image plugin")
+	}
+}
+
+// solidPNG 生成单色 n×n PNG。
+func solidPNG(t *testing.T, n int, c color.RGBA) []byte {
+	img := image.NewRGBA(image.Rect(0, 0, n, n))
+	for y := 0; y < n; y++ {
+		for x := 0; x < n; x++ {
+			img.Set(x, y, c)
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatalf("encode png: %v", err)
+	}
+	return buf.Bytes()
+}
+
+func TestP2WarmCoolFlat(t *testing.T) {
+	d := descriptor{}
+	attrs, _ := d.Analyze(describer.Input{Path: "warm.png"}, warmPNG(t))
+
+	// 3/4 暖 #D4A373（H≈30）+ 1/4 冷 #5A78B4（H≈220）
+	if got := attrs["cod-image-warm-ratio"].(float64); got != 0.75 {
+		t.Fatalf("warm-ratio = %v, want 0.75", got)
+	}
+	if got := attrs["cod-image-cool-ratio"].(float64); got != 0.25 {
+		t.Fatalf("cool-ratio = %v, want 0.25", got)
+	}
+	// 两个量化色桶各占 75%/25%（均 ≥5%）→ flat=1.0；color-count=2
+	if got := attrs["cod-image-flat-ratio"].(float64); got != 1.0 {
+		t.Fatalf("flat-ratio = %v, want 1.0", got)
+	}
+	if got := attrs["cod-image-color-count"].(int); got != 2 {
+		t.Fatalf("color-count = %v, want 2", got)
+	}
+	// 非暗非亮
+	if attrs["cod-image-dark"] != false || attrs["cod-image-light"] != false {
+		t.Fatalf("dark=%v light=%v, want false/false", attrs["cod-image-dark"], attrs["cod-image-light"])
+	}
+	// 无透明像素 → alpha-ratio=0
+	if got := attrs["cod-image-alpha-ratio"].(float64); got != 0 {
+		t.Fatalf("alpha-ratio = %v, want 0", got)
+	}
+	// warm #D4A373 落在肤色规则内（R>G>B、R-B>15、|R-G|<80）→ 0.75
+	if got := attrs["cod-image-skin-tone-ratio"].(float64); got != 0.75 {
+		t.Fatalf("skin-tone-ratio = %v, want 0.75", got)
+	}
+	// 2 个 luma 桶的熵 = -0.75log2(0.75)-0.25log2(0.25) ≈ 0.81
+	if got := attrs["cod-image-entropy"].(float64); got != 0.81 {
+		t.Fatalf("entropy = %v, want 0.81", got)
+	}
+	// 左右镜像：左 48 列暖右 16 列冷 → 前半差大后半差 0 → 0.5
+	if got := attrs["cod-image-symmetry"].(float64); got != 0.5 {
+		t.Fatalf("symmetry = %v, want 0.5", got)
+	}
+	// 饱和度均值（0.53×0.75 + 0.38×0.25 ≈ 0.49 → 49）
+	if got := attrs["cod-image-saturation"].(float64); got <= 30 || got >= 60 {
+		t.Fatalf("saturation = %v, want 30..60", got)
+	}
+	// 梯度：仅暖冷交界有边 → 低密度；sharpness 非负存在
+	if got := attrs["cod-image-edge-density"].(float64); got <= 0 || got >= 0.2 {
+		t.Fatalf("edge-density = %v, want (0,0.2)", got)
+	}
+	if got := attrs["cod-image-sharpness"].(float64); got < 0 {
+		t.Fatalf("sharpness = %v, want >= 0", got)
+	}
+}
+
+func TestP2DarkLightEntropy(t *testing.T) {
+	d := descriptor{}
+	// 全黑 32×32：dark=true、flat=1.0、color-count=1、entropy=0、冷暖 0（饱和度门槛）
+	attrs, _ := d.Analyze(describer.Input{Path: "black.png"}, solidPNG(t, 32, color.RGBA{0, 0, 0, 255}))
+	if attrs["cod-image-dark"] != true {
+		t.Fatalf("dark = %v, want true", attrs["cod-image-dark"])
+	}
+	if got := attrs["cod-image-flat-ratio"].(float64); got != 1.0 {
+		t.Fatalf("flat-ratio = %v, want 1.0", got)
+	}
+	if got := attrs["cod-image-color-count"].(int); got != 1 {
+		t.Fatalf("color-count = %v, want 1", got)
+	}
+	if got := attrs["cod-image-entropy"].(float64); got != 0 {
+		t.Fatalf("entropy = %v, want 0", got)
+	}
+	if got := attrs["cod-image-warm-ratio"].(float64); got != 0 {
+		t.Fatalf("warm-ratio = %v, want 0 (灰图饱和度门槛)", got)
+	}
+	if got := attrs["cod-image-cool-ratio"].(float64); got != 0 {
+		t.Fatalf("cool-ratio = %v, want 0", got)
+	}
+
+	// 全白 → light=true
+	attrs, _ = d.Analyze(describer.Input{Path: "white.png"}, solidPNG(t, 32, color.RGBA{255, 255, 255, 255}))
+	if attrs["cod-image-light"] != true {
+		t.Fatalf("light = %v, want true", attrs["cod-image-light"])
 	}
 }

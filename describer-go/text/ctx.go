@@ -1,5 +1,5 @@
 // 文件：describer-go/text/ctx.go —— textCtx 共享上下文：解码/分行/切 rune 一次构造 + Quant/FP 惰性预计算
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-04（日期由 fresh-header.ps1 刷新）
 
 // Package text 内的 ctx.go 定义文本分析的共享上下文。
 // 字段字典见 docs/元数据字段说明.md 第 4.3 节。
@@ -29,6 +29,7 @@ type textCtx struct {
 	cjk       int          // CJK 字符数
 	kana      int          // 假名数（日语标志）
 	latin     int          // 拉丁字母数
+	upper     int          // 大写拉丁字母数（upper-ratio 用）
 	hasCJK    bool         // cjk 占比 > 5%
 	hasLatin  bool         // latin 字母占比 > 20%
 	hasBOM    bool         // 头三字节 EF BB BF
@@ -61,14 +62,17 @@ func buildCtx(full []byte) *textCtx {
 	decoded, enc := decodeText(full)
 	lines := strings.Split(decoded, "\n")
 	runes := []rune(decoded)
-	cjk, kana, latin := 0, 0, 0
+	cjk, kana, latin, upper := 0, 0, 0, 0
 	for _, r := range runes {
 		switch {
 		case describer.IsCJK(r):
 			cjk++
 		case describer.IsKana(r):
 			kana++
-		case (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z'):
+		case r >= 'A' && r <= 'Z':
+			latin++
+			upper++
+		case r >= 'a' && r <= 'z':
 			latin++
 		}
 	}
@@ -83,6 +87,7 @@ func buildCtx(full []byte) *textCtx {
 		cjk:      cjk,
 		kana:     kana,
 		latin:    latin,
+		upper:    upper,
 		hasCJK:   rn > 0 && float64(cjk)/rn > 0.05,
 		hasLatin: rn > 0 && float64(latin)/rn > 0.2,
 		hasBOM:   hasBOM,

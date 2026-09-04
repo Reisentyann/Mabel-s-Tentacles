@@ -1,5 +1,5 @@
-// 文件：describer-go/text/stats.go —— 基础统计字段：encoding/lines/chars/cjk-ratio/language/blank-ratio/top-keywords
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 文件：describer-go/text/stats.go —— 基础统计字段：encoding/lines/chars/cjk-ratio/language/blank-ratio/top-keywords/shebang/final-newline/non-ascii-ratio/upper-ratio/word-count/avg-word-len
+// 修改：2026-09-04（日期由 fresh-header.ps1 刷新）
 
 // Package text 内的 stats.go：cod-text 基础统计字段（无语义、纯计数）。
 // 字段字典见 docs/元数据字段说明.md 第 4.3 节基础统计部分。
@@ -62,6 +62,67 @@ func extractTopKeywords(ctx *textCtx) any {
 		return nil
 	}
 	return kw
+}
+
+// extractShebang 首行 #! 解释器声明（脚本指纹），截 80 字符；无则不产。
+func extractShebang(ctx *textCtx) any {
+	if len(ctx.lines) == 0 || !strings.HasPrefix(ctx.lines[0], "#!") {
+		return nil
+	}
+	return describer.TrimRunes(strings.TrimRight(ctx.lines[0], "\r"), 80)
+}
+
+// extractFinalNewline 文件以 \n 结尾（POSIX 文本规范指纹；CRLF 文件的 \r 在 \n 前不影响判定）。
+func extractFinalNewline(ctx *textCtx) any {
+	return strings.HasSuffix(ctx.decoded, "\n")
+}
+
+func extractNonASCIIRatio(ctx *textCtx) any {
+	rn := float64(len(ctx.runes))
+	if rn == 0 {
+		return nil
+	}
+	n := 0
+	for _, r := range ctx.runes {
+		if r > 127 {
+			n++
+		}
+	}
+	return describer.Round2(float64(n) / rn)
+}
+
+// extractUpperRatio 大写拉丁字母 / 拉丁字母总数（常量文件/吼叫体指纹）；无拉丁字母不产。
+func extractUpperRatio(ctx *textCtx) any {
+	if ctx.latin == 0 {
+		return nil
+	}
+	return describer.Round2(float64(ctx.upper) / float64(ctx.latin))
+}
+
+// extractWordCount 词数：拉丁词数 + CJK 字符数 + 假名数（CJK 每字一词口径）。
+func extractWordCount(ctx *textCtx) any {
+	return len(latinWords(ctx.decoded)) + ctx.cjk + ctx.kana
+}
+
+// extractAvgWordLen 拉丁词均长（rune；技术文档长词 vs 日常文本）；无拉丁词不产。
+func extractAvgWordLen(ctx *textCtx) any {
+	words := latinWords(ctx.decoded)
+	if len(words) == 0 {
+		return nil
+	}
+	total := 0
+	for _, w := range words {
+		total += len([]rune(w))
+	}
+	return describer.Round2(float64(total) / float64(len(words)))
+}
+
+// latinWords 拉丁词切分（字母/数字/撇号成词），word-count 与 avg-word-len 共用。
+func latinWords(s string) []string {
+	return strings.FieldsFunc(s, func(r rune) bool {
+		return !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') ||
+			(r >= '0' && r <= '9') || r == '\'')
+	})
 }
 
 var enStopwords = map[string]bool{

@@ -1,5 +1,5 @@
 // 文件：describer-go/basic/basic.go —— cod-basic 插件：MIME 嗅探 / textish / 熵 / 文件名模式（一切文件必跑）
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-04（日期由 fresh-header.ps1 刷新）
 
 // Package basic cod-basic 插件：一切文件必跑的确定性基础事实。
 // 字段字典见 docs/元数据字段说明.md 第 4.1 节，键在此处字面量封闭。
@@ -21,9 +21,10 @@ type descriptor struct{}
 
 func (descriptor) Family() string { return "basic" }
 
-// FamilyVersion=2：v1 首发；v2 textish 认定带 BOM 的 UTF-16 为文本
-// （此前其高低位交替 NUL 被误判二进制，text 家族整体不跑）。
-func (descriptor) FamilyVersion() int                            { return 2 }
+// FamilyVersion=3：v1 首发；v2 textish 认定带 BOM 的 UTF-16 为文本
+// （此前其高低位交替 NUL 被误判二进制，text 家族整体不跑）；
+// v3 新增 cod-basic-executable（PE/ELF/Mach-O 魔数）与 name-pattern 增补 uuid-like。
+func (descriptor) FamilyVersion() int                            { return 3 }
 func (descriptor) Supports(string, []byte, describer.Basic) bool { return true }
 func (descriptor) SPNamespaces() []string                        { return nil }
 func (descriptor) Analyze(in describer.Input, _ []byte) (map[string]any, map[string]string) {
@@ -39,6 +40,7 @@ func (descriptor) Analyze(in describer.Input, _ []byte) (map[string]any, map[str
 		a["cod-basic-mtime"] = in.MTime.Unix()
 	}
 	a["cod-basic-textish"] = looksTexty(in.Head)
+	a["cod-basic-executable"] = looksExecutable(in.Head)
 	if len(in.Head) > 0 {
 		a["cod-basic-entropy"] = describer.Round2(entropy(in.Head))
 	}
@@ -99,6 +101,31 @@ func looksTexty(head []byte) bool {
 	return float64(ctrl)/float64(len(head)) <= 0.15
 }
 
+// looksExecutable 可执行文件魔数：PE（MZ）/ ELF / Mach-O（含通用二进制）。
+// 纯魔数判定，恒产 bool——"找出误存成数据目录的程序"与"伪装的exe"检索用。
+func looksExecutable(head []byte) bool {
+	if len(head) < 4 {
+		return false
+	}
+	if head[0] == 'M' && head[1] == 'Z' { // PE / DOS 可执行
+		return true
+	}
+	if head[0] == 0x7F && head[1] == 'E' && head[2] == 'L' && head[3] == 'F' {
+		return true
+	}
+	macho := [][4]byte{
+		{0xFE, 0xED, 0xFA, 0xCE}, {0xCE, 0xFA, 0xED, 0xFE}, // 32 位（BE/LE）
+		{0xFE, 0xED, 0xFA, 0xCF}, {0xCF, 0xFA, 0xED, 0xFE}, // 64 位（BE/LE）
+		{0xCA, 0xFE, 0xBA, 0xBE}, // 通用二进制（fat）
+	}
+	for _, m := range macho {
+		if head[0] == m[0] && head[1] == m[1] && head[2] == m[2] && head[3] == m[3] {
+			return true
+		}
+	}
+	return false
+}
+
 // entropy 香农熵（bits/byte，0-8）。
 func entropy(b []byte) float64 {
 	if len(b) == 0 {
@@ -125,6 +152,7 @@ var (
 	reScreenshot  = regexp.MustCompile(`(?i)(screenshot|screen[_ -]?shot|screen[_ -]?capture|截屏|截图|屏幕截图)`)
 	reTimestamped = regexp.MustCompile(`\d{4}[-_.]\d{1,2}[-_.]\d{1,2}|\d{8}[_-]\d{6}`)
 	reHashlike    = regexp.MustCompile(`^[0-9a-f]{16,}$`)
+	reUUIDlike    = regexp.MustCompile(`(?i)^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 	reVersioned   = regexp.MustCompile(`(?i)[._-]v?\d+\.\d+(\.\d+)*$`)
 )
 
@@ -138,6 +166,8 @@ func namePattern(path string) string {
 		return "screenshot"
 	case reTimestamped.MatchString(base):
 		return "timestamped"
+	case reUUIDlike.MatchString(base):
+		return "uuid-like"
 	case reVersioned.MatchString(base):
 		return "versioned"
 	case reHashlike.MatchString(base):
