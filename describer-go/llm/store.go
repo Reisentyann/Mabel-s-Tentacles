@@ -1,3 +1,6 @@
+// 文件：describer-go/llm/store.go —— LLMStore 中间件：llm 轨唯一写入口（cod 只读 / 审计戳 / null 墓碑 / 拒绝回传）
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package llm
 
 import (

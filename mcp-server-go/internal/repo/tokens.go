@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/repo/tokens.go —— token_blacklist 表：JWT 注销黑名单
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package repo
 
 import (

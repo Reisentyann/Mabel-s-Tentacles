@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/tools/common_test.go —— 工具共享层单元测试
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package tools
 
 import (

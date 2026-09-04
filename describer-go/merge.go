@@ -1,3 +1,6 @@
+// 文件：describer-go/merge.go —— cod 轨合并：家族整族替换 + cod-<family>-ver/-at 刷新（纯 JSON 操作）
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package describer
 
 import (
@@ -30,7 +33,8 @@ func JSONFromAttrs(m map[string]any) json.RawMessage {
 
 // MergeResults 把一次 Analyze 的全部家族结果整族合并进 existing
 // （读-改-写由调用方负责持久化）。每个家族：先清 cod-<family>-* 旧键与
-// SPPurge 前缀旧键，再写新键，并刷新 cod-<family>-at 时间戳。
+// SPPurge 前缀旧键，再写新键，并刷新 cod-<family>-ver / -at
+// （版本号见字段字典第 10.1 节，陈旧判定见 IsStale）。
 //
 // 模型轨（llm-*）不走这里——唯一写入口是 llm 子包的 LLMStore。
 func MergeResults(existing map[string]any, results []Result, now time.Time) map[string]any {
@@ -54,6 +58,9 @@ func MergeResults(existing map[string]any, results []Result, now time.Time) map[
 		}
 		for k, v := range r.Attrs {
 			merged[k] = v
+		}
+		if r.Ver > 0 {
+			merged["cod-"+r.Family+"-ver"] = r.Ver
 		}
 		merged["cod-"+r.Family+"-at"] = now.Unix()
 	}

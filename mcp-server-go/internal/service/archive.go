@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/service/archive.go —— zip 打包：多文件流式写入（只读源文件，防穿越）
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package service
 
 import (

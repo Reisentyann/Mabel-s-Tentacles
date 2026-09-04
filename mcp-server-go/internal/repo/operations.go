@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/repo/operations.go —— operations 表：工具调用审计记录
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package repo
 
 import (

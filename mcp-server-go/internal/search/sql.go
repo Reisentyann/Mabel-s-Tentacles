@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/search/sql.go —— SQLSearcher：PostgreSQL 关键词/标签/类型/scope 检索实现
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package search
 
 import (

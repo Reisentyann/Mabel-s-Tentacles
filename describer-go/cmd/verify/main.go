@@ -1,3 +1,6 @@
+// 文件：describer-go/cmd/verify/main.go —— L2 夹具验证器：跑全插件流水线出 JSON 报告（无 DB）
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 // verify 夹具验证器：对目录下每个文件跑完整 Analyze，输出 family→attrs 的 JSON 报告，
 // 供 test/测试规则.md 的断言表核对。无 DB，纯 describer 引擎直跑。
 //

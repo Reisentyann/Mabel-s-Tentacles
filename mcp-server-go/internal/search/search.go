@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/search/search.go —— 检索抽象：Query 结构 + Searcher 接口（与 SQL 实现解耦）
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package search
 
 import (

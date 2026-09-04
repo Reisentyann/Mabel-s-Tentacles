@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/api/router.go —— HTTP API 路由装配：公共路由 + JWT 保护路由 + Server 结构
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package api
 
 import (

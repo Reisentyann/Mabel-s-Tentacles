@@ -1,3 +1,6 @@
+// 文件：describer-go/code/code_test.go —— cod-code 单元测试
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package code
 
 import (

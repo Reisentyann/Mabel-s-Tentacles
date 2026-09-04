@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/api/files.go —— 文件端点：列表 / 单文件下载 / zip 打包下载
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package api
 
 import (

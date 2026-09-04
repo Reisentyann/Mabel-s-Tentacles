@@ -1,3 +1,6 @@
+// 文件：describer-go/describer.go —— 描述引擎本体：Descriptor 接口 + 注册表 + Analyze 编排（basic 恒跑 + 路由 + 共享全量加载）
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 // Package describer 是确定性文件描述引擎：字节进、事实出。
 // 产出仅允许 cod- 前缀固定字段与 sp-cod- 自由字段，字段字典见仓库
 // docs/元数据字段说明.md；模型轨（llm-*）在 llm 子包。
@@ -22,9 +25,12 @@ type Input struct {
 type Loader func() ([]byte, error)
 
 // Result 单个插件家族的产物。Attrs 键均已带完整前缀
-// （cod-<family>-<字段> 与 sp-cod-<自由字段>），nil 字段族不会出现键。
+// （cod-<family>-<字段> 与 sp-cod-<自由字段>）。Attrs 为 nil 表示该家族
+// 本轮已跑但零产出（如图片损坏后解码失败）——仍入列，MergeResults 借此
+// 整族清除旧键，防陈旧事实残留与 IsStale 反复重触发。
 type Result struct {
 	Family  string
+	Ver     int // 家族算法版本（FamilyVersion()），合并时落 cod-<family>-ver
 	Attrs   map[string]any
 	SPPurge []string // 本家族负责的 sp-cod- 前缀（整族替换时一并清除旧键）
 }
@@ -39,6 +45,9 @@ type Basic struct {
 // （键为代码中的字面量，不存在任意键出口）与 SP 自由字段。
 type Descriptor interface {
 	Family() string
+	// FamilyVersion 家族算法版本（字段字典第 10.1 节）：
+	// 新增字段 / 改算法输出 / 删字段 → +1；纯重构不改输出 → 不动。
+	FamilyVersion() int
 	Supports(path string, head []byte, b Basic) bool
 	SPNamespaces() []string
 	Analyze(in Input, full []byte) (attrs map[string]any, sp map[string]string)
@@ -53,26 +62,29 @@ func Register(d Descriptor) {
 
 // Analyze 运行全部命中插件：basic 恒跑并产出路由事实；
 // 其余插件共享一次全量加载。返回各家族结果（注册序，确定）。
+// 已跑即入列——零产出的家族以空 Attrs 入列，供合并时清除旧键；
+// 全量不可得（加载失败）的家族不入列，旧键保留，重跑时机由 IsStale 判定。
 func Analyze(in Input, load Loader) []Result {
 	var results []Result
 
-	// 1) basic 恒跑（路由事实的来源）
+	// 1) basic 恒跑（路由事实的来源）。basic 家族唯一：只认首个注册，
+	// 防重复注册静默双跑
 	var b Basic
 	for _, d := range registry {
 		if d.Family() != "basic" {
 			continue
 		}
 		attrs, _ := d.Analyze(in, nil)
-		if len(attrs) == 0 {
-			continue
+		if len(attrs) > 0 {
+			results = append(results, Result{Family: "basic", Ver: d.FamilyVersion(), Attrs: attrs})
+			if v, ok := attrs["cod-basic-mime"].(string); ok {
+				b.Mime = v
+			}
+			if v, ok := attrs["cod-basic-textish"].(bool); ok {
+				b.Textish = v
+			}
 		}
-		results = append(results, Result{Family: "basic", Attrs: attrs})
-		if v, ok := attrs["cod-basic-mime"].(string); ok {
-			b.Mime = v
-		}
-		if v, ok := attrs["cod-basic-textish"].(bool); ok {
-			b.Textish = v
-		}
+		break
 	}
 
 	// 2) 其余插件：Supports 路由 + 共享一次全量加载
@@ -112,9 +124,9 @@ func Analyze(in Input, load Loader) []Result {
 			}
 			attrs["sp-cod-"+k] = v
 		}
-		if len(attrs) > 0 {
-			results = append(results, Result{Family: d.Family(), Attrs: attrs, SPPurge: d.SPNamespaces()})
-		}
+		// 已跑即入列（含零产出）：MergeResults 对空 Attrs 仍整族清旧键，
+		// 防"本轮无事实"时旧键残留（如图片损坏后解码失败）
+		results = append(results, Result{Family: d.Family(), Ver: d.FamilyVersion(), Attrs: attrs, SPPurge: d.SPNamespaces()})
 	}
 	return results
 }

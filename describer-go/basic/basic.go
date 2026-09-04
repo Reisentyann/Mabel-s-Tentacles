@@ -1,3 +1,6 @@
+// 文件：describer-go/basic/basic.go —— cod-basic 插件：MIME 嗅探 / textish / 熵 / 文件名模式（一切文件必跑）
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 // Package basic cod-basic 插件：一切文件必跑的确定性基础事实。
 // 字段字典见 docs/元数据字段说明.md 第 4.1 节，键在此处字面量封闭。
 package basic
@@ -16,9 +19,13 @@ func init() { describer.Register(descriptor{}) }
 
 type descriptor struct{}
 
-func (descriptor) Family() string                                    { return "basic" }
-func (descriptor) Supports(string, []byte, describer.Basic) bool     { return true }
-func (descriptor) SPNamespaces() []string                            { return nil }
+func (descriptor) Family() string { return "basic" }
+
+// FamilyVersion=2：v1 首发；v2 textish 认定带 BOM 的 UTF-16 为文本
+// （此前其高低位交替 NUL 被误判二进制，text 家族整体不跑）。
+func (descriptor) FamilyVersion() int                            { return 2 }
+func (descriptor) Supports(string, []byte, describer.Basic) bool { return true }
+func (descriptor) SPNamespaces() []string                        { return nil }
 func (descriptor) Analyze(in describer.Input, _ []byte) (map[string]any, map[string]string) {
 	a := map[string]any{}
 
@@ -71,9 +78,13 @@ func isTextyMime(m string) bool {
 }
 
 // looksTexty 文本判定：无 NUL 字节且控制字符占比低（GBK 等非 UTF-8 文本也算文本，
-// 编码细节由 text 插件处理）。
+// 编码细节由 text 插件处理）。带 BOM 的 UTF-16 例外——高低位交替 NUL 是其
+// 正常形态，属文本，交 text 插件解码；无 BOM 的 UTF-16 无从确证，维持二进制判定。
 func looksTexty(head []byte) bool {
 	if len(head) == 0 {
+		return true
+	}
+	if _, ok := describer.UTF16BOM(head); ok {
 		return true
 	}
 	ctrl := 0

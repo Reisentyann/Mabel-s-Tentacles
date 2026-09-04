@@ -1,8 +1,12 @@
+// 文件：describer-go/text/text_test.go —— cod-text 单元测试：zh/gbk/en/frontmatter + 量化计数 + 指纹 + 时间戳 + eol/bom
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package text
 
 import (
 	"strings"
 	"testing"
+	"unicode/utf16"
 
 	"golang.org/x/text/encoding/simplifiedchinese"
 
@@ -109,6 +113,67 @@ func TestAnalyzeEn(t *testing.T) {
 	}
 }
 
+func TestAnalyzeBadGBKFallsToLatin1(t *testing.T) {
+	// 坏 GBK（0x81 领字节 + 无效尾字节 0x30）：x/text 以 U+FFFD 代替而非
+	// 报错，零替换符校验须把它打回 latin-1 兜底，不得误标 gbk。
+	d := descriptor{}
+	attrs, _ := d.Analyze(zeroInput(), []byte("hello \x81\x30 world"))
+	if attrs["cod-text-encoding"] != "latin-1" {
+		t.Fatalf("encoding = %v, want latin-1", attrs["cod-text-encoding"])
+	}
+	if attrs["cod-text-language"] != "en" {
+		t.Fatalf("language = %v, want en", attrs["cod-text-language"])
+	}
+}
+
+// utf16Bytes 构造带 BOM 的 UTF-16 字节（代理对经 utf16.Encode 展开）。
+func utf16Bytes(s string, little bool) []byte {
+	out := []byte{0xFE, 0xFF}
+	if little {
+		out = []byte{0xFF, 0xFE}
+	}
+	for _, u := range utf16.Encode([]rune(s)) {
+		if little {
+			out = append(out, byte(u), byte(u>>8))
+		} else {
+			out = append(out, byte(u>>8), byte(u))
+		}
+	}
+	return out
+}
+
+func TestAnalyzeUTF16(t *testing.T) {
+	src := "# UTF-16 标题\n\n梅贝尔整理文件。\n"
+	d := descriptor{}
+	for _, tc := range []struct {
+		little bool
+		enc    string
+	}{
+		{true, "utf-16le"},
+		{false, "utf-16be"},
+	} {
+		attrs, _ := d.Analyze(zeroInput(), utf16Bytes(src, tc.little))
+		if attrs["cod-text-encoding"] != tc.enc {
+			t.Fatalf("encoding = %v, want %s", attrs["cod-text-encoding"], tc.enc)
+		}
+		if attrs["cod-text-language"] != "zh" {
+			t.Fatalf("language = %v, want zh (decoded)", attrs["cod-text-language"])
+		}
+		if attrs["cod-text-has-bom"] != true {
+			t.Fatalf("has-bom = %v, want true", attrs["cod-text-has-bom"])
+		}
+		if attrs["cod-text-title-line"] != "UTF-16 标题" {
+			t.Fatalf("title-line = %v", attrs["cod-text-title-line"])
+		}
+		if attrs["cod-text-eol"] != "lf" {
+			t.Fatalf("eol = %v, want lf (decoded)", attrs["cod-text-eol"])
+		}
+		if attrs["cod-text-lines"].(int) != 4 {
+			t.Fatalf("lines = %v, want 4 (decoded)", attrs["cod-text-lines"])
+		}
+	}
+}
+
 func TestFrontmatter(t *testing.T) {
 	src := "---\ntitle: hi\n---\n\n正文"
 	d := descriptor{}
@@ -122,5 +187,106 @@ func TestFrontmatter(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("frontmatter not detected: %#v", st)
+	}
+}
+
+func TestQuantCounts(t *testing.T) {
+	src := "# 标题\n\n" +
+		"- 项一\n- 项二\n  - 嵌套项\n1. 有序项\n\n" +
+		"| a | b |\n|---|---|\n| 1 | 2 |\n\n" +
+		"> 引用行\n\n" +
+		"- [ ] 待办\n- [x] 完成\n\n" +
+		"```\nline1\nline2\n```\n"
+	d := descriptor{}
+	attrs, _ := d.Analyze(zeroInput(), []byte(src))
+
+	if attrs["cod-text-table-blocks"].(int) != 1 {
+		t.Fatalf("table-blocks = %v", attrs["cod-text-table-blocks"])
+	}
+	if attrs["cod-text-table-rows"].(int) != 3 {
+		t.Fatalf("table-rows = %v", attrs["cod-text-table-rows"])
+	}
+	if attrs["cod-text-table-cols"].(int) != 2 {
+		t.Fatalf("table-cols = %v", attrs["cod-text-table-cols"])
+	}
+	if attrs["cod-text-list-items"].(int) != 6 {
+		t.Fatalf("list-items = %v, want 6", attrs["cod-text-list-items"])
+	}
+	if attrs["cod-text-list-nesting-max"].(int) != 2 {
+		t.Fatalf("list-nesting-max = %v", attrs["cod-text-list-nesting-max"])
+	}
+	if attrs["cod-text-ordered-ratio"].(float64) != 0.17 {
+		t.Fatalf("ordered-ratio = %v, want 0.17", attrs["cod-text-ordered-ratio"])
+	}
+	if attrs["cod-text-code-lines"].(int) != 2 {
+		t.Fatalf("code-lines = %v", attrs["cod-text-code-lines"])
+	}
+	if attrs["cod-text-quote-lines"].(int) != 1 {
+		t.Fatalf("quote-lines = %v", attrs["cod-text-quote-lines"])
+	}
+	if attrs["cod-text-checkboxes"].(int) != 2 {
+		t.Fatalf("checkboxes = %v", attrs["cod-text-checkboxes"])
+	}
+	if attrs["cod-text-indent-max"].(int) != 1 {
+		t.Fatalf("indent-max = %v", attrs["cod-text-indent-max"])
+	}
+}
+
+func TestFingerprint(t *testing.T) {
+	src := "第一段。第二句！\n\n“对话内容”叙述。\n复读行\n复读行\n"
+	d := descriptor{}
+	attrs, _ := d.Analyze(zeroInput(), []byte(src))
+
+	if attrs["cod-text-sentences"].(int) != 3 {
+		t.Fatalf("sentences = %v, want 3", attrs["cod-text-sentences"])
+	}
+	if attrs["cod-text-dialog-ratio"].(float64) != 0.14 {
+		t.Fatalf("dialog-ratio = %v, want 0.14", attrs["cod-text-dialog-ratio"])
+	}
+	if attrs["cod-text-repeat-line-ratio"].(float64) != 0.5 {
+		t.Fatalf("repeat-line-ratio = %v, want 0.5", attrs["cod-text-repeat-line-ratio"])
+	}
+	if attrs["cod-text-paragraphs"].(int) != 2 {
+		t.Fatalf("paragraphs = %v, want 2", attrs["cod-text-paragraphs"])
+	}
+	if attrs["cod-text-avg-para-len"].(float64) != 11.5 {
+		t.Fatalf("avg-para-len = %v, want 11.5", attrs["cod-text-avg-para-len"])
+	}
+	if attrs["cod-text-eol"] != "lf" {
+		t.Fatalf("eol = %v, want lf", attrs["cod-text-eol"])
+	}
+	if attrs["cod-text-has-bom"] != false {
+		t.Fatalf("has-bom = %v", attrs["cod-text-has-bom"])
+	}
+	if attrs["cod-text-digit-ratio"].(float64) != 0 {
+		t.Fatalf("digit-ratio = %v", attrs["cod-text-digit-ratio"])
+	}
+}
+
+func TestTimestampSpan(t *testing.T) {
+	src := "2026-08-27 23:02:02 start\n2026-08-27 23:05:12 end\n"
+	d := descriptor{}
+	attrs, _ := d.Analyze(zeroInput(), []byte(src))
+
+	if attrs["cod-text-timestamp-count"].(int) != 2 {
+		t.Fatalf("timestamp-count = %v", attrs["cod-text-timestamp-count"])
+	}
+	if attrs["cod-text-time-span"].(int64) != 190 {
+		t.Fatalf("time-span = %v, want 190", attrs["cod-text-time-span"])
+	}
+}
+
+func TestEOLAndBOM(t *testing.T) {
+	d := descriptor{}
+
+	attrs, _ := d.Analyze(zeroInput(), []byte("行一\r\n行二\r\n"))
+	if attrs["cod-text-eol"] != "crlf" {
+		t.Fatalf("eol = %v, want crlf", attrs["cod-text-eol"])
+	}
+
+	bom := append([]byte{0xEF, 0xBB, 0xBF}, []byte("BOM 文本")...)
+	attrs, _ = d.Analyze(zeroInput(), bom)
+	if attrs["cod-text-has-bom"] != true {
+		t.Fatalf("has-bom = %v, want true", attrs["cod-text-has-bom"])
 	}
 }

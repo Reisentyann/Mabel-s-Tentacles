@@ -1,8 +1,12 @@
+// 文件：mcp-server-go/internal/tools/copyfile/copyfile.go —— MCP 工具 copy_file：内容 + 元数据一起复制
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package copyfile
 
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -42,6 +46,7 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		}
 
 		sessionID := tools.SessionID(ctx)
+		start := time.Now()
 
 		content, err := service.SafeRead(deps.Cfg.DataDir, source)
 		if err != nil {
@@ -54,12 +59,12 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		if deps.Store != nil {
 			if err := deps.Store.CopyMetadata(ctx, source, target, sessionID, ""); err != nil {
 				// 源文件可能没有元数据，复制失败不致命；回填目标基础元数据，避免检索遗漏
-				slog.Warn("copy metadata failed, recording basic meta", "source", source, "error", err)
+				slog.Warn("copy metadata failed, recording basic meta", "source", source, "target", target, "session", sessionID, "error", err)
 				tools.RecordFileMeta(ctx, deps.Store, target, content, sessionID)
 			}
 		}
 
-		slog.Info("copy_file ok", "source", source, "target", target)
+		slog.Info("copy_file ok", "source", source, "target", target, "bytes", len(content), "session", sessionID, "duration", time.Since(start).String())
 		tools.RecordOperation(ctx, deps.Store, sessionID, "copy_file", target, "success", "", map[string]any{"source": source})
 		return tools.Result(map[string]any{"success": true, "message": "Successfully copied " + source + " to " + target}), nil
 	})

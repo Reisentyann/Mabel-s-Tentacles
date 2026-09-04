@@ -1,3 +1,6 @@
+// 文件：mcp-server-go/internal/repo/users.go —— users 表存取：用户模型 / 按用户名查询
+// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+
 package repo
 
 import (
