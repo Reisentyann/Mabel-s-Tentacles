@@ -1,6 +1,8 @@
 # Mabel-s-Tentacles
 
 > 梅贝尔之触 —— 她会帮你管理文件。
+>
+> A lightweight MCP file manager for AI agents, written in Go — deterministic file describer, field indexer and lifecycle manager.
 
 <p align="center">
   <img src="docs/images/mabel.png" alt="梅贝尔" width="410">
