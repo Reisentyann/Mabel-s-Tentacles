@@ -6,6 +6,7 @@ package text
 import (
 	"strings"
 	"testing"
+	"unicode/utf16"
 
 	"golang.org/x/text/encoding/simplifiedchinese"
 
@@ -109,6 +110,67 @@ func TestAnalyzeEn(t *testing.T) {
 	}
 	if attrs["cod-text-blank-ratio"].(float64) <= 0 {
 		t.Fatal("blank ratio should be > 0")
+	}
+}
+
+func TestAnalyzeBadGBKFallsToLatin1(t *testing.T) {
+	// 坏 GBK（0x81 领字节 + 无效尾字节 0x30）：x/text 以 U+FFFD 代替而非
+	// 报错，零替换符校验须把它打回 latin-1 兜底，不得误标 gbk。
+	d := descriptor{}
+	attrs, _ := d.Analyze(zeroInput(), []byte("hello \x81\x30 world"))
+	if attrs["cod-text-encoding"] != "latin-1" {
+		t.Fatalf("encoding = %v, want latin-1", attrs["cod-text-encoding"])
+	}
+	if attrs["cod-text-language"] != "en" {
+		t.Fatalf("language = %v, want en", attrs["cod-text-language"])
+	}
+}
+
+// utf16Bytes 构造带 BOM 的 UTF-16 字节（代理对经 utf16.Encode 展开）。
+func utf16Bytes(s string, little bool) []byte {
+	out := []byte{0xFE, 0xFF}
+	if little {
+		out = []byte{0xFF, 0xFE}
+	}
+	for _, u := range utf16.Encode([]rune(s)) {
+		if little {
+			out = append(out, byte(u), byte(u>>8))
+		} else {
+			out = append(out, byte(u>>8), byte(u))
+		}
+	}
+	return out
+}
+
+func TestAnalyzeUTF16(t *testing.T) {
+	src := "# UTF-16 标题\n\n梅贝尔整理文件。\n"
+	d := descriptor{}
+	for _, tc := range []struct {
+		little bool
+		enc    string
+	}{
+		{true, "utf-16le"},
+		{false, "utf-16be"},
+	} {
+		attrs, _ := d.Analyze(zeroInput(), utf16Bytes(src, tc.little))
+		if attrs["cod-text-encoding"] != tc.enc {
+			t.Fatalf("encoding = %v, want %s", attrs["cod-text-encoding"], tc.enc)
+		}
+		if attrs["cod-text-language"] != "zh" {
+			t.Fatalf("language = %v, want zh (decoded)", attrs["cod-text-language"])
+		}
+		if attrs["cod-text-has-bom"] != true {
+			t.Fatalf("has-bom = %v, want true", attrs["cod-text-has-bom"])
+		}
+		if attrs["cod-text-title-line"] != "UTF-16 标题" {
+			t.Fatalf("title-line = %v", attrs["cod-text-title-line"])
+		}
+		if attrs["cod-text-eol"] != "lf" {
+			t.Fatalf("eol = %v, want lf (decoded)", attrs["cod-text-eol"])
+		}
+		if attrs["cod-text-lines"].(int) != 4 {
+			t.Fatalf("lines = %v, want 4 (decoded)", attrs["cod-text-lines"])
+		}
 	}
 }
 

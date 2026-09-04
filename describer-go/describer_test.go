@@ -95,11 +95,11 @@ func TestAnalyzeEnginePNG(t *testing.T) {
 	if merged["cod-image-at"] != mtime.Unix() {
 		t.Fatal("cod-image-at should be set")
 	}
-	if merged["cod-image-ver"] != 1 {
-		t.Fatal("cod-image-ver should be set")
+	if merged["cod-image-ver"] != 2 {
+		t.Fatal("cod-image-ver should be set (image v2)")
 	}
-	if merged["cod-basic-ver"] != 1 {
-		t.Fatal("cod-basic-ver should be set")
+	if merged["cod-basic-ver"] != 2 {
+		t.Fatal("cod-basic-ver should be set (basic v2)")
 	}
 	b, _ := json.Marshal(merged)
 	if string(b) == "" {
@@ -152,5 +152,92 @@ func TestAnalyzeEngineLazyLoad(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("text family missing after lazy load")
+	}
+}
+
+func TestAnalyzeEngineCorruptImagePurgesOldKeys(t *testing.T) {
+	// PNG 魔数齐全但 IHDR 损坏：image 路由命中、解码失败零产出。
+	// 引擎仍须给出 image 空结果，合并时清掉旧 cod-image-* / sp-cod-png-*，
+	// 否则损坏文件永远残留旧事实（IsStale 反复重分析也清不掉）。
+	raw := append([]byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D},
+		[]byte("IHDR")...)
+	raw = append(raw, make([]byte, 17)...) // 13B 数据 + 4B CRC 全零 → 解码必败
+	in := describer.Input{
+		Path: "broken.png", Head: raw, Full: raw,
+		Size: int64(len(raw)), ExtMime: "image/png",
+	}
+	rs := describer.Analyze(in, nil)
+	var img *describer.Result
+	for i, r := range rs {
+		if r.Family == "image" {
+			img = &rs[i]
+		}
+	}
+	if img == nil {
+		t.Fatal("image family must be present (ran but empty)")
+	}
+	if len(img.Attrs) != 0 {
+		t.Fatalf("corrupt image attrs = %#v, want empty", img.Attrs)
+	}
+
+	now := time.Unix(1700000000, 0)
+	m := describer.MergeResults(map[string]any{
+		"cod-image-width":   32,
+		"sp-cod-png-prompt": "旧参数",
+		"cod-image-at":      int64(1),
+		"cod-text-lines":    5,
+		"llm-tone":          "保留",
+	}, rs, now)
+	if _, ok := m["cod-image-width"]; ok {
+		t.Fatal("old cod-image-width must be purged on empty output")
+	}
+	if _, ok := m["sp-cod-png-prompt"]; ok {
+		t.Fatal("old sp-cod-png-prompt must be purged on empty output")
+	}
+	if m["cod-image-ver"] != img.Ver {
+		t.Fatalf("cod-image-ver = %v, want %d", m["cod-image-ver"], img.Ver)
+	}
+	if m["cod-image-at"] != now.Unix() {
+		t.Fatal("cod-image-at should be stamped even on empty output")
+	}
+	if m["cod-text-lines"] != 5 {
+		t.Fatal("other cod family must survive")
+	}
+	if m["llm-tone"] != "保留" {
+		t.Fatal("llm field must survive")
+	}
+}
+
+func TestAnalyzeEngineEmptyTextStampsFamily(t *testing.T) {
+	// 空文本文件：textish=true 路由命中但零产出——text 仍入列，
+	// 合并清旧键并刷 ver/at，防 IsStale 每轮重触发却清不掉旧键。
+	in := describer.Input{Path: "empty.txt", Head: []byte{}, Full: []byte{}, ExtMime: "text/plain"}
+	rs := describer.Analyze(in, nil)
+	var text *describer.Result
+	for i, r := range rs {
+		if r.Family == "text" {
+			text = &rs[i]
+		}
+	}
+	if text == nil {
+		t.Fatal("text family must be present (ran but empty)")
+	}
+	if len(text.Attrs) != 0 {
+		t.Fatalf("empty file text attrs = %#v, want empty", text.Attrs)
+	}
+
+	now := time.Unix(1700000000, 0)
+	m := describer.MergeResults(map[string]any{"cod-text-lines": 5, "llm-tone": "保留"}, rs, now)
+	if _, ok := m["cod-text-lines"]; ok {
+		t.Fatal("old cod-text-lines must be purged on empty output")
+	}
+	if m["cod-text-ver"] != text.Ver {
+		t.Fatalf("cod-text-ver = %v, want %d", m["cod-text-ver"], text.Ver)
+	}
+	if m["cod-text-at"] != now.Unix() {
+		t.Fatal("cod-text-at should be stamped even on empty output")
+	}
+	if m["llm-tone"] != "保留" {
+		t.Fatal("llm field must survive")
 	}
 }

@@ -29,8 +29,9 @@ type descriptor struct{}
 
 func (descriptor) Family() string { return "image" }
 
-// FamilyVersion=1：首发版本（尺寸/调色板/色系/亮度/EXIF/PNG tEXt）。
-func (descriptor) FamilyVersion() int { return 1 }
+// FamilyVersion=2：v1 首发；v2 修 contrast 纯色图 NaN——方差浮点误差可微负，
+// 须钳非负再开方（旧实现产出 NaN，经旧 Round1 截断成垃圾整数）。
+func (descriptor) FamilyVersion() int { return 2 }
 func (descriptor) SPNamespaces() []string {
 	return []string{"sp-cod-exif-", "sp-cod-png-"}
 }
@@ -69,7 +70,8 @@ func (descriptor) Analyze(_ describer.Input, full []byte) (map[string]any, map[s
 		return a, sp
 	}
 
-	// 亮度 / 对比度（luma 均值与标准差，0-100）
+	// 亮度 / 对比度（luma 均值与标准差，0-100）。方差钳非负：纯色图的
+	// 浮点累计误差可致 sumsq/n-mean² 微负，直接开方会得 NaN。
 	var sum, sumsq float64
 	for _, p := range px {
 		l := luma(p)
@@ -79,7 +81,7 @@ func (descriptor) Analyze(_ describer.Input, full []byte) (map[string]any, map[s
 	n := float64(len(px))
 	mean := sum / n
 	a["cod-image-brightness"] = describer.Round1(mean * 100 / 255)
-	a["cod-image-contrast"] = describer.Round1(math.Sqrt(sumsq/n-mean*mean) * 100 / 255)
+	a["cod-image-contrast"] = describer.Round1(math.Sqrt(math.Max(0, sumsq/n-mean*mean)) * 100 / 255)
 
 	// 透明通道
 	for _, p := range px {

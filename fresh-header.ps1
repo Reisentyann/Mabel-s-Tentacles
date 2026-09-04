@@ -12,7 +12,7 @@ param([switch]$Changed)
 $root = $PSScriptRoot
 $today = Get-Date -Format 'yyyy-MM-dd'
 
-$targets = Get-ChildItem -Recurse -Filter *.go "$root\describer-go", "$root\mcp-server-go"
+$targets = Get-ChildItem -Recurse -Filter *.go "$root\describer-go", "$root\indexer-go", "$root\manager-go", "$root\mcp-server-go"
 if ($Changed) {
     $dirty = @(git -C $root status --porcelain -- '*.go' | ForEach-Object { ($_ -replace '^[ ?AMDR]+\s+', '').Replace('/', '\') })
     $targets = $targets | Where-Object { $dirty -contains $_.FullName.Substring($root.Length + 1) }

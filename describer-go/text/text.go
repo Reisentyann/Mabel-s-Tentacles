@@ -23,9 +23,11 @@ type descriptor struct{}
 
 func (descriptor) Family() string { return "text" }
 
-// FamilyVersion=2：v1 为描述系统首发（4.3.1 十字段）；v2 增补 P0
-// 结构量化（4.3.2）与行文指纹（4.3.3）。存量 cod-text-ver<2 由回填重算。
-func (descriptor) FamilyVersion() int { return 2 }
+// FamilyVersion=3：v2 增补 P0 结构量化（4.3.2）与行文指纹（4.3.3）；
+// v3 解码链增 UTF-16（BOM 判定 LE/BE）、GBK 要求零替换符（坏序列落
+// latin-1 兜底）、has-bom 口径扩展为任意 BOM（UTF-8 / UTF-16）。
+// 存量 cod-text-ver<3 由回填重算。
+func (descriptor) FamilyVersion() int { return 3 }
 
 func (descriptor) SPNamespaces() []string { return nil }
 func (descriptor) Supports(_ string, _ []byte, b describer.Basic) bool {

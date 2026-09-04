@@ -6,7 +6,9 @@
 package text
 
 import (
+	"bytes"
 	"strings"
+	"unicode/utf16"
 	"unicode/utf8"
 
 	"golang.org/x/text/encoding/simplifiedchinese"
@@ -71,6 +73,8 @@ func buildCtx(full []byte) *textCtx {
 		}
 	}
 	rn := float64(len(runes))
+	_, bom16 := describer.UTF16BOM(full)
+	hasBOM := (len(full) >= 3 && full[0] == 0xEF && full[1] == 0xBB && full[2] == 0xBF) || bom16
 	return &textCtx{
 		decoded:  decoded,
 		encoding: enc,
@@ -81,16 +85,26 @@ func buildCtx(full []byte) *textCtx {
 		latin:    latin,
 		hasCJK:   rn > 0 && float64(cjk)/rn > 0.05,
 		hasLatin: rn > 0 && float64(latin)/rn > 0.2,
-		hasBOM:   len(full) >= 3 && full[0] == 0xEF && full[1] == 0xBB && full[2] == 0xBF,
+		hasBOM:   hasBOM,
 	}
 }
 
-// decodeText 解码：严格 UTF-8 优先，其次 GBK，兜底 latin-1。
+// decodeText 解码：带 BOM 的 UTF-16 → 严格 UTF-8 → GBK（零替换符才认领）→ latin-1 兜底。
+// FF FE / FE FF 本就是非法 UTF-8 序列，先判 UTF-16 可免被 GBK 误收。
 func decodeText(b []byte) (string, string) {
+	if little, ok := describer.UTF16BOM(b); ok {
+		if little {
+			return decodeUTF16(b[2:], true), "utf-16le"
+		}
+		return decodeUTF16(b[2:], false), "utf-16be"
+	}
 	if utf8.Valid(b) {
 		return string(b), "utf-8"
 	}
-	if dec, err := simplifiedchinese.GBK.NewDecoder().Bytes(b); err == nil && utf8.Valid(dec) {
+	// GBK 只在整段干净解码时才认领：x/text 对坏序列常以 U+FFFD 代替而非
+	// 报错，不查会把乱码误标成 gbk（此时 latin-1 兜底更诚实）。
+	if dec, err := simplifiedchinese.GBK.NewDecoder().Bytes(b); err == nil &&
+		utf8.Valid(dec) && !bytes.ContainsRune(dec, utf8.RuneError) {
 		return string(dec), "gbk"
 	}
 	// latin-1：每字节直接映射 U+0000-U+00FF
@@ -99,4 +113,18 @@ func decodeText(b []byte) (string, string) {
 		r[i] = rune(x)
 	}
 	return string(r), "latin-1"
+}
+
+// decodeUTF16 解码 UTF-16（BOM 已剥）：按字节序组 uint16 再经 utf16.Decode
+// 处理代理对；奇尾字节（截断的半字）忽略。
+func decodeUTF16(b []byte, little bool) string {
+	us := make([]uint16, 0, len(b)/2)
+	for i := 0; i+1 < len(b); i += 2 {
+		if little {
+			us = append(us, uint16(b[i])|uint16(b[i+1])<<8)
+		} else {
+			us = append(us, uint16(b[i+1])|uint16(b[i])<<8)
+		}
+	}
+	return string(utf16.Decode(us))
 }

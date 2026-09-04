@@ -3,19 +3,42 @@
 
 package describer
 
-import "strings"
+import (
+	"math"
+	"strings"
+)
 
 // 共享原语（≈ stdlib image/color 的角色）：各插件与 llm 子包共同使用的
 // 确定性小工具。留在根包是因为它们是插件 API 契约的一部分。
 
-// Round2 保留两位小数（数值字段统一精度）。
+// Round2 保留两位小数（数值字段统一精度）。math.Round 半值远离零：
+// 对非负数与旧实现（int(f*100+0.5) 截断）等价，负数方向修正。
 func Round2(f float64) float64 {
-	return float64(int(f*100+0.5)) / 100
+	return math.Round(f*100) / 100
 }
 
 // Round1 保留一位小数。
 func Round1(f float64) float64 {
-	return float64(int(f*10+0.5)) / 10
+	return math.Round(f*10) / 10
+}
+
+// UTF16BOM 判定 UTF-16 BOM：FF FE → LE（little=true），FE FF → BE。
+// UTF-32 LE 的 FF FE 00 00 不在此列（4 字节 BOM，维持二进制判定）。
+// basic 的 textish 闸门与 text 的解码链共用本判定。
+func UTF16BOM(head []byte) (little, ok bool) {
+	if len(head) < 2 {
+		return false, false
+	}
+	switch {
+	case head[0] == 0xFF && head[1] == 0xFE:
+		if len(head) >= 4 && head[2] == 0x00 && head[3] == 0x00 {
+			return false, false
+		}
+		return true, true
+	case head[0] == 0xFE && head[1] == 0xFF:
+		return false, true
+	}
+	return false, false
 }
 
 // TrimRunes 按 rune 截断（多值字段防膨胀）。
