@@ -1,5 +1,5 @@
 // 文件：describer-go/code/code.go —— cod-code 插件：源码语言 / import 提取 / TODO / 生成标记 / 包名 / 函数数 / 注释率 / 测试文件 / 许可证 / 导出名
-// 修改：2026-09-04（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
 
 // Package code cod-code 插件：源码文件的确定性事实。
 // 字段字典见 docs/元数据字段说明.md 第 4.4 节。

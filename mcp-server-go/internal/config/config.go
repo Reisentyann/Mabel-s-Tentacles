@@ -1,5 +1,5 @@
-// 文件：mcp-server-go/internal/config/config.go —— 配置加载：config.yml + 环境变量覆盖（服务器/日志/DB/JWT/API/管理员）
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 文件：mcp-server-go/internal/config/config.go —— 配置加载：config.yml + 环境变量覆盖（服务器/日志/DB/JWT/API/管理员/T2 回填）
+// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
 
 package config
 
@@ -54,6 +54,18 @@ type AdminConfig struct {
 	Password string `yaml:"password"`
 }
 
+// BackfillConfig T2 启动后台回填（字段字典 10.3）：默认关闭，开启后由
+// 装配层 goroutine 按 Interval 驱动 manager.Backfill，一轮结束即返回。
+type BackfillConfig struct {
+	Enabled  bool `yaml:"enabled"`  // 默认 false
+	Batch    int  `yaml:"batch"`    // 每轮重分析上限
+	Interval int  `yaml:"interval"` // 轮间隔（秒）
+}
+
+type DescribeConfig struct {
+	Backfill BackfillConfig `yaml:"backfill"`
+}
+
 type Config struct {
 	Server   ServerConfig   `yaml:"server"`
 	DataDir  string         `yaml:"data_dir"`
@@ -63,6 +75,7 @@ type Config struct {
 	API      APIConfig      `yaml:"api"`
 	Security SecurityConfig `yaml:"security"`
 	Admin    AdminConfig    `yaml:"admin"`
+	Describe DescribeConfig `yaml:"describe"`
 }
 
 func Load() *Config {
@@ -103,6 +116,13 @@ func defaults() *Config {
 		Admin: AdminConfig{
 			Username: "admin",
 			Password: "admin123",
+		},
+		Describe: DescribeConfig{
+			Backfill: BackfillConfig{
+				Enabled:  false,
+				Batch:    100,
+				Interval: 60,
+			},
 		},
 	}
 }
@@ -171,6 +191,21 @@ func (c *Config) loadEnv() {
 	}
 	if v := os.Getenv("ADMIN_PASSWORD"); v != "" {
 		c.Admin.Password = v
+	}
+	if v := os.Getenv("DESCRIBE_BACKFILL_ENABLED"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			c.Describe.Backfill.Enabled = b
+		}
+	}
+	if v := os.Getenv("DESCRIBE_BACKFILL_BATCH"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.Describe.Backfill.Batch = n
+		}
+	}
+	if v := os.Getenv("DESCRIBE_BACKFILL_INTERVAL"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.Describe.Backfill.Interval = n
+		}
 	}
 }
 

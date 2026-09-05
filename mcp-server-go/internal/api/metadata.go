@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/api/metadata.go —— 元数据端点：搜索 / 查看元数据 / 描述（llm 闸门）/ 复制
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
 
 package api
 
@@ -163,7 +163,7 @@ func (s *Server) describeFile(w http.ResponseWriter, r *http.Request) {
 		Attributes:  describer.JSONFromAttrs(existing),
 	}
 	if s.repo != nil {
-		if err := s.repo.UpsertMetadata(r.Context(), m); err != nil {
+		if _, err := s.repo.UpsertMetadata(r.Context(), m); err != nil {
 			slog.Error("describe file failed", "path", req.Path, "error", err)
 			writeError(w, http.StatusInternalServerError, err.Error())
 			return
@@ -217,7 +217,7 @@ func (s *Server) copyFile(w http.ResponseWriter, r *http.Request) {
 			ext := service.InferExtension(req.Target)
 			cs := service.ChecksumSHA256(content)
 			size := int64(len(content))
-			_ = s.repo.UpsertMetadata(r.Context(), &repo.FileMetadata{
+			_, _ = s.repo.UpsertMetadata(r.Context(), &repo.FileMetadata{
 				FilePath:  req.Target,
 				Scope:     "global",
 				FileType:  &ft,

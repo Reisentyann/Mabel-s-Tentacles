@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/describefile/describefile.go —— MCP 工具 describe_file：描述三件套 + llm 字段（过 LLMStore 闸门）
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
 
 package describefile
 
@@ -128,7 +128,7 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			Attributes:  describer.JSONFromAttrs(existing),
 		}
 		if deps.Store != nil {
-			if err := deps.Store.UpsertMetadata(ctx, meta); err != nil {
+			if _, err := deps.Store.UpsertMetadata(ctx, meta); err != nil {
 				slog.Error("describe_file failed", "path", filePath, "session", sessionID, "error", err, "duration", time.Since(start).String())
 				return tools.ResultError("Database error: " + err.Error()), nil
 			}

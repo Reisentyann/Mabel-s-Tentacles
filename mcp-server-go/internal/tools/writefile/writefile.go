@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/writefile/writefile.go —— MCP 工具 write_file：写文件 + 内联描述 + T1 元数据
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
 
 package writefile
 
@@ -79,7 +79,7 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		}
 
 		slog.Info("write_file ok", "path", filePath, "bytes", len(content), "session", sessionID, "duration", time.Since(start).String())
-		tools.RecordFileMeta(ctx, deps.Store, filePath, []byte(content), sessionID)
+		tools.RecordFileMeta(ctx, deps, filePath, []byte(content), sessionID)
 
 		// 内联描述：AI 传了任意描述字段就一次性落库，避免事后文件找不到。
 		// UpsertMetadata 用 COALESCE，仅覆盖非空字段，不影响 RecordFileMeta 已写的技术元数据。
@@ -92,7 +92,7 @@ func register(s *server.MCPServer, deps tools.Deps) {
 				FileType:    tools.StrPtr(fileType),
 				SessionID:   tools.StrPtr(sessionID),
 			}
-			if err := deps.Store.UpsertMetadata(ctx, meta); err != nil {
+			if _, err := deps.Store.UpsertMetadata(ctx, meta); err != nil {
 				slog.Warn("write_file upsert description failed", "path", filePath, "session", sessionID, "error", err)
 			}
 		}

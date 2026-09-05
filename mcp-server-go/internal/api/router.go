@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/api/router.go —— HTTP API 路由装配：公共路由 + JWT 保护路由 + Server 结构
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
 
 package api
 
@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 
+	"github.com/Reisentyann/Mabel-s-Tentacles/manager-go"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/config"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/search"
@@ -16,11 +17,12 @@ type Server struct {
 	cfg      *config.Config
 	repo     repo.Store
 	searcher search.Searcher
+	manager  *manager.Manager // updater 域（T2/T3 端点）；nil = 未装配
 }
 
 // Register 把 HTTP API 路由挂到 mux 上。
-func Register(mux *http.ServeMux, cfg *config.Config, st repo.Store, searcher search.Searcher) {
-	s := &Server{cfg: cfg, repo: st, searcher: searcher}
+func Register(mux *http.ServeMux, cfg *config.Config, st repo.Store, searcher search.Searcher, mgr *manager.Manager) {
+	s := &Server{cfg: cfg, repo: st, searcher: searcher, manager: mgr}
 
 	// 公共路由
 	mux.HandleFunc("GET /health", s.health)
@@ -37,6 +39,8 @@ func Register(mux *http.ServeMux, cfg *config.Config, st repo.Store, searcher se
 	mux.Handle("GET /api/files/metadata", s.requireAuth(http.HandlerFunc(s.getFileMetadata)))
 	mux.Handle("PUT /api/files/metadata", s.requireAuth(http.HandlerFunc(s.describeFile)))
 	mux.Handle("POST /api/files/copy", s.requireAuth(http.HandlerFunc(s.copyFile)))
+	mux.Handle("POST /api/files/analyze", s.requireAuth(http.HandlerFunc(s.analyzeFile)))
+	mux.Handle("POST /api/files/backfill", s.requireAuth(http.HandlerFunc(s.backfillFile)))
 	mux.Handle("GET /api/operations", s.requireAuth(http.HandlerFunc(s.listOperations)))
 	mux.Handle("GET /api/commands", s.requireAuth(http.HandlerFunc(s.listCommands)))
 	mux.Handle("GET /api/commands/{id}", s.requireAuth(http.HandlerFunc(s.getCommand)))

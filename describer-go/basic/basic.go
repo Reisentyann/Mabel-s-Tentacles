@@ -1,5 +1,5 @@
 // 文件：describer-go/basic/basic.go —— cod-basic 插件：MIME 嗅探 / textish / 熵 / 文件名模式（一切文件必跑）
-// 修改：2026-09-04（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
 
 // Package basic cod-basic 插件：一切文件必跑的确定性基础事实。
 // 字段字典见 docs/元数据字段说明.md 第 4.1 节，键在此处字面量封闭。

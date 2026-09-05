@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/modifydatafile/modifydatafile.go —— MCP 工具 modify_data_file：append/overwrite + 元数据刷新
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
 
 package modifydatafile
 
@@ -58,7 +58,7 @@ func register(s *server.MCPServer, deps tools.Deps) {
 
 		// 刷新元数据：append/overwrite 后 size 与 checksum 会变化，读取整文件重算
 		if full, rerr := service.SafeRead(deps.Cfg.DataDir, filePath); rerr == nil {
-			tools.RecordFileMeta(ctx, deps.Store, filePath, full, sessionID)
+			tools.RecordFileMeta(ctx, deps, filePath, full, sessionID)
 		} else {
 			slog.Warn("refresh metadata after modify failed", "path", filePath, "session", sessionID, "error", rerr)
 		}

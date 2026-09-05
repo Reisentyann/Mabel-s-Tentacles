@@ -1,5 +1,5 @@
 // 文件：describer-go/describer.go —— 描述引擎本体：Descriptor 接口 + 注册表 + Analyze 编排（basic 恒跑 + 路由 + 共享全量加载）
-// 修改：2026-09-04（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
 
 // Package describer 是确定性文件描述引擎：字节进、事实出。
 // 产出仅允许 cod- 前缀固定字段与 sp-cod- 自由字段，字段字典见仓库
@@ -69,6 +69,25 @@ var registry []Descriptor
 // Register 由各插件 init() 调用完成自注册（见 all/all.go 集中 blank import）。
 func Register(d Descriptor) {
 	registry = append(registry, d)
+}
+
+// CurrentVersions 返回全部已注册家族的当前算法版本表（family →
+// FamilyVersion()），供存量回填方（manager updater 等）做 IsStale 的
+// curVer 入参——调用方不再需要硬编码常量表（会随版本升级腐烂，
+// 管理机开发交接文档缺口 1 的推荐解法）。
+// basic 家族唯一：只认首个注册，与 Analyze 的路由口径一致。
+func CurrentVersions() map[string]int {
+	out := make(map[string]int, len(registry))
+	for _, d := range registry {
+		f := d.Family()
+		if f == "basic" {
+			if _, ok := out[f]; ok {
+				continue
+			}
+		}
+		out[f] = d.FamilyVersion()
+	}
+	return out
 }
 
 // Analyze 运行全部命中插件：basic 恒跑并产出路由事实；

@@ -1,5 +1,5 @@
 // 文件：manager-go/download.go —— 下载票据域：短期签名 URL 签发与验签，handler 不再拼链接
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
 
 // download 域职责：下载访问策略。
 // 现状（退役目标）：HTTP handler 拼 /api/files/download?path=...&token=静态ACCESS_TOKEN，

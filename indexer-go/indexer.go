@@ -1,5 +1,5 @@
 // 文件：indexer-go/indexer.go —— 索引机接口与类型：字段条件 → uuid 纯查询 + Stats 自省（架构设计.md 第 3 节）
-// 修改：2026-09-04（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
 
 // Package indexer 是字段索引机：纯查询服务——输入字段条件，输出文件 uuid 集合
 // （docs/架构设计.md 第 3 节）。uuid 是组件间货币，管理机凭 uuid 取件。

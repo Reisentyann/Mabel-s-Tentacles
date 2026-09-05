@@ -1,5 +1,5 @@
 // 文件：describer-go/image/image.go —— cod-image 插件：尺寸/长宽比/调色板/色系/亮度对比/明暗/冷暖/肤色/梯度/对称（k-means 确定性）
-// 修改：2026-09-04（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
 
 // Package image cod-image 插件：图像确定性事实（尺寸/调色板/色系/亮度）。
 // 字段字典见 docs/元数据字段说明.md 第 4.2 节。

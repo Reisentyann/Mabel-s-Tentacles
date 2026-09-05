@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/repo/repo.go —— 数据访问接口 Store + pgx 连接池实现（可 mock）
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
 
 package repo
 
@@ -33,13 +33,19 @@ type Store interface {
 	GetOperations(ctx context.Context, page, size int) ([]OperationResult, int, error)
 
 	// 文件元数据
-	UpsertMetadata(ctx context.Context, m *FileMetadata) error
+	UpsertMetadata(ctx context.Context, m *FileMetadata) (uuid string, err error)
 	GetMetadata(ctx context.Context, filePath string) (*FileMetadata, error)
 	GetMetadataByPaths(ctx context.Context, paths []string) (map[string]*FileMetadata, error)
 	SearchFiles(ctx context.Context, fs FileSearch) ([]FileMetadata, int, error)
 	CopyMetadata(ctx context.Context, source, target, sessionID, userID string) error
 	SoftDeleteMetadata(ctx context.Context, filePath string) error
 	IncrementDownloadCount(ctx context.Context, filePath string) error
+	// ListMetadataPage 按 file_path 升序的游标分页（sincePath 之后 limit 条，
+	// 不含软删）——manager updater T2 回填扫描用。
+	ListMetadataPage(ctx context.Context, sincePath string, limit int) ([]FileMetadata, error)
+	// MarkMissingRound 盘上缺失计数 +1 并返回累计轮次（连续 3 轮触发软删除，
+	// manager updater 的幽灵存续状态；Upsert 即文件存在证据，会清零）。
+	MarkMissingRound(ctx context.Context, filePath string) (rounds int, err error)
 
 	Close()
 }
@@ -173,6 +179,9 @@ var migrations = []string{
 	`CREATE INDEX IF NOT EXISTS idx_meta_type  ON file_metadata (file_type)`,
 	`CREATE INDEX IF NOT EXISTS idx_meta_by    ON file_metadata (user_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_meta_del   ON file_metadata (is_deleted)`,
+	// 幽灵元数据存续状态：T2 回填轮次中盘上连续缺失的计数（3 轮软删除，
+	// manager updater 域）。Upsert 视为文件存在证据，写入时清零。
+	`ALTER TABLE file_metadata ADD COLUMN IF NOT EXISTS missing_rounds INT NOT NULL DEFAULT 0`,
 }
 
 func New(ctx context.Context, dsn string, maxConns int32) (Store, error) {

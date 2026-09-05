@@ -1,5 +1,5 @@
 // 文件：describer-go/basic/basic_test.go —— cod-basic 单元测试（含 v3：executable / uuid-like）
-// 修改：2026-09-04（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
 
 package basic
 

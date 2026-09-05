@@ -1,5 +1,5 @@
 // 文件：describer-go/text/stats.go —— 基础统计字段：encoding/lines/chars/cjk-ratio/language/blank-ratio/top-keywords/shebang/final-newline/non-ascii-ratio/upper-ratio/word-count/avg-word-len
-// 修改：2026-09-04（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
 
 // Package text 内的 stats.go：cod-text 基础统计字段（无语义、纯计数）。
 // 字段字典见 docs/元数据字段说明.md 第 4.3 节基础统计部分。

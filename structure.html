@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Mabel-s-Tentacles — Project Structure</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:#000;color:#ccc;overflow:hidden;height:100vh;width:100vw;display:flex;flex-direction:row}
+.guide-panel{background:#0a0a0a;border-right:1px solid #222;width:340px;min-width:340px;height:100vh;overflow-y:auto;flex-shrink:0;transition:width .25s,min-width .25s}
+.guide-panel.collapsed{width:48px;min-width:48px;overflow:hidden}
+.guide-panel.collapsed .guide-body{display:none}
+.guide-panel.collapsed .guide-header h2,.guide-panel.collapsed #guideHint{display:none}
+.guide-panel.collapsed .guide-header .arrow{font-size:16px}
+.guide-header{display:flex;align-items:center;gap:8px;padding:10px 12px;cursor:pointer;user-select:none;position:sticky;top:0;background:#0a0a0a;z-index:5}
+.guide-header:hover{background:#111}
+.guide-header .arrow{transition:transform .2s;font-size:11px;color:#666;flex-shrink:0}
+.guide-header.collapsed .arrow{transform:rotate(180deg)}
+.guide-header h2{font-size:13px;color:#e0e0e0;display:flex;align-items:center;gap:6px;overflow:hidden}
+.guide-header h2 .badge{font-size:9px;background:#222;color:#999;padding:2px 6px;border-radius:8px;font-weight:400;white-space:nowrap}
+.guide-body{padding:0 12px 12px;display:flex;flex-direction:column;gap:14px}
+.flow-col h3{font-size:11px;color:#999;margin-bottom:6px;font-weight:500}
+.flow-step{display:flex;gap:6px;padding:3px 0;font-size:10px;align-items:flex-start;line-height:1.4}
+.flow-step .num{flex-shrink:0;width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:8px;font-weight:700;color:#000;background:#555}
+.flow-step .file{color:#aaa;cursor:pointer;font-family:monospace;font-size:9px;word-break:break-all}
+.flow-step .file:hover{color:#fff;text-decoration:underline}
+.flow-step .desc{color:#666;font-size:9px}
+.flow-note{font-size:9px;color:#666;margin-top:6px;padding:8px 10px;background:#0d0d0d;border-radius:5px;line-height:1.6}
+.flow-note b{color:#ccc}
+.main-area{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.topbar{background:#0a0a0a;border-bottom:1px solid #222;padding:7px 16px;display:flex;align-items:center;gap:10px;z-index:200;flex-shrink:0}
+.topbar h1{font-size:13px;color:#ddd;white-space:nowrap}
+.topbar .spacer{flex:1}
+.topbar .search-wrap{position:relative}
+.topbar input{padding:5px 10px;border-radius:5px;border:1px solid #333;background:#000;color:#ccc;font-size:12px;outline:none;width:170px}
+.topbar input:focus{border-color:#555}
+.topbar button{padding:5px 10px;border-radius:5px;border:1px solid #333;background:#0a0a0a;color:#999;font-size:11px;cursor:pointer;white-space:nowrap}
+.topbar button:hover{background:#1a1a1a;color:#ccc}
+.topbar button.on{background:#1a1a1a;color:#fff;border-color:#555}
+.sr-drop{position:absolute;top:100%;left:0;right:0;background:#111;border:1px solid #333;border-top:none;border-radius:0 0 5px 5px;max-height:240px;overflow-y:auto;z-index:300;display:none}
+.sr-drop.show{display:block}
+.sr-item{padding:5px 10px;font-size:11px;cursor:pointer;display:flex;align-items:center;gap:6px;border-bottom:1px solid #1a1a1a}
+.sr-item:hover{background:#1a1a1a}
+.sr-item .sr-name{color:#ccc;font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sr-item .sr-path{color:#555;font-size:9px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-left:auto;max-width:50%}
+.sr-empty{padding:12px;text-align:center;color:#555;font-size:12px}
+.sr-more{padding:6px;text-align:center;color:#666;font-size:10px}
+.canvas-wrap{flex:1;overflow:auto;position:relative;cursor:grab}
+.canvas-wrap:active{cursor:grabbing}
+.canvas{position:relative;transform-origin:0 0;padding:20px 40px 40px 20px}
+svg.lns{position:absolute;top:0;left:0;pointer-events:none;z-index:1}
+.node{position:absolute;display:flex;align-items:center;gap:4px;padding:5px 10px;border-radius:5px;font-size:11px;white-space:nowrap;cursor:pointer;z-index:10;border:1px solid transparent;user-select:none;width:200px}
+.node:hover{z-index:20;border-color:#444}
+.node.hl{border-color:#777!important;z-index:25}
+.node.dim{opacity:.08;pointer-events:none}
+.node.dir{background:#0a0a0a;border-color:#1a1a1a}
+.node.dir .ni{color:#bbb;font-weight:500;max-width:140px;overflow:hidden;text-overflow:ellipsis}
+.node.dir .ico{font-size:12px;flex-shrink:0}
+.node.file{background:#050505;border-color:#141414}
+.node.file .ni{color:#aaa;max-width:120px;overflow:hidden;text-overflow:ellipsis}
+.node.file .sz{font-size:9px;color:#444;margin-left:auto}
+.node.flow{border-color:#555!important;background:#0d0d0d!important}
+.node.flow .ni{color:#ddd!important}
+.node.root{background:#0d0d0d;border-color:#444;font-weight:600}
+.node.root .ni{color:#ddd}
+.tt{position:fixed;background:#111;border:1px solid #333;border-radius:6px;padding:6px 10px;font-size:11px;color:#ccc;pointer-events:none;z-index:500;display:none}
+.tt .p{color:#666;font-size:10px}
+.zm{position:fixed;bottom:14px;right:14px;background:#111;border:1px solid #333;border-radius:5px;padding:5px 10px;font-size:11px;color:#555;z-index:100}</style>
+</head>
+<body>
+<div class="guide-panel" id="guide">
+<div class="guide-header" id="guideHdr" onclick="toggleGuide()">
+  <span class="arrow">▼</span>
+  <h2><span id="guideTitle"></span> <span class="badge" id="guideBadge"></span></h2>
+  <span style="flex:1"></span>
+  <span style="font-size:10px;color:#555" id="guideHint"></span>
+</div>
+<div class="guide-body" id="guideBody"></div>
+</div>
+<div class="main-area">
+<div class="topbar">
+  <h1>📂 Mabel-s-Tentacles</h1>
+  <span class="spacer"></span>
+  <span class="search-wrap">
+    <input type="text" id="q" placeholder="" oninput="search()" onfocus="search()" onblur="setTimeout(()=>srdrop.classList.remove('show'),200)">
+    <div class="sr-drop" id="srdrop"></div>
+  </span>
+  <button onclick="expandAll()" id="btnExpand"></button>
+  <button onclick="collapseAll()" id="btnCollapse"></button>
+  <button onclick="resetView()" id="btnReset"></button>
+  <button onclick="toggleLang()" class="on" id="btnLang">EN</button>
+</div>
+<div class="canvas-wrap" id="wrap">
+  <div class="canvas" id="canvas"><svg class="lns" id="svgl"></svg></div>
+  <div class="zm" id="zm">100%</div>
+</div>
+</div>
+<div class="tt" id="tt"></div>
+<script>const DATA = [{"n": ".opencode", "t": "d", "p": ".opencode", "c": [{"n": "skill", "t": "d", "p": ".opencode/skill", "c": [{"n": "build-test-fixtures", "t": "d", "p": ".opencode/skill/build-test-fixtures", "c": [{"n": "SKILL.md", "t": "f", "p": ".opencode/skill/build-test-fixtures/SKILL.md", "s": 3595}]}, {"n": "code-modify-rules", "t": "d", "p": ".opencode/skill/code-modify-rules", "c": [{"n": "SKILL.md", "t": "f", "p": ".opencode/skill/code-modify-rules/SKILL.md", "s": 3202}]}, {"n": "project-structure-viewer", "t": "d", "p": ".opencode/skill/project-structure-viewer", "c": [{"n": "references", "t": "d", "p": ".opencode/skill/project-structure-viewer/references", "c": [{"n": "project-taxonomy.md", "t": "f", "p": ".opencode/skill/project-structure-viewer/references/project-taxonomy.md", "s": 3585}]}, {"n": "scripts", "t": "d", "p": ".opencode/skill/project-structure-viewer/scripts", "c": [{"n": "generate.py", "t": "f", "p": ".opencode/skill/project-structure-viewer/scripts/generate.py", "s": 33719}]}, {"n": "SKILL.md", "t": "f", "p": ".opencode/skill/project-structure-viewer/SKILL.md", "s": 3669}]}]}, {"n": ".gitignore", "t": "f", "p": ".opencode/.gitignore", "s": 63}, {"n": "package-lock.json", "t": "f", "p": ".opencode/package-lock.json", "s": 14632}, {"n": "package.json", "t": "f", "p": ".opencode/package.json", "s": 65}, {"n": "交接规格-描述机P2字段扩张.md", "t": "f", "p": ".opencode/交接规格-描述机P2字段扩张.md", "s": 18044}]}, {"n": "data", "t": "d", "p": "data", "c": [{"n": "sub", "t": "d", "p": "data/sub", "c": [{"n": "jokes-copy.txt", "t": "f", "p": "data/sub/jokes-copy.txt", "s": 39}]}, {"n": "测试批次", "t": "d", "p": "data/测试批次", "c": [{"n": "临时笔记.md", "t": "f", "p": "data/测试批次/临时笔记.md", "s": 228}, {"n": "小说片段.txt", "t": "f", "p": "data/测试批次/小说片段.txt", "s": 527}, {"n": "工具脚本.py", "t": "f", "p": "data/测试批次/工具脚本.py", "s": 403}]}, {"n": "jokes.txt", "t": "f", "p": "data/jokes.txt", "s": 39}, {"n": "mabel_intro2.html", "t": "f", "p": "data/mabel_intro2.html", "s": 4}, {"n": "部署指南.md", "t": "f", "p": "data/部署指南.md", "s": 3041}]}, {"n": "database", "t": "d", "p": "database", "c": [{"n": "init.sql", "t": "f", "p": "database/init.sql", "s": 5045}, {"n": "README.md", "t": "f", "p": "database/README.md", "s": 1622}]}, {"n": "describer-go", "t": "d", "p": "describer-go", "c": [{"n": "all", "t": "d", "p": "describer-go/all", "c": [{"n": "all.go", "t": "f", "p": "describer-go/all/all.go", "s": 663}]}, {"n": "basic", "t": "d", "p": "describer-go/basic", "c": [{"n": "basic.go", "t": "f", "p": "describer-go/basic/basic.go", "s": 5724}, {"n": "basic_test.go", "t": "f", "p": "describer-go/basic/basic_test.go", "s": 3395}]}, {"n": "cmd", "t": "d", "p": "describer-go/cmd", "c": [{"n": "verify", "t": "d", "p": "describer-go/cmd/verify", "c": [{"n": "main.go", "t": "f", "p": "describer-go/cmd/verify/main.go", "s": 2495}]}]}, {"n": "code", "t": "d", "p": "describer-go/code", "c": [{"n": "code.go", "t": "f", "p": "describer-go/code/code.go", "s": 9316}, {"n": "code_test.go", "t": "f", "p": "describer-go/code/code_test.go", "s": 5345}]}, {"n": "image", "t": "d", "p": "describer-go/image", "c": [{"n": "exif.go", "t": "f", "p": "describer-go/image/exif.go", "s": 2248}, {"n": "image.go", "t": "f", "p": "describer-go/image/image.go", "s": 12074}, {"n": "image_test.go", "t": "f", "p": "describer-go/image/image_test.go", "s": 7526}, {"n": "png.go", "t": "f", "p": "describer-go/image/png.go", "s": 3029}]}, {"n": "llm", "t": "d", "p": "describer-go/llm", "c": [{"n": "gate.go", "t": "f", "p": "describer-go/llm/gate.go", "s": 2449}, {"n": "gate_test.go", "t": "f", "p": "describer-go/llm/gate_test.go", "s": 2389}, {"n": "store.go", "t": "f", "p": "describer-go/llm/store.go", "s": 5586}, {"n": "store_test.go", "t": "f", "p": "describer-go/llm/store_test.go", "s": 4860}]}, {"n": "text", "t": "d", "p": "describer-go/text", "c": [{"n": "ctx.go", "t": "f", "p": "describer-go/text/ctx.go", "s": 4437}, {"n": "extractor.go", "t": "f", "p": "describer-go/text/extractor.go", "s": 4762}, {"n": "fingerprint.go", "t": "f", "p": "describer-go/text/fingerprint.go", "s": 9873}, {"n": "stats.go", "t": "f", "p": "describer-go/text/stats.go", "s": 5365}, {"n": "structure.go", "t": "f", "p": "describer-go/text/structure.go", "s": 7543}, {"n": "text.go", "t": "f", "p": "describer-go/text/text.go", "s": 2364}, {"n": "text_test.go", "t": "f", "p": "describer-go/text/text_test.go", "s": 13679}]}, {"n": "describer.go", "t": "f", "p": "describer-go/describer.go", "s": 6316}, {"n": "describer_test.go", "t": "f", "p": "describer-go/describer_test.go", "s": 9779}, {"n": "go.mod", "t": "f", "p": "describer-go/go.mod", "s": 204}, {"n": "go.sum", "t": "f", "p": "describer-go/go.sum", "s": 541}, {"n": "merge.go", "t": "f", "p": "describer-go/merge.go", "s": 1857}, {"n": "merge_test.go", "t": "f", "p": "describer-go/merge_test.go", "s": 3044}, {"n": "primitives.go", "t": "f", "p": "describer-go/primitives.go", "s": 2116}, {"n": "stale.go", "t": "f", "p": "describer-go/stale.go", "s": 1738}, {"n": "stale_test.go", "t": "f", "p": "describer-go/stale_test.go", "s": 1428}]}, {"n": "docs", "t": "d", "p": "docs", "c": [{"n": "images", "t": "d", "p": "docs/images", "c": [{"n": "mabel.png", "t": "f", "p": "docs/images/mabel.png", "s": 1453520}, {"n": "xunlin123", "t": "f", "p": "docs/images/xunlin123", "s": 0}]}, {"n": "元数据字段说明.md", "t": "f", "p": "docs/元数据字段说明.md", "s": 32664}, {"n": "架构设计.md", "t": "f", "p": "docs/架构设计.md", "s": 10161}, {"n": "管理机开发交接.md", "t": "f", "p": "docs/管理机开发交接.md", "s": 12816}]}, {"n": "frontend", "t": "d", "p": "frontend", "c": [{"n": "src", "t": "d", "p": "frontend/src", "c": [{"n": "api", "t": "d", "p": "frontend/src/api", "c": [{"n": "auth.js", "t": "f", "p": "frontend/src/api/auth.js", "s": 192}, {"n": "commands.js", "t": "f", "p": "frontend/src/api/commands.js", "s": 233}, {"n": "files.js", "t": "f", "p": "frontend/src/api/files.js", "s": 390}, {"n": "index.js", "t": "f", "p": "frontend/src/api/index.js", "s": 1378}, {"n": "operations.js", "t": "f", "p": "frontend/src/api/operations.js", "s": 137}]}, {"n": "assets", "t": "d", "p": "frontend/src/assets", "c": [{"n": "main.css", "t": "f", "p": "frontend/src/assets/main.css", "s": 1947}]}, {"n": "components", "t": "d", "p": "frontend/src/components", "c": [{"n": "AppLayout.vue", "t": "f", "p": "frontend/src/components/AppLayout.vue", "s": 1247}, {"n": "FileTreeNode.vue", "t": "f", "p": "frontend/src/components/FileTreeNode.vue", "s": 1789}, {"n": "StatusBadge.vue", "t": "f", "p": "frontend/src/components/StatusBadge.vue", "s": 770}]}, {"n": "router", "t": "d", "p": "frontend/src/router", "c": [{"n": "index.js", "t": "f", "p": "frontend/src/router/index.js", "s": 740}]}, {"n": "stores", "t": "d", "p": "frontend/src/stores", "c": [{"n": "auth.js", "t": "f", "p": "frontend/src/stores/auth.js", "s": 1315}]}, {"n": "utils", "t": "d", "p": "frontend/src/utils", "c": [{"n": "download.js", "t": "f", "p": "frontend/src/utils/download.js", "s": 454}, {"n": "format.js", "t": "f", "p": "frontend/src/utils/format.js", "s": 542}, {"n": "jwt.js", "t": "f", "p": "frontend/src/utils/jwt.js", "s": 390}, {"n": "token.js", "t": "f", "p": "frontend/src/utils/token.js", "s": 501}]}, {"n": "views", "t": "d", "p": "frontend/src/views", "c": [{"n": "DashboardView.vue", "t": "f", "p": "frontend/src/views/DashboardView.vue", "s": 2279}, {"n": "FilesView.vue", "t": "f", "p": "frontend/src/views/FilesView.vue", "s": 9377}, {"n": "LoginView.vue", "t": "f", "p": "frontend/src/views/LoginView.vue", "s": 2353}]}, {"n": "App.vue", "t": "f", "p": "frontend/src/App.vue", "s": 67}, {"n": "main.js", "t": "f", "p": "frontend/src/main.js", "s": 249}]}, {"n": ".env.development", "t": "f", "p": "frontend/.env.development", "s": 77}, {"n": ".env.production", "t": "f", "p": "frontend/.env.production", "s": 37}, {"n": "Dockerfile", "t": "f", "p": "frontend/Dockerfile", "s": 390}, {"n": "index.html", "t": "f", "p": "frontend/index.html", "s": 375}, {"n": "nginx.conf", "t": "f", "p": "frontend/nginx.conf", "s": 619}, {"n": "package.json", "t": "f", "p": "frontend/package.json", "s": 394}, {"n": "pnpm-lock.yaml", "t": "f", "p": "frontend/pnpm-lock.yaml", "s": 32834}, {"n": "pnpm-workspace.yaml", "t": "f", "p": "frontend/pnpm-workspace.yaml", "s": 95}, {"n": "README.md", "t": "f", "p": "frontend/README.md", "s": 2452}, {"n": "vite.config.js", "t": "f", "p": "frontend/vite.config.js", "s": 612}]}, {"n": "indexer-go", "t": "d", "p": "indexer-go", "c": [{"n": "bucket.go", "t": "f", "p": "indexer-go/bucket.go", "s": 10133}, {"n": "go.mod", "t": "f", "p": "indexer-go/go.mod", "s": 73}, {"n": "indexer.go", "t": "f", "p": "indexer-go/indexer.go", "s": 2813}, {"n": "mem.go", "t": "f", "p": "indexer-go/mem.go", "s": 7351}, {"n": "mem_test.go", "t": "f", "p": "indexer-go/mem_test.go", "s": 13314}]}, {"n": "logs", "t": "d", "p": "logs", "c": []}, {"n": "manager-go", "t": "d", "p": "manager-go", "c": [{"n": "audit.go", "t": "f", "p": "manager-go/audit.go", "s": 1554}, {"n": "download.go", "t": "f", "p": "manager-go/download.go", "s": 1330}, {"n": "go.mod", "t": "f", "p": "manager-go/go.mod", "s": 493}, {"n": "go.sum", "t": "f", "p": "manager-go/go.sum", "s": 541}, {"n": "lineage.go", "t": "f", "p": "manager-go/lineage.go", "s": 1123}, {"n": "manager.go", "t": "f", "p": "manager-go/manager.go", "s": 4522}, {"n": "placement.go", "t": "f", "p": "manager-go/placement.go", "s": 2462}, {"n": "updater.go", "t": "f", "p": "manager-go/updater.go", "s": 10100}, {"n": "updater_test.go", "t": "f", "p": "manager-go/updater_test.go", "s": 12644}]}, {"n": "mcp-server-go", "t": "d", "p": "mcp-server-go", "c": [{"n": "bin", "t": "d", "p": "mcp-server-go/bin", "c": [{"n": "server.exe", "t": "f", "p": "mcp-server-go/bin/server.exe", "s": 19689984}]}, {"n": "cmd", "t": "d", "p": "mcp-server-go/cmd", "c": [{"n": "server", "t": "d", "p": "mcp-server-go/cmd/server", "c": [{"n": "main.go", "t": "f", "p": "mcp-server-go/cmd/server/main.go", "s": 6072}]}]}, {"n": "internal", "t": "d", "p": "mcp-server-go/internal", "c": [{"n": "api", "t": "d", "p": "mcp-server-go/internal/api", "c": [{"n": "analyze.go", "t": "f", "p": "mcp-server-go/internal/api/analyze.go", "s": 2752}, {"n": "auth.go", "t": "f", "p": "mcp-server-go/internal/api/auth.go", "s": 4267}, {"n": "commands.go", "t": "f", "p": "mcp-server-go/internal/api/commands.go", "s": 1671}, {"n": "files.go", "t": "f", "p": "mcp-server-go/internal/api/files.go", "s": 2287}, {"n": "metadata.go", "t": "f", "p": "mcp-server-go/internal/api/metadata.go", "s": 7409}, {"n": "middleware.go", "t": "f", "p": "mcp-server-go/internal/api/middleware.go", "s": 4003}, {"n": "operations.go", "t": "f", "p": "mcp-server-go/internal/api/operations.go", "s": 902}, {"n": "router.go", "t": "f", "p": "mcp-server-go/internal/api/router.go", "s": 2740}]}, {"n": "config", "t": "d", "p": "mcp-server-go/internal/config", "c": [{"n": "config.go", "t": "f", "p": "mcp-server-go/internal/config/config.go", "s": 5520}]}, {"n": "logging", "t": "d", "p": "mcp-server-go/internal/logging", "c": [{"n": "logging.go", "t": "f", "p": "mcp-server-go/internal/logging/logging.go", "s": 1779}]}, {"n": "mcp", "t": "d", "p": "mcp-server-go/internal/mcp", "c": [{"n": "auth.go", "t": "f", "p": "mcp-server-go/internal/mcp/auth.go", "s": 679}, {"n": "server.go", "t": "f", "p": "mcp-server-go/internal/mcp/server.go", "s": 892}]}, {"n": "repo", "t": "d", "p": "mcp-server-go/internal/repo", "c": [{"n": "commands.go", "t": "f", "p": "mcp-server-go/internal/repo/commands.go", "s": 3296}, {"n": "manager_adapter.go", "t": "f", "p": "mcp-server-go/internal/repo/manager_adapter.go", "s": 2707}, {"n": "metadata.go", "t": "f", "p": "mcp-server-go/internal/repo/metadata.go", "s": 11270}, {"n": "operations.go", "t": "f", "p": "mcp-server-go/internal/repo/operations.go", "s": 1860}, {"n": "repo.go", "t": "f", "p": "mcp-server-go/internal/repo/repo.go", "s": 10360}, {"n": "schema.go", "t": "f", "p": "mcp-server-go/internal/repo/schema.go", "s": 3045}, {"n": "tokens.go", "t": "f", "p": "mcp-server-go/internal/repo/tokens.go", "s": 681}, {"n": "users.go", "t": "f", "p": "mcp-server-go/internal/repo/users.go", "s": 1364}]}, {"n": "search", "t": "d", "p": "mcp-server-go/internal/search", "c": [{"n": "search.go", "t": "f", "p": "mcp-server-go/internal/search/search.go", "s": 1185}, {"n": "sql.go", "t": "f", "p": "mcp-server-go/internal/search/sql.go", "s": 921}]}, {"n": "service", "t": "d", "p": "mcp-server-go/internal/service", "c": [{"n": "archive.go", "t": "f", "p": "mcp-server-go/internal/service/archive.go", "s": 1080}, {"n": "auth.go", "t": "f", "p": "mcp-server-go/internal/service/auth.go", "s": 2792}, {"n": "command.go", "t": "f", "p": "mcp-server-go/internal/service/command.go", "s": 2101}, {"n": "command_test.go", "t": "f", "p": "mcp-server-go/internal/service/command_test.go", "s": 1695}, {"n": "files.go", "t": "f", "p": "mcp-server-go/internal/service/files.go", "s": 5219}, {"n": "metadata.go", "t": "f", "p": "mcp-server-go/internal/service/metadata.go", "s": 2247}]}, {"n": "tools", "t": "d", "p": "mcp-server-go/internal/tools", "c": [{"n": "all", "t": "d", "p": "mcp-server-go/internal/tools/all", "c": [{"n": "all.go", "t": "f", "p": "mcp-server-go/internal/tools/all/all.go", "s": 1116}]}, {"n": "analyzefile", "t": "d", "p": "mcp-server-go/internal/tools/analyzefile", "c": [{"n": "analyzefile.go", "t": "f", "p": "mcp-server-go/internal/tools/analyzefile/analyzefile.go", "s": 2360}]}, {"n": "copyfile", "t": "d", "p": "mcp-server-go/internal/tools/copyfile", "c": [{"n": "copyfile.go", "t": "f", "p": "mcp-server-go/internal/tools/copyfile/copyfile.go", "s": 2547}]}, {"n": "describefile", "t": "d", "p": "mcp-server-go/internal/tools/describefile", "c": [{"n": "describefile.go", "t": "f", "p": "mcp-server-go/internal/tools/describefile/describefile.go", "s": 5649}]}, {"n": "executecommand", "t": "d", "p": "mcp-server-go/internal/tools/executecommand", "c": [{"n": "executecommand.go", "t": "f", "p": "mcp-server-go/internal/tools/executecommand/executecommand.go", "s": 2727}]}, {"n": "getresults", "t": "d", "p": "mcp-server-go/internal/tools/getresults", "c": [{"n": "getresults.go", "t": "f", "p": "mcp-server-go/internal/tools/getresults/getresults.go", "s": 2129}]}, {"n": "listdatafiles", "t": "d", "p": "mcp-server-go/internal/tools/listdatafiles", "c": [{"n": "listdatafiles.go", "t": "f", "p": "mcp-server-go/internal/tools/listdatafiles/listdatafiles.go", "s": 4243}]}, {"n": "modifydatafile", "t": "d", "p": "mcp-server-go/internal/tools/modifydatafile", "c": [{"n": "modifydatafile.go", "t": "f", "p": "mcp-server-go/internal/tools/modifydatafile/modifydatafile.go", "s": 2887}]}, {"n": "readfile", "t": "d", "p": "mcp-server-go/internal/tools/readfile", "c": [{"n": "readfile.go", "t": "f", "p": "mcp-server-go/internal/tools/readfile/readfile.go", "s": 2579}]}, {"n": "segmentedreply", "t": "d", "p": "mcp-server-go/internal/tools/segmentedreply", "c": [{"n": "config.json", "t": "f", "p": "mcp-server-go/internal/tools/segmentedreply/config.json", "s": 298}, {"n": "segmentedreply.go", "t": "f", "p": "mcp-server-go/internal/tools/segmentedreply/segmentedreply.go", "s": 8357}]}, {"n": "writefile", "t": "d", "p": "mcp-server-go/internal/tools/writefile", "c": [{"n": "writefile.go", "t": "f", "p": "mcp-server-go/internal/tools/writefile/writefile.go", "s": 4259}]}, {"n": "common.go", "t": "f", "p": "mcp-server-go/internal/tools/common.go", "s": 5137}, {"n": "common_test.go", "t": "f", "p": "mcp-server-go/internal/tools/common_test.go", "s": 1085}, {"n": "registry.go", "t": "f", "p": "mcp-server-go/internal/tools/registry.go", "s": 1291}]}]}, {"n": "logs", "t": "d", "p": "mcp-server-go/logs", "c": []}, {"n": ".gitignore", "t": "f", "p": "mcp-server-go/.gitignore", "s": 36}, {"n": "config.yml", "t": "f", "p": "mcp-server-go/config.yml", "s": 954}, {"n": "config.yml.example", "t": "f", "p": "mcp-server-go/config.yml.example", "s": 1057}, {"n": "Dockerfile", "t": "f", "p": "mcp-server-go/Dockerfile", "s": 901}, {"n": "go.mod", "t": "f", "p": "mcp-server-go/go.mod", "s": 1252}, {"n": "go.sum", "t": "f", "p": "mcp-server-go/go.sum", "s": 5312}]}, {"n": "test", "t": "d", "p": "test", "c": [{"n": "fixtures", "t": "d", "p": "test/fixtures", "c": [{"n": "代码", "t": "d", "p": "test/fixtures/代码", "c": [{"n": "sample.go", "t": "f", "p": "test/fixtures/代码/sample.go", "s": 353}]}, {"n": "图像", "t": "d", "p": "test/fixtures/图像", "c": [{"n": "ai-gen.png", "t": "f", "p": "test/fixtures/图像/ai-gen.png", "s": 258}, {"n": "warm.png", "t": "f", "p": "test/fixtures/图像/warm.png", "s": 172}]}, {"n": "小说", "t": "d", "p": "test/fixtures/小说", "c": [{"n": "深夜书架.txt", "t": "f", "p": "test/fixtures/小说/深夜书架.txt", "s": 1456}]}, {"n": "攻略", "t": "d", "p": "test/fixtures/攻略", "c": [{"n": "狼人杀新手攻略.md", "t": "f", "p": "test/fixtures/攻略/狼人杀新手攻略.md", "s": 985}]}, {"n": "数据", "t": "d", "p": "test/fixtures/数据", "c": [{"n": "minified.json", "t": "f", "p": "test/fixtures/数据/minified.json", "s": 612}, {"n": "players-broken.csv", "t": "f", "p": "test/fixtures/数据/players-broken.csv", "s": 110}, {"n": "players.csv", "t": "f", "p": "test/fixtures/数据/players.csv", "s": 209}]}, {"n": "日志", "t": "d", "p": "test/fixtures/日志", "c": []}, {"n": "编码", "t": "d", "p": "test/fixtures/编码", "c": [{"n": "crlf-note.txt", "t": "f", "p": "test/fixtures/编码/crlf-note.txt", "s": 32}, {"n": "gbk-note.txt", "t": "f", "p": "test/fixtures/编码/gbk-note.txt", "s": 58}, {"n": "utf16-note.txt", "t": "f", "p": "test/fixtures/编码/utf16-note.txt", "s": 128}]}, {"n": "聊天", "t": "d", "p": "test/fixtures/聊天", "c": [{"n": "群聊记录.txt", "t": "f", "p": "test/fixtures/聊天/群聊记录.txt", "s": 413}]}, {"n": "配置", "t": "d", "p": "test/fixtures/配置", "c": [{"n": "app.json", "t": "f", "p": "test/fixtures/配置/app.json", "s": 209}]}, {"n": "清单.md", "t": "f", "p": "test/fixtures/清单.md", "s": 1578}]}, {"n": "tools", "t": "d", "p": "test/tools", "c": [{"n": "mcpclient", "t": "d", "p": "test/tools/mcpclient", "c": [{"n": "go.mod", "t": "f", "p": "test/tools/mcpclient/go.mod", "s": 384}, {"n": "go.sum", "t": "f", "p": "test/tools/mcpclient/go.sum", "s": 2911}, {"n": "main.go", "t": "f", "p": "test/tools/mcpclient/main.go", "s": 8582}, {"n": "mcpclient.exe", "t": "f", "p": "test/tools/mcpclient/mcpclient.exe", "s": 11186688}]}, {"n": "gen_png.go", "t": "f", "p": "test/tools/gen_png.go", "s": 2870}, {"n": "run-e2e.ps1", "t": "f", "p": "test/tools/run-e2e.ps1", "s": 6854}]}, {"n": "fixtures-report.json", "t": "f", "p": "test/fixtures-report.json", "s": 28732}, {"n": "test-api.ps1", "t": "f", "p": "test/test-api.ps1", "s": 14134}, {"n": "测试规则.md", "t": "f", "p": "test/测试规则.md", "s": 7982}]}, {"n": "旧内容", "t": "d", "p": "旧内容", "c": [{"n": "backend", "t": "d", "p": "旧内容/backend", "c": [{"n": "data", "t": "d", "p": "旧内容/backend/data", "c": []}, {"n": "src", "t": "d", "p": "旧内容/backend/src", "c": [{"n": "middleware", "t": "d", "p": "旧内容/backend/src/middleware", "c": [{"n": "auth.py", "t": "f", "p": "旧内容/backend/src/middleware/auth.py", "s": 1434}]}, {"n": "models", "t": "d", "p": "旧内容/backend/src/models", "c": [{"n": "__init__.py", "t": "f", "p": "旧内容/backend/src/models/__init__.py", "s": 1966}]}, {"n": "routes", "t": "d", "p": "旧内容/backend/src/routes", "c": [{"n": "__init__.py", "t": "f", "p": "旧内容/backend/src/routes/__init__.py", "s": 163}, {"n": "auth.py", "t": "f", "p": "旧内容/backend/src/routes/auth.py", "s": 4664}, {"n": "commands.py", "t": "f", "p": "旧内容/backend/src/routes/commands.py", "s": 1506}, {"n": "files.py", "t": "f", "p": "旧内容/backend/src/routes/files.py", "s": 2239}, {"n": "operations.py", "t": "f", "p": "旧内容/backend/src/routes/operations.py", "s": 986}]}, {"n": "schemas", "t": "d", "p": "旧内容/backend/src/schemas", "c": [{"n": "auth.py", "t": "f", "p": "旧内容/backend/src/schemas/auth.py", "s": 630}, {"n": "command.py", "t": "f", "p": "旧内容/backend/src/schemas/command.py", "s": 633}, {"n": "operation.py", "t": "f", "p": "旧内容/backend/src/schemas/operation.py", "s": 525}]}, {"n": "services", "t": "d", "p": "旧内容/backend/src/services", "c": [{"n": "auth_service.py", "t": "f", "p": "旧内容/backend/src/services/auth_service.py", "s": 1412}]}, {"n": "__init__.py", "t": "f", "p": "旧内容/backend/src/__init__.py", "s": 148}, {"n": "config.py", "t": "f", "p": "旧内容/backend/src/config.py", "s": 2944}, {"n": "database.py", "t": "f", "p": "旧内容/backend/src/database.py", "s": 450}, {"n": "main.py", "t": "f", "p": "旧内容/backend/src/main.py", "s": 2285}]}, {"n": "config.yml", "t": "f", "p": "旧内容/backend/config.yml", "s": 1732}, {"n": "config.yml.example", "t": "f", "p": "旧内容/backend/config.yml.example", "s": 1824}, {"n": "Dockerfile", "t": "f", "p": "旧内容/backend/Dockerfile", "s": 286}, {"n": "README.md", "t": "f", "p": "旧内容/backend/README.md", "s": 2532}, {"n": "requirements.txt", "t": "f", "p": "旧内容/backend/requirements.txt", "s": 219}]}, {"n": "describer-plugins空壳", "t": "d", "p": "旧内容/describer-plugins空壳", "c": []}, {"n": "frontend", "t": "d", "p": "旧内容/frontend", "c": [{"n": "src", "t": "d", "p": "旧内容/frontend/src", "c": [{"n": "views", "t": "d", "p": "旧内容/frontend/src/views", "c": [{"n": "CommandDetail.vue", "t": "f", "p": "旧内容/frontend/src/views/CommandDetail.vue", "s": 3550}, {"n": "RegisterView.vue", "t": "f", "p": "旧内容/frontend/src/views/RegisterView.vue", "s": 2462}]}]}]}, {"n": "mcp-server", "t": "d", "p": "旧内容/mcp-server", "c": [{"n": "data", "t": "d", "p": "旧内容/mcp-server/data", "c": [{"n": "segmented_replies", "t": "d", "p": "旧内容/mcp-server/data/segmented_replies", "c": [{"n": ".queues", "t": "d", "p": "旧内容/mcp-server/data/segmented_replies/.queues", "c": []}, {"n": "20260615_000210_388318_verify_next_reply_01.txt", "t": "f", "p": "旧内容/mcp-server/data/segmented_replies/20260615_000210_388318_verify_next_reply_01.txt", "s": 5}, {"n": "20260615_000210_388318_verify_next_reply_02.txt", "t": "f", "p": "旧内容/mcp-server/data/segmented_replies/20260615_000210_388318_verify_next_reply_02.txt", "s": 5}, {"n": "20260615_000210_388318_verify_next_reply_03.txt", "t": "f", "p": "旧内容/mcp-server/data/segmented_replies/20260615_000210_388318_verify_next_reply_03.txt", "s": 5}]}, {"n": "test.txt", "t": "f", "p": "旧内容/mcp-server/data/test.txt", "s": 19}]}, {"n": "src", "t": "d", "p": "旧内容/mcp-server/src", "c": [{"n": "services", "t": "d", "p": "旧内容/mcp-server/src/services", "c": [{"n": "command_executor.py", "t": "f", "p": "旧内容/mcp-server/src/services/command_executor.py", "s": 987}, {"n": "db.py", "t": "f", "p": "旧内容/mcp-server/src/services/db.py", "s": 1299}]}, {"n": "tools", "t": "d", "p": "旧内容/mcp-server/src/tools", "c": [{"n": "execute_command", "t": "d", "p": "旧内容/mcp-server/src/tools/execute_command", "c": [{"n": "__init__.py", "t": "f", "p": "旧内容/mcp-server/src/tools/execute_command/__init__.py", "s": 103}, {"n": "core.py", "t": "f", "p": "旧内容/mcp-server/src/tools/execute_command/core.py", "s": 1486}]}, {"n": "get_results", "t": "d", "p": "旧内容/mcp-server/src/tools/get_results", "c": [{"n": "__init__.py", "t": "f", "p": "旧内容/mcp-server/src/tools/get_results/__init__.py", "s": 91}, {"n": "core.py", "t": "f", "p": "旧内容/mcp-server/src/tools/get_results/core.py", "s": 1268}]}, {"n": "list_data_files", "t": "d", "p": "旧内容/mcp-server/src/tools/list_data_files", "c": [{"n": "__init__.py", "t": "f", "p": "旧内容/mcp-server/src/tools/list_data_files/__init__.py", "s": 103}, {"n": "core.py", "t": "f", "p": "旧内容/mcp-server/src/tools/list_data_files/core.py", "s": 684}]}, {"n": "modify_data_file", "t": "d", "p": "旧内容/mcp-server/src/tools/modify_data_file", "c": [{"n": "__init__.py", "t": "f", "p": "旧内容/mcp-server/src/tools/modify_data_file/__init__.py", "s": 106}, {"n": "core.py", "t": "f", "p": "旧内容/mcp-server/src/tools/modify_data_file/core.py", "s": 2019}]}, {"n": "segmented_reply", "t": "d", "p": "旧内容/mcp-server/src/tools/segmented_reply", "c": [{"n": "__init__.py", "t": "f", "p": "旧内容/mcp-server/src/tools/segmented_reply/__init__.py", "s": 103}, {"n": "config.json", "t": "f", "p": "旧内容/mcp-server/src/tools/segmented_reply/config.json", "s": 348}, {"n": "config.py", "t": "f", "p": "旧内容/mcp-server/src/tools/segmented_reply/config.py", "s": 995}, {"n": "core.py", "t": "f", "p": "旧内容/mcp-server/src/tools/segmented_reply/core.py", "s": 7254}]}, {"n": "write_file", "t": "d", "p": "旧内容/mcp-server/src/tools/write_file", "c": [{"n": "__init__.py", "t": "f", "p": "旧内容/mcp-server/src/tools/write_file/__init__.py", "s": 88}, {"n": "core.py", "t": "f", "p": "旧内容/mcp-server/src/tools/write_file/core.py", "s": 2131}]}]}, {"n": "config.py", "t": "f", "p": "旧内容/mcp-server/src/config.py", "s": 559}, {"n": "server.py", "t": "f", "p": "旧内容/mcp-server/src/server.py", "s": 2732}]}, {"n": "Dockerfile", "t": "f", "p": "旧内容/mcp-server/Dockerfile", "s": 247}, {"n": "mcp-config.json", "t": "f", "p": "旧内容/mcp-server/mcp-config.json", "s": 363}, {"n": "pyproject.toml", "t": "f", "p": "旧内容/mcp-server/pyproject.toml", "s": 492}, {"n": "readme-分段回复.md", "t": "f", "p": "旧内容/mcp-server/readme-分段回复.md", "s": 6088}, {"n": "README.md", "t": "f", "p": "旧内容/mcp-server/README.md", "s": 2657}, {"n": "test_client.py", "t": "f", "p": "旧内容/mcp-server/test_client.py", "s": 1607}, {"n": "设计.md", "t": "f", "p": "旧内容/mcp-server/设计.md", "s": 25467}]}, {"n": "mcp-server-go", "t": "d", "p": "旧内容/mcp-server-go", "c": [{"n": "internal", "t": "d", "p": "旧内容/mcp-server-go/internal", "c": [{"n": "tools", "t": "d", "p": "旧内容/mcp-server-go/internal/tools", "c": [{"n": "helpers.go", "t": "f", "p": "旧内容/mcp-server-go/internal/tools/helpers.go", "s": 957}, {"n": "list_data_files.go", "t": "f", "p": "旧内容/mcp-server-go/internal/tools/list_data_files.go", "s": 1192}, {"n": "write_file.go", "t": "f", "p": "旧内容/mcp-server-go/internal/tools/write_file.go", "s": 1918}]}]}]}, {"n": "计划", "t": "d", "p": "旧内容/计划", "c": [{"n": "plan.md", "t": "f", "p": "旧内容/计划/plan.md", "s": 8198}, {"n": "文件区与分享方案.md", "t": "f", "p": "旧内容/计划/文件区与分享方案.md", "s": 5251}, {"n": "踩坑记录.md", "t": "f", "p": "旧内容/计划/踩坑记录.md", "s": 4978}]}, {"n": ".env.example", "t": "f", "p": "旧内容/.env.example", "s": 1002}, {"n": "1panel部署指南.md", "t": "f", "p": "旧内容/1panel部署指南.md", "s": 4922}, {"n": "AstrBot接入MCP指南.md", "t": "f", "p": "旧内容/AstrBot接入MCP指南.md", "s": 8351}, {"n": "describer-helper_test.go", "t": "f", "p": "旧内容/describer-helper_test.go", "s": 159}, {"n": "mabel_intro.html", "t": "f", "p": "旧内容/mabel_intro.html", "s": 4}, {"n": "README.md", "t": "f", "p": "旧内容/README.md", "s": 2774}, {"n": "start-backend.bat", "t": "f", "p": "旧内容/start-backend.bat", "s": 1970}, {"n": "start-backend.ps1", "t": "f", "p": "旧内容/start-backend.ps1", "s": 2685}, {"n": "start.bat", "t": "f", "p": "旧内容/start.bat", "s": 1600}, {"n": "test.py", "t": "f", "p": "旧内容/test.py", "s": 576}, {"n": "test_client.py", "t": "f", "p": "旧内容/test_client.py", "s": 677}, {"n": "write-cmp.md", "t": "f", "p": "旧内容/write-cmp.md", "s": 2862}, {"n": "启动说明.md", "t": "f", "p": "旧内容/启动说明.md", "s": 3701}, {"n": "开发记录.md", "t": "f", "p": "旧内容/开发记录.md", "s": 7312}, {"n": "批量下载规划.md", "t": "f", "p": "旧内容/批量下载规划.md", "s": 5382}, {"n": "报告.md", "t": "f", "p": "旧内容/报告.md", "s": 8962}, {"n": "文件描述系统方案.md", "t": "f", "p": "旧内容/文件描述系统方案.md", "s": 7875}, {"n": "新功能.md", "t": "f", "p": "旧内容/新功能.md", "s": 833}, {"n": "服务器新凭据-20260901.md", "t": "f", "p": "旧内容/服务器新凭据-20260901.md", "s": 4030}, {"n": "架构方案.md", "t": "f", "p": "旧内容/架构方案.md", "s": 9590}, {"n": "计划.md", "t": "f", "p": "旧内容/计划.md", "s": 15987}, {"n": "问答机", "t": "f", "p": "旧内容/问答机", "s": 0}]}, {"n": "旧文件", "t": "d", "p": "旧文件", "c": [{"n": "data-测试残留", "t": "d", "p": "旧文件/data-测试残留", "c": [{"n": "e2e-copy-1787234069.txt", "t": "f", "p": "旧文件/data-测试残留/e2e-copy-1787234069.txt", "s": 39}, {"n": "e2e-copy-1787234738.txt", "t": "f", "p": "旧文件/data-测试残留/e2e-copy-1787234738.txt", "s": 39}, {"n": "e2e-copy-1787235159.txt", "t": "f", "p": "旧文件/data-测试残留/e2e-copy-1787235159.txt", "s": 39}, {"n": "e2e-copy-1787238966.txt", "t": "f", "p": "旧文件/data-测试残留/e2e-copy-1787238966.txt", "s": 39}, {"n": "e2e-copy-1787239532.txt", "t": "f", "p": "旧文件/data-测试残留/e2e-copy-1787239532.txt", "s": 39}, {"n": "e2e-copy-1787239598.txt", "t": "f", "p": "旧文件/data-测试残留/e2e-copy-1787239598.txt", "s": 39}]}]}, {"n": ".gitignore", "t": "f", "p": ".gitignore", "s": 1644}, {"n": "docker-compose.yml", "t": "f", "p": "docker-compose.yml", "s": 1871}, {"n": "fresh-header.ps1", "t": "f", "p": "fresh-header.ps1", "s": 1420}, {"n": "LICENSE", "t": "f", "p": "LICENSE", "s": 4655}, {"n": "README.md", "t": "f", "p": "README.md", "s": 5568}, {"n": "start-dev.ps1", "t": "f", "p": "start-dev.ps1", "s": 5643}, {"n": "小结.md", "t": "f", "p": "小结.md", "s": 5006}, {"n": "部署指南.md", "t": "f", "p": "部署指南.md", "s": 6831}];
+const PROOT = "C:\\Users\\Reisentyan\\Desktop\\Mabel-s-Tentacles";
+const FLOW = new Set([".opencode/skill/project-structure-viewer/references/project-taxonomy.md", ".opencode/skill/project-structure-viewer/scripts/generate.py", "LICENSE", "README.md", "describer-go/cmd/verify/main.go", "docker-compose.yml", "docs/元数据字段说明.md", "docs/架构设计.md", "docs/管理机开发交接.md", "frontend/Dockerfile", "frontend/src/api/index.js", "frontend/src/main.js", "frontend/src/router/index.js", "frontend/src/views/DashboardView.vue", "frontend/src/views/FilesView.vue", "frontend/src/views/LoginView.vue", "mcp-server-go/Dockerfile", "mcp-server-go/cmd/server/main.go", "test/fixtures/攻略/狼人杀新手攻略.md", "test/fixtures/清单.md", "test/tools/mcpclient/main.go", "test/测试规则.md", "旧内容/backend/Dockerfile", "旧内容/backend/src/main.py", "旧内容/backend/src/routes/__init__.py", "旧内容/backend/src/routes/auth.py", "旧内容/backend/src/routes/commands.py", "旧内容/backend/src/routes/files.py", "旧内容/backend/src/routes/operations.py", "旧内容/frontend/src/views/CommandDetail.vue", "旧内容/frontend/src/views/RegisterView.vue", "旧内容/mcp-server/Dockerfile", "旧内容/mcp-server/src/server.py"]);
+const NW = 200, NH = 30, LG = 78, NG = 4;
+let els = [], sc = 1, exp = new Set(), sq = '';
+
+let LANG = 'zh';
+const T = {
+  zh: {
+    guideTitle:'📖 阅读路线图',guideBadge:'从哪里开始看？',
+    guideHint:'点击收起侧栏 · 灰框 = 关键文件',
+    searchPlaceholder:'🔍 搜索文件...',
+    btnExpand:'📂 全部展开',btnCollapse:'📁 全部收起',btnReset:'🔄 重置',
+    noMatch:'无匹配文件',more:'...还有 ',more2:' 个匹配',
+    tooltipClick:'点击在编辑器中打开',
+  },
+  en: {
+    guideTitle:'📖 Reading Guide',guideBadge:'Where to start?',
+    guideHint:'Click to collapse · Gray-bordered nodes = key flow files',
+    searchPlaceholder:'🔍 Search files...',
+    btnExpand:'📂 Expand All',btnCollapse:'📁 Collapse',btnReset:'🔄 Reset',
+    noMatch:'No matching files',more:'...',more2:' more matches',
+    tooltipClick:'Click to open in editor',
+  }
+};
+
+// File role descriptions (keyed by broad project patterns)
+function descFile(p, n, lang) {
+  const nm = n.toLowerCase(); const pp = p.toLowerCase();
+  const zh = {
+    'readme.md':'项目入口文档 — 说明用途、安装和主要工作流',
+    'readme.zh.md':'中文项目入口文档',
+    'skill.md':'Agent Skill 入口 — 定义触发条件、工作流和资源导航',
+    'license':'许可证 — 说明复用和分发条件',
+    'package.json':'JavaScript/TypeScript 项目清单 — 依赖、脚本、元信息',
+    'pyproject.toml':'Python 项目清单 — 构建系统、依赖和工具配置',
+    'requirements.txt':'Python 依赖清单',
+    'setup.py':'Python 包安装入口',
+    'go.mod':'Go 模块清单 — 模块路径和依赖版本',
+    'cargo.toml':'Rust 包清单 — crate 元信息、依赖和构建配置',
+    'pom.xml':'Maven 项目清单 — Java/Kotlin 依赖和构建生命周期',
+    'build.gradle':'Gradle 构建脚本',
+    'package.swift':'Swift Package Manager 清单',
+    'pubspec.yaml':'Dart/Flutter 项目清单',
+    'composer.json':'PHP Composer 项目清单',
+    'gemfile':'Ruby Bundler 依赖清单',
+    'tsconfig.json':'TypeScript 编译配置',
+    'dockerfile':'容器镜像 — 定义生产运行环境',
+    'docker-compose.yml':'本地或多服务编排配置',
+    'compose.yaml':'本地或多服务编排配置',
+    '.env.example':'环境变量模板 — 列出需要配置的变量',
+    'pnpm-workspace.yaml':'Monorepo 工作区定义 — 声明子包位置',
+    '.gitignore':'Git 忽略规则',
+    'makefile':'常用开发、构建和发布命令入口',
+    'cmakelists.txt':'C/C++ CMake 构建配置',
+    'openapi.yaml':'OpenAPI 接口契约',
+    'openapi.yml':'OpenAPI 接口契约',
+    'openapi.json':'OpenAPI 接口契约',
+    'openai.yaml':'Agent UI 元数据 — 显示名称、简介和默认提示',
+  };
+  if (zh[nm]) return zh[nm];
+  if (zh[pp]) return zh[pp];
+  if (/(^|\/)(main|index|app|server|cli|manage|__main__|wsgi|asgi|train|predict|inference|pipeline)\.(py|go|rs|swift|kt|java|tsx?|jsx?|rb|php|exs?)$/.test(pp)) return '运行入口 — 启动应用、命令行、服务或核心任务';
+  if (/^scripts\/.+\.(py|sh|ts|js|mjs)$/.test(pp)) return '辅助脚本 — 自动化生成、验证、迁移或维护任务';
+  if (/(^|\/)index\.html$/.test(pp)) return '浏览器入口 HTML — 声明页面挂载点和资源加载';
+  if (/\.github\/workflows\/.+\.ya?ml$/.test(pp)) return 'CI/CD 工作流 — 自动化测试、构建或发布';
+  if (/docker|compose|nginx|caddy/i.test(pp)) return '运行环境配置 — 容器、代理或本地编排';
+  if (/terraform|\.tf$|helm|k8s|kubernetes|deploy|infra/i.test(pp)) return '基础设施/部署配置 — 描述运行环境和发布资源';
+  if (/router|routes?|controller|handler|endpoint/i.test(pp)) return '接口适配层 — 暴露路由、命令、事件或外部入口';
+  if (/middleware|interceptor|filter/i.test(pp)) return '中间层 — 处理认证、日志、校验、权限或请求包装';
+  if (/schema|model|entity|migration|\.sql$|\.prisma$|\.proto$|graphql/i.test(pp)) return '数据契约/模型 — 定义持久化结构、消息格式或接口类型';
+  if (/context|provider|container|registry/i.test(pp)) return '上下文/装配层 — 连接依赖、配置或运行时服务';
+  if (/auth|permission|policy|session/i.test(pp)) return '身份与权限相关逻辑';
+  if (/(pages|views|screens|components|ui)\//.test(pp)) return '用户界面层 — 页面、视图或可复用 UI 单元';
+  if (/(cmd|bin)\//.test(pp)) return '命令行入口或可执行命令';
+  if (/(core|domain|internal|pkg|lib|src)\//.test(pp)) return '核心实现模块 — 项目的主要业务或库逻辑';
+  if (/(notebooks?|experiments?)\//.test(pp)||/\.ipynb$/.test(pp)) return '探索/分析笔记本 — 实验、数据分析或模型验证';
+  if (/(tests?|spec|fixtures?)\//.test(pp)||/\.(test|spec)\./.test(pp)||/conftest\.py$/.test(pp)) return '验证资产 — 测试、样例数据或测试夹具';
+  if (/(docs?|examples?)\//.test(pp)||/\.(md|rst|adoc)$/i.test(pp)) return '文档/示例 — 解释概念、使用方式或设计背景';
+  if (/\.(ya?ml|toml|json|ini|cfg|conf)$/i.test(pp)) return '配置文件 — 控制工具、运行时或项目约定';
+  return '';
+}
+
+function descFileEn(p, n) {
+  const nm = n.toLowerCase(); const pp = p.toLowerCase();
+  const en = {
+    'readme.md':'Project entry document — purpose, setup, and primary workflows',
+    'readme.zh.md':'Chinese project entry document',
+    'skill.md':'Agent Skill entry — triggers, workflow, and resource navigation',
+    'license':'License — reuse and distribution terms',
+    'package.json':'JavaScript/TypeScript manifest — dependencies, scripts, metadata',
+    'pyproject.toml':'Python project manifest — build system, dependencies, tooling',
+    'requirements.txt':'Python dependency list',
+    'setup.py':'Python package installation entry',
+    'go.mod':'Go module manifest — module path and dependency versions',
+    'cargo.toml':'Rust package manifest — crate metadata, dependencies, build config',
+    'pom.xml':'Maven manifest — Java/Kotlin dependencies and build lifecycle',
+    'build.gradle':'Gradle build script',
+    'package.swift':'Swift Package Manager manifest',
+    'pubspec.yaml':'Dart/Flutter project manifest',
+    'composer.json':'PHP Composer manifest',
+    'gemfile':'Ruby Bundler dependency manifest',
+    'tsconfig.json':'TypeScript compiler configuration',
+    'dockerfile':'Container image — defines production runtime',
+    'docker-compose.yml':'Local or multi-service orchestration config',
+    'compose.yaml':'Local or multi-service orchestration config',
+    '.env.example':'Environment template — lists required variables',
+    'pnpm-workspace.yaml':'Monorepo workspace — declares sub-package locations',
+    '.gitignore':'Git ignore rules',
+    'makefile':'Common development, build, and release command entry',
+    'cmakelists.txt':'C/C++ CMake build configuration',
+    'openapi.yaml':'OpenAPI interface contract',
+    'openapi.yml':'OpenAPI interface contract',
+    'openapi.json':'OpenAPI interface contract',
+    'openai.yaml':'Agent UI metadata — display name, summary, and default prompt',
+  };
+  if (en[nm]) return en[nm];
+  if (en[pp]) return en[pp];
+  if (/(^|\/)(main|index|app|server|cli|manage|__main__|wsgi|asgi|train|predict|inference|pipeline)\.(py|go|rs|swift|kt|java|tsx?|jsx?|rb|php|exs?)$/.test(pp)) return 'Runtime entry — starts an app, CLI, service, or core task';
+  if (/^scripts\/.+\.(py|sh|ts|js|mjs)$/.test(pp)) return 'Helper script — automates generation, validation, migration, or maintenance tasks';
+  if (/(^|\/)index\.html$/.test(pp)) return 'Browser entry HTML — declares mount point and loaded assets';
+  if (/\.github\/workflows\/.+\.ya?ml$/.test(pp)) return 'CI/CD workflow — automates tests, builds, or releases';
+  if (/docker|compose|nginx|caddy/i.test(pp)) return 'Runtime environment config — containers, proxy, or local orchestration';
+  if (/terraform|\.tf$|helm|k8s|kubernetes|deploy|infra/i.test(pp)) return 'Infrastructure/deployment config — describes runtime resources and rollout';
+  if (/router|routes?|controller|handler|endpoint/i.test(pp)) return 'Interface adapter — exposes routes, commands, events, or external entry points';
+  if (/middleware|interceptor|filter/i.test(pp)) return 'Middleware layer — authentication, logging, validation, permissioning, or request wrapping';
+  if (/schema|model|entity|migration|\.sql$|\.prisma$|\.proto$|graphql/i.test(pp)) return 'Data contract/model — persistence structure, message format, or interface type';
+  if (/context|provider|container|registry/i.test(pp)) return 'Context/composition layer — wires dependencies, configuration, or runtime services';
+  if (/auth|permission|policy|session/i.test(pp)) return 'Identity and permission logic';
+  if (/(pages|views|screens|components|ui)\//.test(pp)) return 'User interface layer — pages, screens, views, or reusable UI units';
+  if (/(cmd|bin)\//.test(pp)) return 'Command-line entry or executable command';
+  if (/(core|domain|internal|pkg|lib|src)\//.test(pp)) return 'Core implementation module — main product, domain, or library logic';
+  if (/(notebooks?|experiments?)\//.test(pp)||/\.ipynb$/.test(pp)) return 'Exploration/analysis notebook — experiment, data analysis, or model validation';
+  if (/(tests?|spec|fixtures?)\//.test(pp)||/\.(test|spec)\./.test(pp)||/conftest\.py$/.test(pp)) return 'Validation asset — tests, sample data, or fixtures';
+  if (/(docs?|examples?)\//.test(pp)||/\.(md|rst|adoc)$/i.test(pp)) return 'Documentation/example — concepts, usage, or design background';
+  if (/\.(ya?ml|toml|json|ini|cfg|conf)$/i.test(pp)) return 'Configuration file — controls tools, runtime, or project conventions';
+  return '';
+}
+
+// ══ PROJECT-SPECIFIC GUIDE — REPLACE THIS ENTIRE BLOCK ══
+// Replace with phase-based hardcoded content using mkS() / mkE().
+// Example: mkS(1,'path/to/file.ts','Description in Chinese')
+const GUIDE = {
+  zh: [
+    '<div class="flow-col"><h3>🔷 阶段一：项目概览与装配约定 (9)</h3>',
+    mkS(1,'README.md','项目门面：MCP 工具表 / 前端功能表 / 开发规划状态 / 快速开始'),
+    mkS(2,'docs/架构设计.md','组件职责唯一权威：三机架构、uuid 货币、依赖方向铁律、决策与评审记录'),
+    mkS(3,'docs/元数据字段说明.md','字段字典唯一权威：前缀法则 / cod 四家族 80+ 字段 / llm 词表 / 更新机制三触发器'),
+    mkS(4,'docs/管理机开发交接.md','manager-go 开发一手信息：五域实现要点、依赖面、已知缺口'),
+    mkS(5,'部署指南.md','生产部署、安全组、MCP 客户端（AstrBot）接入、1Panel 反代'),
+    mkS(6,'docker-compose.yml','三容器编排：postgres / backend / frontend；构建上下文=仓库根（同级模块 replace 的关键）'),
+    mkS(7,'database/init.sql','PostgreSQL 容器初始化脚本（compose 挂载）'),
+    mkS(8,'start-dev.ps1','本地联调：读 .env → 编译后端 8080 → 前端 dev 5173'),
+    mkS(9,'fresh-header.ps1','Go 文件标识头日期刷新工具（每次收尾必跑第一项）'),
+    '</div>',
+    '<div class="flow-col"><h3>🟢 阶段二：后端入口与 HTTP 层 (7)</h3>',
+    mkS(1,'mcp-server-go/cmd/server/main.go','服务入口：装配 config→repo→manager→mcp→api 到同一 mux；T2 backfillLoop；不安全默认值告警'),
+    mkS(2,'mcp-server-go/internal/config/config.go','config.yml + 环境变量双层配置（含 describe.backfill 回填开关）'),
+    mkS(3,'mcp-server-go/internal/logging/logging.go','slog 日志五要素规范的权威定义'),
+    mkS(4,'mcp-server-go/internal/api/router.go','HTTP 路由：公共路由 + JWT 保护路由 + Server 结构'),
+    mkS(5,'mcp-server-go/internal/api/metadata.go','搜索 / 元数据查看 / describe（llm 闸门）/ 复制端点'),
+    mkS(6,'mcp-server-go/internal/api/analyze.go','T3 analyze 与 T2 backfill 端点（manager updater 域入口）'),
+    mkS(7,'mcp-server-go/internal/api/middleware.go','请求日志（bytes/ip/user）/ JWT 鉴权 / 下载 token'),
+    '</div>',
+    '<div class="flow-col"><h3>🟠 阶段三：MCP 工具层（agent 入口）(9)</h3>',
+    mkS(1,'mcp-server-go/internal/tools/registry.go','Deps 依赖容器 + Register/RegisterAll 自注册机制'),
+    mkS(2,'mcp-server-go/internal/tools/all/all.go','blank import 聚合：新增工具子包在此加一行'),
+    mkS(3,'mcp-server-go/internal/tools/common.go','工具共享层：RecordFileMeta T1 管线（Analyze→Merge→Upsert→索引喂食钩子）'),
+    mkS(4,'mcp-server-go/internal/tools/writefile/writefile.go','write_file：写文件 + 内联描述 + T1 自动分析'),
+    mkS(5,'mcp-server-go/internal/tools/modifydatafile/modifydatafile.go','modify_data_file：append/overwrite 后整文件重算元数据'),
+    mkS(6,'mcp-server-go/internal/tools/copyfile/copyfile.go','copy_file：内容 + 元数据一起搬（copied_from 谱系边）'),
+    mkS(7,'mcp-server-go/internal/tools/describefile/describefile.go','describe_file：描述三件套 + llm 字段过 LLMStore 闸门'),
+    mkS(8,'mcp-server-go/internal/tools/analyzefile/analyzefile.go','analyze_file：T3 手动重分析，返回命中家族与事实产出'),
+    mkS(9,'mcp-server-go/internal/tools/executecommand/executecommand.go','execute_command：Shell 执行（60s 超时 + 256KB 截断 + 记录入库）；同族另有 readfile/listdatafiles/getresults'),
+    '</div>',
+    '<div class="flow-col"><h3>🟡 阶段四：数据层 repo + service (8)</h3>',
+    mkS(1,'mcp-server-go/internal/repo/repo.go','Store 接口（17 方法）+ migrations + pgx 连接池'),
+    mkS(2,'mcp-server-go/internal/repo/metadata.go','file_metadata 存取：Upsert 返回 uuid / 游标分页扫描 / 幽灵缺失计数 / 软删'),
+    mkS(3,'mcp-server-go/internal/repo/manager_adapter.go','repo→manager.Store 适配器：依赖倒置的装配侧，顶层列推导归此'),
+    mkS(4,'mcp-server-go/internal/repo/users.go','用户表存取（同目录另有 commands/operations/tokens/schema）'),
+    mkS(5,'mcp-server-go/internal/service/files.go','路径安全：防目录穿越 / 5MB 上限 / SafeWrite·Read·Modify·List / 目录树'),
+    mkS(6,'mcp-server-go/internal/service/command.go','命令执行：60s 超时 + limitWriter 256KB 输出截断'),
+    mkS(7,'mcp-server-go/internal/service/metadata.go','扩展名 / 分区 / SHA-256 校验和推断'),
+    mkS(8,'mcp-server-go/internal/search/search.go','Searcher 抽象 + SQLSearcher（索引机批次后 Query 顶上，SQL 留兜底）'),
+    '</div>',
+    '<div class="flow-col"><h3>🔵 阶段五：管理机 manager-go（编排层）(6)</h3>',
+    mkS(1,'manager-go/manager.go','门面：Store 最小面 + MetaRow/MetaRecord DTO + IndexSink 喂食钩子 + New'),
+    mkS(2,'manager-go/updater.go','已实现核心：T3 AnalyzeFile（stat 真实 mtime + 流式 checksum）+ T2 Backfill（分页 + 快慢两段陈旧判定 + 幽灵 3 轮软删）'),
+    mkS(3,'manager-go/updater_test.go','L1 单测：陈旧四条件 / checksum 绕口对账 / 幽灵软删 / batch 上限 / 穿越拦截'),
+    mkS(4,'manager-go/placement.go','位置域：resolve 防穿越（已实现，updater 在用）+ Move（骨架）'),
+    mkS(5,'manager-go/lineage.go','谱系域骨架（Relation/Related；download/audit 同为骨架待实现）'),
+    mkS(6,'manager-go/go.mod','require describer-go——依赖方向：装配层 → manager → describer，不 import 兄弟装配层'),
+    '</div>',
+    '<div class="flow-col"><h3>🟣 阶段六：描述引擎 describer-go（字节进、事实出）(8)</h3>',
+    mkS(1,'describer-go/describer.go','引擎本体：Descriptor 接口 + 注册表 + Analyze 编排（共享全量加载 + 预算截断）+ CurrentVersions 版本表'),
+    mkS(2,'describer-go/merge.go','cod 轨合并：家族整族替换 + ver/at 刷新（保留 llm-*/sp-*）'),
+    mkS(3,'describer-go/stale.go','IsStale 陈旧判定纯函数：缺 ver / 版本落后 / checksum 漂 / mtime 新'),
+    mkS(4,'describer-go/basic/basic.go','basic 家族：魔数嗅探 + textish 路由 + 熵 + 可执行检测 + 文件名模式（恒跑）'),
+    mkS(5,'describer-go/text/extractor.go','text 家族 41 字段注册表模式（一字段一函数；ctx/stats/structure/fingerprint 分组）'),
+    mkS(6,'describer-go/code/code.go','code 家族：语言识别 + imports + func 计数 + 注释率 + 测试文件判定'),
+    mkS(7,'describer-go/image/image.go','image 家族：降采样分析 + 调色板 + 画像 13 字段（png tEXt / EXIF 长尾自由区）'),
+    mkS(8,'describer-go/llm/store.go','LLMStore：模型轨唯一写入口（cod 区绝对只读 + 审计戳 + null 墓碑）'),
+    '</div>',
+    '<div class="flow-col"><h3>🟤 阶段七：索引机 indexer-go（纯库，待接线）(3)</h3>',
+    mkS(1,'indexer-go/indexer.go','接口：Query(条件→uuid) / Update(diff 喂食) / Rebuild(全量重建) / Stats(自省)'),
+    mkS(2,'indexer-go/mem.go','内存实现：RWMutex 并发安全 + 逐字段 diff 幂等 + 归一化比较'),
+    mkS(3,'indexer-go/bucket.go','三型桶：enum 等值 O(1) / num 二分范围 / multi 数组多值；桶型按首值自动决定'),
+    '</div>',
+    '<div class="flow-col"><h3>🔴 阶段八：前端 frontend（Vue 3）(4)</h3>',
+    mkS(1,'frontend/package.json','依赖与构建脚本（Vite dev 5173 / Docker 构建 dist）'),
+    mkS(2,'frontend/src/router/index.js','路由：登录 / 文件区 / 仪表盘'),
+    mkS(3,'frontend/src/views/FilesView.vue','文件区主视图：目录树 + 分页列表 + 搜索 + 描述管理'),
+    mkS(4,'frontend/src/api/index.js','后端 API 封装（auth/commands/files/operations 同目录）'),
+    '</div>',
+    '<div class="flow-col"><h3>⚫ 阶段九：测试与质量设施 (6)</h3>',
+    mkS(1,'test/测试规则.md','L1-L4 分层定义 + 夹具断言表 + 回归触发清单'),
+    mkS(2,'test/fixtures/清单.md','14 个夹具登记（文本/图像/编码/数据/小说五类）'),
+    mkS(3,'test/tools/gen_png.go','图像夹具生成器（warm.png / ai-gen.png）'),
+    mkS(4,'test/tools/mcpclient/main.go','L4 MCP 客户端：SSE 握手 → write_file ×3 → analyze_file 断言 16 项'),
+    mkS(5,'test/tools/run-e2e.ps1','L4 一键编排：起服务 → MCP 链路 → HTTP analyze → 绕口 backfill 对账'),
+    mkS(6,'describer-go/cmd/verify/main.go','L2 夹具验证器：全插件流水线 → 字段报告核对断言表'),
+    '</div>',
+    '<div class="flow-col"><h3>🟣 关键流转总结</h3><div class="flow-note">① 写路径 T1：write_file / modify / copy → RecordFileMeta → Analyze → MergeResults → Upsert（返回 uuid）→ Sink 索引喂食钩子<br><br>② 语义轨：describe_file → llm.LLMStore 闸门（cod 区只读）→ Upsert<br><br>③ 重分析 T3：analyze_file 工具 / POST /api/files/analyze → manager.AnalyzeFile（读盘→Analyze→Merge→Upsert→Sink）<br><br>④ 回填 T2：backfillLoop（默认关）/ POST /api/files/backfill → 分页扫描 → IsStale 四条件过滤 → 逐文件重分析；幽灵 3 轮 → 软删<br><br>⑤ 绕口对账：execute_command 直改文件 → checksum/mtime 漂移 → 下轮回填发现并重分析（最终一致）<br><br>⑥ 依赖方向铁律：HTTP/MCP → manager → repo + describer + indexer；uuid 是组件间货币；indexer 是 sink 零出调用</div></div>'
+  ].join(''),
+  en: [
+    '<div class="flow-col"><h3>🔷 Phase 1: Overview &amp; Assembly Conventions (9)</h3>',
+    mkE(1,'README.md','Project front page: MCP tool table, frontend features, roadmap status, quick start'),
+    mkE(2,'docs/架构设计.md','Authoritative architecture: three-machine design, uuid as currency, dependency direction rules'),
+    mkE(3,'docs/元数据字段说明.md','Field dictionary: prefix law, 80+ cod fields across four families, llm vocabulary, update triggers'),
+    mkE(4,'docs/管理机开发交接.md','manager-go handover doc: five domains, dependency surface, known gaps'),
+    mkE(5,'部署指南.md','Production deployment, firewall, AstrBot MCP client setup, reverse proxy'),
+    mkE(6,'docker-compose.yml','Three containers: postgres / backend / frontend; build context = repo root (sibling replace)'),
+    mkE(7,'database/init.sql','PostgreSQL container init script mounted by compose'),
+    mkE(8,'start-dev.ps1','Local dev loop: .env → build backend :8080 → frontend dev :5173'),
+    mkE(9,'fresh-header.ps1','Go file header date refresher (first item of every wrap-up)'),
+    '</div>',
+    '<div class="flow-col"><h3>🟢 Phase 2: Backend Entry &amp; HTTP Layer (7)</h3>',
+    mkE(1,'mcp-server-go/cmd/server/main.go','Entry point: wires config→repo→manager→mcp→api into one mux; T2 backfillLoop; insecure-default warnings'),
+    mkE(2,'mcp-server-go/internal/config/config.go','YAML + env config (incl. describe.backfill switch)'),
+    mkE(3,'mcp-server-go/internal/logging/logging.go','Authoritative slog five-element logging spec'),
+    mkE(4,'mcp-server-go/internal/api/router.go','HTTP routes: public + JWT-protected + Server struct'),
+    mkE(5,'mcp-server-go/internal/api/metadata.go','Search / metadata view / describe (llm gate) / copy endpoints'),
+    mkE(6,'mcp-server-go/internal/api/analyze.go','T3 analyze + T2 backfill endpoints (manager updater entry)'),
+    mkE(7,'mcp-server-go/internal/api/middleware.go','Request log (bytes/ip/user) / JWT auth / download token'),
+    '</div>',
+    '<div class="flow-col"><h3>🟠 Phase 3: MCP Tool Layer (agent entry) (9)</h3>',
+    mkE(1,'mcp-server-go/internal/tools/registry.go','Deps container + self-registration mechanism'),
+    mkE(2,'mcp-server-go/internal/tools/all/all.go','Blank-import aggregation: add one line per new tool'),
+    mkE(3,'mcp-server-go/internal/tools/common.go','Shared layer: RecordFileMeta T1 pipeline (Analyze→Merge→Upsert→index sink hook)'),
+    mkE(4,'mcp-server-go/internal/tools/writefile/writefile.go','write_file: write + inline description + T1 auto analysis'),
+    mkE(5,'mcp-server-go/internal/tools/modifydatafile/modifydatafile.go','modify_data_file: append/overwrite then full metadata refresh'),
+    mkE(6,'mcp-server-go/internal/tools/copyfile/copyfile.go','copy_file: content + metadata together (copied_from lineage edge)'),
+    mkE(7,'mcp-server-go/internal/tools/describefile/describefile.go','describe_file: triple + llm fields through LLMStore gate'),
+    mkE(8,'mcp-server-go/internal/tools/analyzefile/analyzefile.go','analyze_file: T3 manual re-analysis, returns families + fresh facts'),
+    mkE(9,'mcp-server-go/internal/tools/executecommand/executecommand.go','execute_command: shell exec (60s timeout + 256KB truncation); siblings readfile/listdatafiles/getresults'),
+    '</div>',
+    '<div class="flow-col"><h3>🟡 Phase 4: Data Layer repo + service (8)</h3>',
+    mkE(1,'mcp-server-go/internal/repo/repo.go','Store interface (17 methods) + migrations + pgx pool'),
+    mkE(2,'mcp-server-go/internal/repo/metadata.go','file_metadata CRUD: Upsert returns uuid / cursor paging / ghost counter / soft delete'),
+    mkE(3,'mcp-server-go/internal/repo/manager_adapter.go','repo→manager.Store adapter: DI assembly side, top-level column inference'),
+    mkE(4,'mcp-server-go/internal/repo/users.go','Users table (commands/operations/tokens/schema in same dir)'),
+    mkE(5,'mcp-server-go/internal/service/files.go','Path safety: traversal guard / 5MB cap / Safe* helpers / tree listing'),
+    mkE(6,'mcp-server-go/internal/service/command.go','Command exec: 60s timeout + limitWriter 256KB output cap'),
+    mkE(7,'mcp-server-go/internal/service/metadata.go','Extension / scope / SHA-256 inference'),
+    mkE(8,'mcp-server-go/internal/search/search.go','Searcher abstraction + SQLSearcher (indexer Query takes over later, SQL stays fallback)'),
+    '</div>',
+    '<div class="flow-col"><h3>🔵 Phase 5: Manager (orchestration) (6)</h3>',
+    mkE(1,'manager-go/manager.go','Facade: Store minimal surface + DTOs + IndexSink hook + New'),
+    mkE(2,'manager-go/updater.go','Implemented core: T3 AnalyzeFile (real stat mtime + streaming checksum) + T2 Backfill (paging + two-phase staleness + ghost soft delete)'),
+    mkE(3,'manager-go/updater_test.go','L1 tests: four staleness conditions / checksum drift / ghost / batch limit / traversal block'),
+    mkE(4,'manager-go/placement.go','Placement domain: traversal-safe resolve (done) + Move (skeleton)'),
+    mkE(5,'manager-go/lineage.go','Lineage skeleton (download/audit also skeleton)'),
+    mkE(6,'manager-go/go.mod','requires describer-go — direction: assembly → manager → describer'),
+    '</div>',
+    '<div class="flow-col"><h3>🟣 Phase 6: Describer Engine (bytes in, facts out) (8)</h3>',
+    mkE(1,'describer-go/describer.go','Engine: Descriptor interface + registry + Analyze orchestration + budget truncation + CurrentVersions'),
+    mkE(2,'describer-go/merge.go','cod merge: whole-family replace + ver/at stamping (llm-*/sp-* preserved)'),
+    mkE(3,'describer-go/stale.go','IsStale pure function: missing ver / outdated / checksum drift / newer mtime'),
+    mkE(4,'describer-go/basic/basic.go','basic family: magic sniffing + textish routing + entropy + executable + name pattern (always runs)'),
+    mkE(5,'describer-go/text/extractor.go','text family: 41 fields, registry pattern (one func per field)'),
+    mkE(6,'describer-go/code/code.go','code family: language + imports + func count + comment ratio + test file'),
+    mkE(7,'describer-go/image/image.go','image family: downsampled analysis + palette + 13 profile fields'),
+    mkE(8,'describer-go/llm/store.go','LLMStore: sole write entry for model track (cod read-only + audit stamps + null tombstones)'),
+    '</div>',
+    '<div class="flow-col"><h3>🟤 Phase 7: Indexer (pure lib, pending wiring) (3)</h3>',
+    mkE(1,'indexer-go/indexer.go','Interface: Query(conds→uuid) / Update(diff feed) / Rebuild / Stats'),
+    mkE(2,'indexer-go/mem.go','In-memory impl: RWMutex + idempotent per-field diff + normalized compare'),
+    mkE(3,'indexer-go/bucket.go','Three bucket types: enum O(1) / num binary range / multi array; type auto-detected'),
+    '</div>',
+    '<div class="flow-col"><h3>🔴 Phase 8: Frontend (Vue 3) (4)</h3>',
+    mkE(1,'frontend/package.json','Dependencies and scripts (Vite dev :5173 / Docker dist build)'),
+    mkE(2,'frontend/src/router/index.js','Routes: login / files / dashboard'),
+    mkE(3,'frontend/src/views/FilesView.vue','Files main view: tree + paged list + search + description editing'),
+    mkE(4,'frontend/src/api/index.js','Backend API wrappers (auth/commands/files/operations nearby)'),
+    '</div>',
+    '<div class="flow-col"><h3>⚫ Phase 9: Test &amp; Quality Infrastructure (6)</h3>',
+    mkE(1,'test/测试规则.md','L1-L4 layering + fixture assertion table + regression triggers'),
+    mkE(2,'test/fixtures/清单.md','14 registered fixtures (text/image/encoding/data/novel)'),
+    mkE(3,'test/tools/gen_png.go','Image fixture generator (warm.png / ai-gen.png)'),
+    mkE(4,'test/tools/mcpclient/main.go','L4 MCP client: SSE handshake → write_file ×3 → analyze_file 16 assertions'),
+    mkE(5,'test/tools/run-e2e.ps1','L4 one-shot orchestration: server → MCP chain → HTTP analyze → bypass backfill'),
+    mkE(6,'describer-go/cmd/verify/main.go','L2 fixture verifier: full pipeline → field report'),
+    '</div>',
+    '<div class="flow-col"><h3>🟣 Cross-cutting Flows</h3><div class="flow-note">T1 write path: write_file/modify/copy → RecordFileMeta → Analyze → MergeResults → Upsert (returns uuid) → Sink hook<br><br>Semantic track: describe_file → llm.LLMStore gate (cod read-only) → Upsert<br><br>T3 re-analysis: analyze_file / POST /api/files/analyze → manager.AnalyzeFile → read→Analyze→Merge→Upsert→Sink<br><br>T2 backfill: backfillLoop (off by default) / POST /api/files/backfill → page scan → IsStale filter → re-analyze; ghost after 3 rounds → soft delete<br><br>Bypass reconciliation: execute_command edits files directly → checksum/mtime drift → next backfill re-analyzes (eventual consistency)<br><br>Dependency direction: HTTP/MCP → manager → repo + describer + indexer; uuid is the inter-component currency; indexer is a sink with zero outbound calls</div></div>'
+  ].join('')
+};
+
+function mkS(n,p,d){return '<div class="flow-step"><span class="num">'+n+'</span><div><span class="file" data-p="'+escAttr(p)+'" onclick="navTo(this.dataset.p)">'+esc2(p)+'</span><div class="desc">'+esc2(d)+'</div></div></div>';}
+function mkE(n,p,d){return '<div class="flow-step"><span class="num">'+n+'</span><div><span class="file" data-p="'+escAttr(p)+'" onclick="navTo(this.dataset.p)">'+esc2(p)+'</span><div class="desc">'+esc2(d)+'</div></div></div>';}
+
+function toggleLang() {
+  LANG = LANG === 'zh' ? 'en' : 'zh';
+  document.getElementById('btnLang').textContent = LANG === 'zh' ? 'EN' : '中文';
+  applyLang();
+}
+function applyLang() {
+  const t = T[LANG];
+  document.getElementById('guideTitle').textContent = t.guideTitle;
+  document.getElementById('guideBadge').textContent = t.guideBadge;
+  document.getElementById('guideHint').textContent = t.guideHint;
+  document.getElementById('q').placeholder = t.searchPlaceholder;
+  document.getElementById('btnExpand').textContent = t.btnExpand;
+  document.getElementById('btnCollapse').textContent = t.btnCollapse;
+  document.getElementById('btnReset').textContent = t.btnReset;
+  document.getElementById('guideBody').innerHTML = GUIDE[LANG];
+  search();
+}
+function toggleGuide() {
+  document.getElementById('guide').classList.toggle('collapsed');
+  document.getElementById('guideHdr').classList.toggle('collapsed');
+}
+function navTo(p) {
+  const parts = p.split('/');
+  for (let i=0;i<parts.length-1;i++) exp.add(parts.slice(0,i+1).join('/'));
+  render();
+  setTimeout(()=>{const el=els.find(e=>e.dataset.path===p);if(el)el.scrollIntoView({behavior:'smooth',block:'center',inline:'center'});},80);
+}
+function layout(nodes,d,sy,pcy) {
+  let y=sy;const out=[];
+  for(const nd of nodes) {
+    if(nd.t==='f'){out.push({n:nd,d,y,pcy});y+=NH+NG;}
+    else{
+      const kids=nd.c||[],open=exp.has(nd.p),cy=y+NH/2;
+      out.push({n:nd,d,y,pcy,hk:kids.length>0,open});
+      if(open&&kids.length>0){const cs=layout(kids,d+1,y+NH+NG,cy);out.push(...cs);y=cs[cs.length-1].y+NH+NG;}
+      else y+=NH+NG;
+    }
+  }
+  return out;
+}
+function ml(x1,y1,x2,y2,c,w){const l=document.createElementNS('http://www.w3.org/2000/svg','line');l.setAttribute('x1',x1);l.setAttribute('y1',y1);l.setAttribute('x2',x2);l.setAttribute('y2',y2);l.setAttribute('stroke',c);l.setAttribute('stroke-width',w);return l;}
+function render() {
+  const ca=document.getElementById('canvas'),sv=document.getElementById('svgl');
+  els.forEach(e=>e.remove());els=[];sv.innerHTML='';
+  if(exp.size===0)DATA.forEach(n=>{if(n.t==='d')exp.add(n.p);});
+  const flat=layout(DATA,0,0,null);
+  const maxD=flat.reduce((m,n)=>Math.max(m,n.d),0);
+  const lastY=flat.length?flat[flat.length-1].y+NH+40:400;
+  const tw=(maxD+2)*(NW+LG)+200;
+  sv.setAttribute('width',tw);sv.setAttribute('height',lastY);
+  sv.setAttribute('viewBox','0 0 '+tw+' '+lastY);
+  const pgrp=new Map();
+  for(const f of flat){if(f.pcy!==null&&f.pcy!==undefined){const k=f.d+'|'+f.pcy;if(!pgrp.has(k))pgrp.set(k,[]);pgrp.get(k).push(f);}}
+  for(const[,g]of pgrp){if(g.length<2)continue;const d=g[0].d,x=d*(NW+LG)-5;const y0=g[0].y+NH/2,y1=g[g.length-1].y+NH/2;sv.appendChild(ml(x,y0,x,y1,'#222',1));for(const gi of g)sv.appendChild(ml(x,gi.y+NH/2,x+7,gi.y+NH/2,'#222',1));}
+  for(const f of flat){
+    const x=f.d*(NW+LG),y=f.y;
+    if(f.pcy!==null&&f.pcy!==undefined){const px=(f.d-1)*(NW+LG)+NW,py=f.pcy,cx=x,cy=y+NH/2,mx=px+(cx-px)/2;sv.appendChild(ml(px,py,mx,py,'#1a1a1a',1));sv.appendChild(ml(mx,py,mx,cy,'#1a1a1a',1));sv.appendChild(ml(mx,cy,cx,cy,'#1a1a1a',1));}
+    const el=document.createElement('div');
+    let cls='node '+(f.n.t==='d'?'dir':'file');
+    if(f.d===0&&f.n.t==='d')cls+=' root';
+    if(FLOW.has(f.n.p))cls+=' flow';
+    el.className=cls;el.style.left=x+'px';el.style.top=y+'px';el.dataset.path=f.n.p;el.dataset.type=f.n.t;
+    if(f.n.t==='d'){el.innerHTML='<span class="ico">'+(f.open?'📂':'📁')+'</span><span class="ni">'+esc2(f.n.n)+'</span>';if((f.n.c||[]).length>0)el.addEventListener('click',e=>{e.stopPropagation();if(exp.has(f.n.p))exp.delete(f.n.p);else exp.add(f.n.p);render();});}
+    else{el.innerHTML='<span class="ico">📄</span><span class="ni">'+esc2(f.n.n)+'</span>'+(f.n.s?'<span class="sz">'+fmt(f.n.s)+'</span>':'');el.addEventListener('click',e=>{e.stopPropagation();window.open(fileUrl(f.n.p),'_blank');});el.addEventListener('mouseenter',e=>showTT(e,f.n));el.addEventListener('mouseleave',hideTT);}
+    ca.appendChild(el);els.push(el);
+  }
+  updateHL();
+}
+function buildIndex(nodes){const idx=[];for(const n of nodes){if(n.t==='f')idx.push({name:n.n,path:n.p,size:n.s});if(n.c)idx.push(...buildIndex(n.c));}return idx;}
+const fileIndex=buildIndex(DATA);
+function search(){sq=document.getElementById('q').value.toLowerCase().trim();updateHL();updateDropdown();}
+function updateDropdown(){
+  const dd=document.getElementById('srdrop'),t=T[LANG];
+  if(!sq||sq.length<1){dd.classList.remove('show');dd.innerHTML='';return;}
+  const matches=fileIndex.filter(f=>f.path.toLowerCase().includes(sq));
+  const MAX=30;
+  dd.innerHTML='';
+  if(matches.length===0){
+    const empty=document.createElement('div');
+    empty.className='sr-empty';
+    empty.textContent=t.noMatch;
+    dd.appendChild(empty);
+  }else{
+    matches.slice(0,MAX).forEach(f=>{
+      const item=document.createElement('div');
+      item.className='sr-item';
+      item.addEventListener('mousedown',e=>{e.preventDefault();navTo(f.path);dd.classList.remove('show');});
+      const name=document.createElement('span');
+      name.className='sr-name';
+      name.textContent=f.name;
+      const path=document.createElement('span');
+      path.className='sr-path';
+      path.textContent=f.path;
+      item.appendChild(name);
+      item.appendChild(path);
+      dd.appendChild(item);
+    });
+    if(matches.length>MAX){
+      const more=document.createElement('div');
+      more.className='sr-more';
+      more.textContent=t.more+(matches.length-MAX)+t.more2;
+      dd.appendChild(more);
+    }
+  }
+  dd.classList.add('show');
+}
+function updateHL(){if(!sq){els.forEach(e=>e.classList.remove('dim','hl'));return;}els.forEach(e=>{const p=(e.dataset.path||'').toLowerCase();if(p.includes(sq)){e.classList.remove('dim');e.classList.add('hl');}else{e.classList.add('dim');e.classList.remove('hl');}});}
+function showTT(e,nd){const t=document.getElementById('tt');t.innerHTML='<div>'+esc2(nd.n)+'</div><div class="p">'+esc2(nd.p)+'</div>';t.style.display='block';t.style.left=(e.clientX+14)+'px';t.style.top=(e.clientY-8)+'px';}
+function hideTT(){document.getElementById('tt').style.display='none';}
+function expandAll(){function f(ns){for(const n of ns){if(n.t==='d'&&n.c&&n.c.length>0){exp.add(n.p);f(n.c);}}}f(DATA);render();}
+function collapseAll(){exp.clear();DATA.forEach(n=>{if(n.t==='d')exp.add(n.p);});render();}
+let px=0,py=0,pan=false,sx,sy,spx,spy;
+const wr=document.getElementById('wrap'),ca=document.getElementById('canvas');
+wr.addEventListener('wheel',e=>{e.preventDefault();const d=Math.min(Math.abs(e.deltaY),150)*0.00125;const ns=Math.min(3,Math.max(0.15,sc*(1+Math.sign(-e.deltaY)*d)));const r=wr.getBoundingClientRect();const mx=e.clientX-r.left,my=e.clientY-r.top;px=mx-(mx-px)*(ns/sc);py=my-(my-py)*(ns/sc);sc=ns;applyT();},{passive:false});
+wr.addEventListener('mousedown',e=>{if(e.target===wr||e.target===ca||e.target.id==='svgl'){pan=true;sx=e.clientX;sy=e.clientY;spx=px;spy=py;}});
+window.addEventListener('mousemove',e=>{if(!pan)return;px=spx+(e.clientX-sx)/sc;py=spy+(e.clientY-sy)/sc;applyT();});
+window.addEventListener('mouseup',()=>{pan=false;});
+function applyT(){ca.style.transform='translate('+px+'px,'+py+'px) scale('+sc+')';document.getElementById('zm').textContent=Math.round(sc*100)+'%';}
+function resetView(){sc=1;px=0;py=0;applyT();document.getElementById('q').value='';sq='';document.getElementById('srdrop').classList.remove('show');expandAll();}
+document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key==='f'){e.preventDefault();document.getElementById('q').focus();}if(e.key==='Escape'){document.getElementById('q').value='';sq='';updateHL();document.getElementById('srdrop').classList.remove('show');}if(e.key==='0'&&(e.ctrlKey||e.metaKey)){e.preventDefault();resetView();}});
+function fmt(b){if(!b)return'';const u=['B','KB','MB','GB'];let s=b,i=0;while(s>=1024&&i<u.length-1){s/=1024;i++;}return i===0?s+' B':s.toFixed(1)+' '+u[i];}
+function esc2(s){const d=document.createElement('div');d.textContent=s;return d.innerHTML;}
+function escAttr(s){return esc2(s).replace(/"/g,'&quot;');}
+function fileUrl(p){
+  const root=PROOT.replace(/\/+$/,'');
+  const full=root+'/'+p;
+  return 'file://'+full.split('/').map((seg,i)=>{
+    if(i===0)return seg;
+    const enc=encodeURIComponent(seg);
+    return /^[A-Za-z]%3A$/.test(enc)?seg:enc;
+  }).join('/');
+}
+applyLang();render();</script>
+</body>
+</html>

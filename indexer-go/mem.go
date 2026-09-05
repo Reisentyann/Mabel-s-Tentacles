@@ -1,5 +1,5 @@
 // 文件：indexer-go/mem.go —— 索引机进程内内存实现：字段级独立桶 + RWMutex 并发保护 + Stats 自省
-// 修改：2026-09-04（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
 
 // Package indexer 的 mem.go 是进程内内存实现：field → 桶。
 // DB 是唯一事实源，本实现是派生缓存——可丢弃可重建（Rebuild），

@@ -1,5 +1,5 @@
-// 文件：mcp-server-go/internal/tools/common.go —— 工具共享层：Result 构造 / SessionID / RecordOperation / RecordFileMeta（T1 管线）/ DownloadURL
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 文件：mcp-server-go/internal/tools/common.go —— 工具共享层：Result 构造 / SessionID / RecordOperation / RecordFileMeta（T1 管线 + 索引喂食）/ DownloadURL
+// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
 
 package tools
 
@@ -50,7 +50,10 @@ func RecordOperation(ctx context.Context, st repo.Store, sessionID, tool, filePa
 // cod-* 事实）+ 技术元数据（类型/大小/校验和/会话/分区）。
 // attributes 走读-改-写合并，保留 llm-* / sp-* 既有字段（docs/元数据字段说明.md）；
 // game/ 前缀的文件自动归入 game 分区（游戏室预留命名空间）。
-func RecordFileMeta(ctx context.Context, st repo.Store, filePath string, content []byte, sessionID string) {
+// Upsert 后把 attributes 的 old/new diff 喂给索引钩子（deps.Sink，
+// 架构设计.md 第 3 节 T1 喂食点；nil = 索引机批次前跳过）。
+func RecordFileMeta(ctx context.Context, deps Deps, filePath string, content []byte, sessionID string) {
+	st := deps.Store
 	if st == nil {
 		return
 	}
@@ -93,12 +96,16 @@ func RecordFileMeta(ctx context.Context, st repo.Store, filePath string, content
 		SessionID:  StrPtr(sessionID),
 		Attributes: describer.JSONFromAttrs(merged),
 	}
-	if err := st.UpsertMetadata(ctx, meta); err != nil {
+	uuid, err := st.UpsertMetadata(ctx, meta)
+	if err != nil {
 		slog.Warn("record file metadata failed",
 			"path", filePath, "session", sessionID,
 			"families", familyNames(results), "error", err,
 			"duration", time.Since(start).String())
 		return
+	}
+	if deps.Sink != nil {
+		deps.Sink.Update(uuid, existing, merged)
 	}
 	slog.Info("file metadata recorded",
 		"path", filePath,

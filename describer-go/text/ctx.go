@@ -1,5 +1,5 @@
 // 文件：describer-go/text/ctx.go —— textCtx 共享上下文：解码/分行/切 rune 一次构造 + Quant/FP 惰性预计算
-// 修改：2026-09-04（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
 
 // Package text 内的 ctx.go 定义文本分析的共享上下文。
 // 字段字典见 docs/元数据字段说明.md 第 4.3 节。

@@ -4,6 +4,8 @@ go 1.26.5
 
 require (
 	github.com/Reisentyann/Mabel-s-Tentacles/describer-go v0.0.0
+	github.com/Reisentyann/Mabel-s-Tentacles/indexer-go v0.0.0
+	github.com/Reisentyann/Mabel-s-Tentacles/manager-go v0.0.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/mark3labs/mcp-go v0.58.0
@@ -11,8 +13,12 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-// 同仓库同级模块（Docker 构建上下文必须为仓库根才能拿到它）
+// 同仓库同级模块（Docker 构建上下文必须为仓库根才能拿到它们）
 replace github.com/Reisentyann/Mabel-s-Tentacles/describer-go => ../describer-go
+
+replace github.com/Reisentyann/Mabel-s-Tentacles/indexer-go => ../indexer-go
+
+replace github.com/Reisentyann/Mabel-s-Tentacles/manager-go => ../manager-go
 
 require (
 	github.com/google/jsonschema-go v0.4.2 // indirect

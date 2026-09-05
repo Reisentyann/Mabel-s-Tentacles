@@ -1,5 +1,5 @@
-// 文件：mcp-server-go/internal/repo/metadata.go —— file_metadata 表存取：FileMetadata 模型 / Upsert(COALESCE) / 搜索 / 软删
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 文件：mcp-server-go/internal/repo/metadata.go —— file_metadata 表存取：模型 / Upsert(COALESCE 返回 uuid) / 搜索 / 分页扫描 / 缺失计数 / 软删
+// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
 
 package repo
 
@@ -14,6 +14,7 @@ import (
 // FileMetadata 文件的描述/标签/属性等元数据。指针字段为 NULL 时表示「未提供」。
 type FileMetadata struct {
 	ID             int64           `json:"id"`
+	UUID           string          `json:"uuid"` // 组件间货币（索引机挂载键 / manager 凭它取件），DB 默认生成
 	FilePath       string          `json:"file_path"`
 	Scope          string          `json:"scope"` // global | user | game（默认 global；game 为游戏室预留分区，按 game/ 路径前缀自动推导）
 	OwnerID        *string         `json:"owner_id"`
@@ -34,6 +35,7 @@ type FileMetadata struct {
 	ExpiresAt      *time.Time      `json:"expires_at"`
 	IsDeleted      bool            `json:"is_deleted"`
 	DeletedAt      *time.Time      `json:"deleted_at"`
+	MissingRounds  int             `json:"missing_rounds"` // T2 回填中盘上连续缺失轮次（3 轮软删除）
 	CreatedAt      time.Time       `json:"created_at"`
 	UpdatedAt      time.Time       `json:"updated_at"`
 }
@@ -51,7 +53,7 @@ type FileSearch struct {
 	Size           int
 }
 
-const metaColumns = `id, file_path, scope, owner_id, title, description, tags, file_type, mime_type, extension, size_bytes, checksum, session_id, user_id, attributes, copied_from, download_count, last_accessed_at, expires_at, is_deleted, deleted_at, created_at, updated_at`
+const metaColumns = `id, uuid, file_path, scope, owner_id, title, description, tags, file_type, mime_type, extension, size_bytes, checksum, session_id, user_id, attributes, copied_from, download_count, last_accessed_at, expires_at, is_deleted, deleted_at, missing_rounds, created_at, updated_at`
 
 const metaWhere = `is_deleted = $1
  AND ($2::text   IS NULL OR description ILIKE '%'||$2||'%' OR file_path ILIKE '%'||$2||'%')
@@ -63,10 +65,10 @@ const metaWhere = `is_deleted = $1
 
 func scanMeta(row pgx.Row) (*FileMetadata, error) {
 	var m FileMetadata
-	if err := row.Scan(&m.ID, &m.FilePath, &m.Scope, &m.OwnerID, &m.Title, &m.Description, &m.Tags,
+	if err := row.Scan(&m.ID, &m.UUID, &m.FilePath, &m.Scope, &m.OwnerID, &m.Title, &m.Description, &m.Tags,
 		&m.FileType, &m.MimeType, &m.Extension, &m.SizeBytes, &m.Checksum, &m.SessionID, &m.UserID,
 		&m.Attributes, &m.CopiedFrom, &m.DownloadCount, &m.LastAccessedAt, &m.ExpiresAt,
-		&m.IsDeleted, &m.DeletedAt, &m.CreatedAt, &m.UpdatedAt); err != nil {
+		&m.IsDeleted, &m.DeletedAt, &m.MissingRounds, &m.CreatedAt, &m.UpdatedAt); err != nil {
 		return nil, err
 	}
 	if m.Tags == nil {
@@ -78,9 +80,11 @@ func scanMeta(row pgx.Row) (*FileMetadata, error) {
 	return &m, nil
 }
 
-// UpsertMetadata 写入/更新文件元数据。指针字段为 NULL 时保留原值，非 NULL 才覆盖。
+// UpsertMetadata 写入/更新文件元数据，返回该行的 uuid（组件间货币）。
+// 指针字段为 NULL 时保留原值，非 NULL 才覆盖。
 // download_count / last_accessed_at / is_deleted 由各自的专用方法维护，这里不动。
-func (s *pgxStore) UpsertMetadata(ctx context.Context, m *FileMetadata) error {
+// 写入即文件存在的证据：missing_rounds 清零（幽灵计数只在 MarkMissingRound 递增）。
+func (s *pgxStore) UpsertMetadata(ctx context.Context, m *FileMetadata) (string, error) {
 	scope := m.Scope
 	if scope == "" {
 		scope = "global"
@@ -89,7 +93,8 @@ func (s *pgxStore) UpsertMetadata(ctx context.Context, m *FileMetadata) error {
 	if len(attrs) == 0 {
 		attrs = json.RawMessage("{}")
 	}
-	_, err := s.pool.Exec(ctx,
+	var uuid string
+	err := s.pool.QueryRow(ctx,
 		`INSERT INTO file_metadata (file_path, scope, owner_id, title, description, tags, file_type, mime_type, extension, size_bytes, checksum, session_id, user_id, attributes, copied_from, expires_at)
 		 VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
 		 ON CONFLICT (file_path) DO UPDATE SET
@@ -108,11 +113,16 @@ func (s *pgxStore) UpsertMetadata(ctx context.Context, m *FileMetadata) error {
 		   attributes   = COALESCE(EXCLUDED.attributes,   file_metadata.attributes),
 		   copied_from  = COALESCE(EXCLUDED.copied_from,  file_metadata.copied_from),
 		   expires_at   = COALESCE(EXCLUDED.expires_at,   file_metadata.expires_at),
-		   updated_at   = NOW()`,
+		   missing_rounds = 0,
+		   updated_at   = NOW()
+		 RETURNING uuid`,
 		m.FilePath, scope, m.OwnerID, m.Title, m.Description, m.Tags, m.FileType, m.MimeType, m.Extension,
 		m.SizeBytes, m.Checksum, m.SessionID, m.UserID, attrs, m.CopiedFrom, m.ExpiresAt,
-	)
-	return err
+	).Scan(&uuid)
+	if err != nil {
+		return "", err
+	}
+	return uuid, nil
 }
 
 func (s *pgxStore) GetMetadata(ctx context.Context, filePath string) (*FileMetadata, error) {
@@ -229,7 +239,8 @@ func (s *pgxStore) CopyMetadata(ctx context.Context, source, target, sessionID, 
 		Attributes:  src.Attributes,
 		CopiedFrom:  &source,
 	}
-	return s.UpsertMetadata(ctx, cp)
+	_, err = s.UpsertMetadata(ctx, cp)
+	return err
 }
 
 // SoftDeleteMetadata 软删除：只打标记，不物理删除，元数据可追溯。
@@ -246,4 +257,42 @@ func (s *pgxStore) IncrementDownloadCount(ctx context.Context, filePath string) 
 		`UPDATE file_metadata SET download_count = download_count + 1, last_accessed_at = NOW(), updated_at = NOW()
 		 WHERE file_path=$1 AND is_deleted=FALSE`, filePath)
 	return err
+}
+
+// ListMetadataPage 按 file_path 升序的游标分页：返回 sincePath 之后（不含）的
+// limit 条未软删元数据。sincePath 传空串从头开始。T2 回填的扫描入口——
+// 游标分页可中断续跑，深分页无 OFFSET 性能悬崖。
+func (s *pgxStore) ListMetadataPage(ctx context.Context, sincePath string, limit int) ([]FileMetadata, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+metaColumns+` FROM file_metadata
+		 WHERE is_deleted = FALSE AND file_path > $1
+		 ORDER BY file_path ASC LIMIT $2`, sincePath, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := make([]FileMetadata, 0, limit)
+	for rows.Next() {
+		m, err := scanMeta(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, *m)
+	}
+	return items, rows.Err()
+}
+
+// MarkMissingRound 盘上缺失计数 +1，返回累计轮次（manager updater 的幽灵存续：
+// 连续 3 轮缺失触发软删除）。文件重新出现走 UpsertMetadata 时清零。
+func (s *pgxStore) MarkMissingRound(ctx context.Context, filePath string) (int, error) {
+	var rounds int
+	err := s.pool.QueryRow(ctx,
+		`UPDATE file_metadata SET missing_rounds = missing_rounds + 1, updated_at = NOW()
+		 WHERE file_path = $1 AND is_deleted = FALSE
+		 RETURNING missing_rounds`, filePath).Scan(&rounds)
+	return rounds, err
 }

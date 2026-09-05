@@ -1,5 +1,5 @@
 // 文件：describer-go/text/structure.go —— 结构字段：title-line/headings/structure + 结构量化计数（table/list/code/quote/checkbox/indent）
-// 修改：2026-09-04（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
 
 // Package text 内的 structure.go：cod-text 结构类字段。
 // 字段字典见 docs/元数据字段说明.md 第 4.3 节结构部分（title-line/headings/structure）

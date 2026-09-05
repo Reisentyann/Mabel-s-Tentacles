@@ -1,5 +1,5 @@
 // 文件：describer-go/describer_test.go —— 引擎端到端测试：basic+路由+sp 前缀拼装 / 文本路由不串味 / 惰性加载只调一次 / 预算截断
-// 修改：2026-09-04（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
 
 // 端到端：引擎把 basic + 路由 + sp 前缀拼起来。
 package describer_test
@@ -105,6 +105,34 @@ func TestAnalyzeEnginePNG(t *testing.T) {
 	b, _ := json.Marshal(merged)
 	if string(b) == "" {
 		t.Fatal("unreachable")
+	}
+}
+
+func TestCurrentVersions(t *testing.T) {
+	// 版本表导出：四家族齐全且 ≥1；updater 做 IsStale curVer 的唯一来源
+	// （管理机开发交接文档缺口 1 的解法，替代调用方硬编码常量表）。
+	vs := describer.CurrentVersions()
+	if len(vs) != 4 {
+		t.Fatalf("families = %v, want basic/text/code/image", vs)
+	}
+	for _, f := range []string{"basic", "text", "code", "image"} {
+		if v, ok := vs[f]; !ok || v < 1 {
+			t.Fatalf("family %s version = %v, missing or invalid", f, v)
+		}
+	}
+
+	// 与 Analyze/MergeResults 落库值一致：cod-<family>-ver == 版本表值，
+	// 否则回填侧会误判"版本落后"无限重分析。
+	content := []byte("# 标题\n\n正文一行。")
+	rs := describer.Analyze(describer.Input{
+		Path: "a.md", Head: content, Full: content,
+		Size: int64(len(content)), ExtMime: "text/plain",
+	}, nil)
+	merged := describer.MergeResults(map[string]any{}, rs, time.Unix(1, 0))
+	for _, r := range rs {
+		if got := merged["cod-"+r.Family+"-ver"]; got != vs[r.Family] {
+			t.Fatalf("family %s: merged ver %v != CurrentVersions %d", r.Family, got, vs[r.Family])
+		}
 	}
 }
 

@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/copyfile/copyfile.go —— MCP 工具 copy_file：内容 + 元数据一起复制
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
 
 package copyfile
 
@@ -60,7 +60,7 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			if err := deps.Store.CopyMetadata(ctx, source, target, sessionID, ""); err != nil {
 				// 源文件可能没有元数据，复制失败不致命；回填目标基础元数据，避免检索遗漏
 				slog.Warn("copy metadata failed, recording basic meta", "source", source, "target", target, "session", sessionID, "error", err)
-				tools.RecordFileMeta(ctx, deps.Store, target, content, sessionID)
+				tools.RecordFileMeta(ctx, deps, target, content, sessionID)
 			}
 		}
 
