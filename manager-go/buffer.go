@@ -21,6 +21,8 @@ package manager
 import (
 	"sync"
 	"time"
+
+	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go"
 )
 
 // 取件缓冲区默认预算。
@@ -28,9 +30,9 @@ const (
 	// defaultBufCapBytes 总容量 64MB（个人库量级宽裕；内存紧张可调小，
 	// 派生态丢了无损）。
 	defaultBufCapBytes = 64 << 20
-	// defaultBufMaxEntry 单条目上限 5MB（与 describer.MaxFullBytes 同口径：
+	// defaultBufMaxEntry 单条目上限 5MB（= describer.MaxFullBytes 单一来源：
 	// 值得缓存的分析粒度；超此尺寸的大文件直流不入缓）。
-	defaultBufMaxEntry = 5 << 20
+	defaultBufMaxEntry = describer.MaxFullBytes
 )
 
 // bufEntry 单个缓冲条目（put 时快照：path/size/modTime 记录入缓时刻的

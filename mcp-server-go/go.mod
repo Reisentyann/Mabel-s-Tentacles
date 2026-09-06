@@ -3,6 +3,7 @@ module github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go
 go 1.26.5
 
 require (
+	github.com/Reisentyann/Mabel-s-Tentacles/common v0.0.0
 	github.com/Reisentyann/Mabel-s-Tentacles/describer-go v0.0.0
 	github.com/Reisentyann/Mabel-s-Tentacles/indexer-go v0.0.0
 	github.com/Reisentyann/Mabel-s-Tentacles/manager-go v0.0.0
@@ -14,6 +15,8 @@ require (
 )
 
 // 同仓库同级模块（Docker 构建上下文必须为仓库根才能拿到它们）
+replace github.com/Reisentyann/Mabel-s-Tentacles/common => ../common
+
 replace github.com/Reisentyann/Mabel-s-Tentacles/describer-go => ../describer-go
 
 replace github.com/Reisentyann/Mabel-s-Tentacles/indexer-go => ../indexer-go

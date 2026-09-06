@@ -10,6 +10,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/Reisentyann/Mabel-s-Tentacles/common"
 	"github.com/Reisentyann/Mabel-s-Tentacles/manager-go"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 )
@@ -99,14 +100,7 @@ func (a *ManagerStore) GetMetaByUUIDs(ctx context.Context, uuids []string) (map[
 func toMetaRow(m *FileMetadata) manager.MetaRow {
 	return manager.MetaRow{
 		Path:       m.FilePath,
-		Checksum:   derefStr(m.Checksum),
+		Checksum:   common.DerefStr(m.Checksum),
 		Attributes: m.Attributes,
 	}
-}
-
-func derefStr(p *string) string {
-	if p == nil {
-		return ""
-	}
-	return *p
 }

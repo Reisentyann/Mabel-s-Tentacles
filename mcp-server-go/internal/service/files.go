@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/service/files.go —— 文件安全操作：SafeWrite/SafeRead/SafeModify/SafeList + 防目录穿越 + 5MB 上限
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
 
 package service
 
@@ -8,35 +8,20 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
+
+	"github.com/Reisentyann/Mabel-s-Tentacles/common"
+	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go"
 )
 
-const maxFileSize = 5 * 1024 * 1024
-
-func resolveWithin(baseDir, filePath string) (string, error) {
-	clean := strings.TrimLeft(filePath, `/\`)
-	if strings.Contains(clean, ":") {
-		return "", fmt.Errorf("security error: path cannot contain drive letters")
-	}
-
-	absBase, err := filepath.Abs(baseDir)
-	if err != nil {
-		return "", fmt.Errorf("resolve base dir: %w", err)
-	}
-
-	target := filepath.Clean(filepath.Join(absBase, clean))
-	if !withinDir(absBase, target) {
-		return "", fmt.Errorf("security error: directory traversal detected and blocked")
-	}
-	return target, nil
-}
+// maxFileSize 写入内容上限（= describer.MaxFullBytes 单一来源，5MB）。
+const maxFileSize = describer.MaxFullBytes
 
 func SafeWrite(baseDir, filePath, content string) error {
 	if len(content) > maxFileSize {
 		return fmt.Errorf("security error: file content exceeds 5MB limit")
 	}
 
-	target, err := resolveWithin(baseDir, filePath)
+	target, err := common.ResolveWithin(baseDir, filePath)
 	if err != nil {
 		return err
 	}
@@ -55,7 +40,7 @@ func SafeModify(baseDir, filePath, content, mode string) error {
 		return fmt.Errorf("security error: file content exceeds 5MB limit")
 	}
 
-	target, err := resolveWithin(baseDir, filePath)
+	target, err := common.ResolveWithin(baseDir, filePath)
 	if err != nil {
 		return err
 	}
@@ -118,22 +103,14 @@ func SafeList(baseDir string) ([]string, error) {
 	return files, nil
 }
 
-func withinDir(dir, target string) bool {
-	rel, err := filepath.Rel(dir, target)
-	if err != nil {
-		return false
-	}
-	return rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-}
-
 // ResolvePath 校验并解析 baseDir 内的相对路径为绝对路径，防目录穿越。
 func ResolvePath(baseDir, filePath string) (string, error) {
-	return resolveWithin(baseDir, filePath)
+	return common.ResolveWithin(baseDir, filePath)
 }
 
 // SafeRead 读取 baseDir 内的文件内容，防目录穿越。
 func SafeRead(baseDir, filePath string) ([]byte, error) {
-	target, err := resolveWithin(baseDir, filePath)
+	target, err := common.ResolveWithin(baseDir, filePath)
 	if err != nil {
 		return nil, err
 	}

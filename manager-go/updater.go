@@ -1,5 +1,5 @@
 // 文件：manager-go/updater.go —— 更新回填域：T2 启动后台回填 + T3 手动重分析（字典第 10 节三触发器）
-// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
 
 // updater 域职责：让存量元数据跟上引擎演进。
 // 执行器唯一路径：读文件 → describer.Analyze → MergeResults → Upsert → 喂食索引机。
@@ -15,14 +15,12 @@ package manager
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"io"
 	"log/slog"
 	"os"
 	"time"
 
+	"github.com/Reisentyann/Mabel-s-Tentacles/common"
 	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go"
 )
 
@@ -149,11 +147,11 @@ func (m *Manager) analyze(ctx context.Context, path string) (*AnalyzeReport, err
 		return nil, fmt.Errorf("'%s' is a directory", path)
 	}
 
-	head, err := readHead(abs)
+	head, err := common.ReadHead(abs, describer.MaxHeadBytes)
 	if err != nil {
 		return nil, fmt.Errorf("read head: %w", err)
 	}
-	cs, err := checksumFile(abs)
+	cs, err := common.ChecksumFile(abs)
 	if err != nil {
 		return nil, fmt.Errorf("checksum: %w", err)
 	}
@@ -165,7 +163,7 @@ func (m *Manager) analyze(ctx context.Context, path string) (*AnalyzeReport, err
 		MTime:   info.ModTime(),
 		ExtMime: m.extMimeOf(path),
 	}, func() ([]byte, error) {
-		return readLimited(abs, describer.MaxFullBytes)
+		return common.ReadLimited(abs, describer.MaxFullBytes)
 	})
 
 	// 读-改-写：整族合并 cod-*，保留 llm-* / sp-llm-*（无行 = 空开始）
@@ -220,7 +218,7 @@ func (m *Manager) stale(attrs map[string]any, storedChecksum, abs string, info o
 			return true
 		}
 	}
-	cs, err := checksumFile(abs)
+	cs, err := common.ChecksumFile(abs)
 	if err != nil {
 		return false // 哈希失败不误伤（stat 已成功，读失败罕见；下一轮再试）
 	}
@@ -251,45 +249,4 @@ func (m *Manager) extMimeOf(path string) string {
 		return ""
 	}
 	return m.extMime(path)
-}
-
-// readHead 读文件前 512B（describer.MaxHeadBytes 口径；短文件按实际长度）。
-func readHead(abs string) ([]byte, error) {
-	f, err := os.Open(abs)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	buf := make([]byte, describer.MaxHeadBytes)
-	n, err := io.ReadFull(f, buf)
-	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
-		return nil, err
-	}
-	return buf[:n], nil
-}
-
-// readLimited 读文件前 limit 字节（Loader 全量预算；引擎内部仍会再截，
-// 双保险——execute_command 可产出超大文件，这里先挡住内存峰值）。
-func readLimited(abs string, limit int64) ([]byte, error) {
-	f, err := os.Open(abs)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	return io.ReadAll(io.LimitReader(f, limit))
-}
-
-// checksumFile 全文件流式 SHA-256（与 T1 的全量 content 哈希同口径；
-// 流式不受 5MB 分析预算影响——checksum 是完整性事实，必须覆盖全文件）。
-func checksumFile(abs string) (string, error) {
-	f, err := os.Open(abs)
-	if err != nil {
-		return "", err
-	}
-	defer f.Close()
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
 }
