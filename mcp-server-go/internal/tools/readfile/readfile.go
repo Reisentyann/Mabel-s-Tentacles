@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/readfile/readfile.go —— MCP 工具 read_file：读文件（1MB 截断防上下文撑爆）
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
 
 package readfile
 
@@ -43,6 +43,12 @@ func register(s *server.MCPServer, deps tools.Deps) {
 
 		sessionID := tools.SessionID(ctx)
 		start := time.Now()
+
+		// 读授权：看不到的文件不给读（无元数据 = 归属不明，仅管家/admin 可读）
+		if denied, reason := tools.CanFile(ctx, deps.Store, path, false); denied {
+			tools.RecordOperation(ctx, deps.Store, sessionID, "read_file", path, "denied", reason, map[string]any{"path": path})
+			return tools.Deny(ctx, "read_file", path, reason), nil
+		}
 
 		content, err := service.SafeRead(deps.Cfg.DataDir, path)
 		if err != nil {

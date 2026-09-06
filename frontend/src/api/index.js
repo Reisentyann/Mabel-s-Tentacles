@@ -39,6 +39,9 @@ api.interceptors.response.use(
     const refreshToken = getRefreshToken();
     if (!refreshToken) {
       clearTokens();
+      if (!window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login';
+      }
       return Promise.reject(error);
     }
 
@@ -49,7 +52,12 @@ api.interceptors.response.use(
       config.headers.Authorization = `Bearer ${data.access_token}`;
       return api(config);
     } catch (refreshError) {
+      // refresh 也失败：清凭证并引导到登录页（权限批次 2026-09-06——
+      // 此前只清 localStorage，页面静默报错，用户无路可走）
       clearTokens();
+      if (!window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login';
+      }
       return Promise.reject(refreshError);
     }
   },

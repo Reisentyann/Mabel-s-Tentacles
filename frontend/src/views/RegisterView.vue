@@ -1,8 +1,8 @@
 <template>
   <div class="login-page">
-    <form class="login-card" @submit.prevent="handleLogin">
+    <form class="login-card" @submit.prevent="handleRegister">
       <h1>Mabel's Tentacles</h1>
-      <p class="subtitle">登录以管理你的文件</p>
+      <p class="subtitle">注册一个账号（密码至少 8 位）</p>
 
       <label class="field">
         <span>Username</span>
@@ -14,20 +14,26 @@
         <input
           v-model="password"
           type="password"
-          autocomplete="current-password"
+          autocomplete="new-password"
+          minlength="8"
           required
         />
       </label>
 
+      <label class="field">
+        <span>Confirm Password</span>
+        <input v-model="confirm" type="password" autocomplete="new-password" minlength="8" required />
+      </label>
+
       <button class="btn submit" type="submit" :disabled="loading">
-        {{ loading ? "Signing in..." : "Login" }}
+        {{ loading ? "Creating..." : "Register" }}
       </button>
 
       <p v-if="error" class="error">{{ error }}</p>
 
       <p class="alt">
-        还没有账号？
-        <router-link to="/register">注册一个</router-link>
+        已有账号？
+        <router-link to="/login">去登录</router-link>
       </p>
     </form>
   </div>
@@ -35,28 +41,32 @@
 
 <script setup>
 import { ref } from "vue";
-import { useRouter, useRoute } from "vue-router";
+import { useRouter } from "vue-router";
 import { useAuthStore } from "../stores/auth";
 
 const username = ref("");
 const password = ref("");
+const confirm = ref("");
 const loading = ref(false);
 const error = ref("");
 const router = useRouter();
-const route = useRoute();
 const authStore = useAuthStore();
 
-const handleLogin = async () => {
+const handleRegister = async () => {
+  if (password.value !== confirm.value) {
+    error.value = "两次输入的密码不一致";
+    return;
+  }
   loading.value = true;
   error.value = "";
   try {
-    await authStore.loginAction({
+    await authStore.registerAction({
       username: username.value,
       password: password.value,
     });
-    router.push(route.query.redirect || "/files");
+    router.push("/files");
   } catch (err) {
-    error.value = err.response?.data?.detail || "Login failed";
+    error.value = err.response?.data?.detail || "注册失败";
   } finally {
     loading.value = false;
   }

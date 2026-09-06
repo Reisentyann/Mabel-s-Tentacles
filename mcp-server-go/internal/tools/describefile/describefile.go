@@ -13,6 +13,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/Reisentyann/Mabel-s-Tentacles/common"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
 )
@@ -49,6 +50,9 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		mcp.WithString("attributes",
 			mcp.Description(`Optional JSON object of LLM semantic fields, e.g. {"llm-semantic-type":"novel","llm-characters":["梅贝尔"],"sp-llm-游戏名":"狼人杀"}.`),
 		),
+		mcp.WithString("visibility",
+			mcp.Description("Optional: change who can see this file: 'private' / 'public' / 'group'. Only the file owner or admin may change it. Omit to keep current."),
+		),
 	)
 
 	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -77,6 +81,12 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			return tools.ResultError("orchestrator unavailable"), nil
 		}
 
+		// 写授权：describe 改的是文件元数据（含可见性），owner/组内/admin 之外拒绝
+		if denied, reason := tools.CanFile(ctx, deps.Store, filePath, true); denied {
+			tools.RecordOperation(ctx, deps.Store, sessionID, "describe_file", filePath, "denied", reason, nil)
+			return tools.Deny(ctx, "describe_file", filePath, reason), nil
+		}
+
 		// 编排机同步入口（与 HTTP describe 同一份实现，原复制粘贴已灭）：
 		// 存在性校验 → LLMStore 闸门（cod-* 只读 / 受控词表 / null 墓碑）→
 		// 单次 Upsert → 喂索引（llm-* 是可索引字段，原先不喂的漂移洞已堵）。
@@ -89,11 +99,13 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		}
 		res, derr := deps.Orch.Describe(ctx, core.DescribeRequest{
 			Path:        filePath,
-			Title:       tools.StrPtr(title),
-			Description: tools.StrPtr(description),
+			Title:       common.StrPtr(title),
+			Description: common.StrPtr(description),
 			Tags:        tags,
-			FileType:    tools.StrPtr(fileType),
+			FileType:    common.StrPtr(fileType),
 			Mode:        mode,
+			Visibility:  req.GetString("visibility", ""),
+			Actor:       tools.Actor(ctx),
 			Attributes:  attrs,
 		}, sessionID)
 		if derr != nil {

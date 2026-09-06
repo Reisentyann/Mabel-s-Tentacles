@@ -81,11 +81,21 @@ const (
 // Event 生命周期事件。不携带文件内容——worker 处理时盘上重读（后写胜出，
 // 零内容滞留）；Agent 为 agent 随写顺带提供的顶层描述字段，与执行器产出
 // 合并为单次 Upsert（消灭 write_file 场景的第二次 upsert）。
+// Actor 为写者主体（owner_id 落库标识——权限批次的归属打标）；
+// Visibility 为写者指定的可见性（public/group/private；空 = 事件不动它，
+// 新文件由执行器落安全默认 private）。
 type Event struct {
-	Kind      Kind
-	Path      string
-	Agent     *AgentMeta
-	SessionID string
+	Kind       Kind
+	Path       string
+	Agent      *AgentMeta
+	Actor      Actor
+	Visibility string
+	SessionID  string
+}
+
+// Actor 写者主体投影（Principal 的最小面：owner 匹配只看名字）。
+type Actor struct {
+	Name string // 用户名 / "agent"；空 = 不打归属（存量语义）
 }
 
 // AgentMeta agent 顶层描述字段（COALESCE 语义：nil = 不覆盖既有值；
@@ -221,6 +231,7 @@ func (o *Orchestrator) work(ctx context.Context) {
 			"kind", ev.Kind, "path", ev.Path, "session", ev.SessionID,
 			"uuid", report.UUID, "families", report.Families,
 			"cod_keys", report.CodKeys, "size", report.Size,
+			"owner", report.Owner, "visibility", report.Visibility,
 			"duration", time.Since(start).String())
 		o.processed.Add(1)
 	}

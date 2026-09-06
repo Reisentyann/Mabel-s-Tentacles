@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/executecommand/executecommand.go —— MCP 工具 execute_command：Shell 执行 + 记录入库
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
 
 package executecommand
 
@@ -44,6 +44,19 @@ func register(s *server.MCPServer, deps tools.Deps) {
 
 		sessionID := tools.SessionID(ctx)
 		start := time.Now()
+
+		// shell 是管家特权（权限批次 2026-09-06）：master key 专属，
+		// 外部 agent（受限 key）一律拒绝——key 泄露也不该交出执行权
+		if p := tools.Principal(ctx); p == nil || !p.IsMaster() {
+			who := "anonymous"
+			if p != nil {
+				who = p.Subject()
+			}
+			slog.Warn("execute_command denied: not master agent",
+				"principal", who, "session", sessionID, "command", command)
+			tools.RecordOperation(ctx, deps.Store, sessionID, "execute_command", "", "denied", "仅管家 agent 可执行命令", map[string]any{"command": command})
+			return tools.ResultError("权限不足: 仅管家 agent（master key）可执行命令"), nil
+		}
 
 		var commandID int64
 		if deps.Store != nil {

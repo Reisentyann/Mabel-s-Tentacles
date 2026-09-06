@@ -62,6 +62,14 @@
         <label class="field"><span>描述</span><textarea v-model="describeModal.description" rows="3"></textarea></label>
         <label class="field"><span>标签（逗号分隔）</span><input v-model="describeModal.tags" /></label>
         <label class="field"><span>类型</span><input v-model="describeModal.fileType" placeholder="text / image / code / other" /></label>
+        <label class="field">
+          <span>谁可以看到这个文件</span>
+          <select v-model="describeModal.visibility">
+            <option value="">保持现状</option>
+            <option value="private">仅自己（private）</option>
+            <option value="public">所有人可读（public）</option>
+          </select>
+        </label>
         <div class="modal-actions">
           <button class="btn" @click="saveDescribe">保存</button>
           <button class="btn-ghost" @click="describeModal.open = false">取消</button>
@@ -86,7 +94,8 @@
 
 <script setup>
 import { ref, onMounted } from 'vue';
-import { getFiles, searchFiles, getFileMetadata, describeFile, copyFile } from '../api/files';
+import { getFiles, searchFiles, getFileMetadata, describeFile, copyFile, downloadFileBlob } from '../api/files';
+import { downloadBlob } from '../utils/download';
 import FileTreeNode from '../components/FileTreeNode.vue';
 
 const tree = ref([]);
@@ -97,7 +106,7 @@ const searchQuery = ref('');
 const searchTag = ref('');
 const searchResults = ref([]);
 
-const describeModal = ref({ open: false, path: '', title: '', description: '', tags: '', fileType: '' });
+const describeModal = ref({ open: false, path: '', title: '', description: '', tags: '', fileType: '', visibility: '' });
 const copyModal = ref({ open: false, source: '', target: '' });
 
 const fetchFiles = async () => {
@@ -135,7 +144,7 @@ const clearSearch = () => {
 };
 
 const openDescribe = async (path) => {
-  describeModal.value = { open: true, path, title: '', description: '', tags: '', fileType: '' };
+  describeModal.value = { open: true, path, title: '', description: '', tags: '', fileType: '', visibility: '' };
   try {
     const response = await getFileMetadata(path);
     const m = response.data;
@@ -143,6 +152,7 @@ const openDescribe = async (path) => {
     describeModal.value.description = m.description || '';
     describeModal.value.tags = (m.tags || []).join(', ');
     describeModal.value.fileType = m.file_type || '';
+    describeModal.value.visibility = m.visibility || '';
   } catch {
     // 没有元数据时留空
   }
@@ -160,6 +170,7 @@ const saveDescribe = async () => {
       description: describeModal.value.description || undefined,
       tags,
       file_type: describeModal.value.fileType || undefined,
+      visibility: describeModal.value.visibility || undefined,
     });
     describeModal.value.open = false;
     if (searching.value) handleSearch();
@@ -187,11 +198,15 @@ const saveCopy = async () => {
   }
 };
 
-const handleDownload = (path) => {
-  const token = import.meta.env.VITE_ACCESS_TOKEN || '';
-  const query = `path=${encodeURIComponent(path)}` +
-    (token ? `&token=${encodeURIComponent(token)}` : '');
-  window.location.href = `/api/files/download?${query}`;
+// blob 下载（带 JWT；权限批次 2026-09-06 取代裸链接方案）
+const handleDownload = async (path) => {
+  try {
+    const response = await downloadFileBlob(path);
+    const name = path.split('/').pop() || 'file';
+    downloadBlob(response.data, name);
+  } catch (err) {
+    alert('下载失败：' + (err.response?.data?.detail || err.message));
+  }
 };
 
 onMounted(fetchFiles);

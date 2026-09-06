@@ -53,6 +53,53 @@ try {
     if (-not $healthy) { throw "后端 20 次健康检查未通过，日志见 $LogOut" }
 
     # =================================================================
+    # [3a/6] 登录（require_auth=true 的权限批次口径）：admin JWT + 注册普通用户
+    # =================================================================
+    Write-Host "[3a/6] 登录 admin + 注册普通用户（权限 L4）..." -ForegroundColor Cyan
+    $loginBody = [System.Text.Encoding]::UTF8.GetBytes(('{"username":"' + $env:ADMIN_USERNAME + '","password":"' + $env:ADMIN_PASSWORD + '"}'))
+    $login = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8080/api/auth/login" `
+        -ContentType "application/json; charset=utf-8" -Body $loginBody
+    if (-not $login.access_token) { throw "admin 登录失败" }
+    $H = @{ Authorization = "Bearer $($login.access_token)" }
+    Write-Host "  PASS: admin 登录（require_auth=true 下 JWT 就位）" -ForegroundColor Green
+
+    # 注册普通用户（开放注册）→ 越权断言：describe 他人私文件必须 403
+    $regBody = [System.Text.Encoding]::UTF8.GetBytes('{"username":"e2e_user","password":"e2e-password-123"}')
+    try {
+        $reg = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8080/api/auth/register" `
+            -ContentType "application/json; charset=utf-8" -Body $regBody
+    } catch {
+        # 用户名已占（重复跑）：走登录
+        $reg = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8080/api/auth/login" `
+            -ContentType "application/json; charset=utf-8" -Body $regBody
+    }
+    $UH = @{ Authorization = "Bearer $($reg.access_token)" }
+    Write-Host "  PASS: 普通用户就位（e2e_user）" -ForegroundColor Green
+
+    # 普通用户对 admin 的私文件 describe → 期待 403（授权单点生效）
+    $deniedPath = [uri]::EscapeDataString("测试批次/小说片段.txt")
+    $provBody = [System.Text.Encoding]::UTF8.GetBytes(('{"path":"测试批次/小说片段.txt","description":"越权尝试"}'))
+    $denied = $false
+    try {
+        Invoke-RestMethod -Method Put -Uri "http://127.0.0.1:8080/api/files/metadata" `
+            -ContentType "application/json; charset=utf-8" -Body $provBody -Headers $UH | Out-Null
+    } catch {
+        $denied = ($_.Exception.Response.StatusCode -eq 403)
+    }
+    if (-not $denied) { throw "普通用户 describe 他人文件未被拒绝（授权失效！）" }
+    Write-Host "  PASS: 普通用户 describe 他人文件被 403 拒绝" -ForegroundColor Green
+
+    # 普通 backfill 也应被拒（admin 专属）
+    $bfDenied = $false
+    try {
+        Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8080/api/files/backfill" -Headers $UH | Out-Null
+    } catch {
+        $bfDenied = ($_.Exception.Response.StatusCode -eq 403)
+    }
+    if (-not $bfDenied) { throw "普通用户 backfill 未被拒绝（admin 专属失效！）" }
+    Write-Host "  PASS: 普通用户 backfill 被 403 拒绝（admin 专属）" -ForegroundColor Green
+
+    # =================================================================
     # [3/6] MCP 链路：write_file ×3 + analyze_file 断言
     # =================================================================
     Write-Host "[3/6] MCP 客户端：write_file ×3 → analyze_file ×3 ..." -ForegroundColor Cyan
@@ -64,7 +111,7 @@ try {
     # =================================================================
     Write-Host "[4/6] HTTP analyze 端点 ..." -ForegroundColor Cyan
     $body = [System.Text.Encoding]::UTF8.GetBytes('{"path":"测试批次/临时笔记.md"}')
-    $resp = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8080/api/files/analyze" `
+    $resp = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8080/api/files/analyze" -Headers $H `
         -ContentType "application/json; charset=utf-8" -Body $body
     if (-not $resp.success) { throw "HTTP analyze success=false" }
     if ($resp.families -notcontains "text") { throw "HTTP analyze families 缺 text：$($resp.families)" }
@@ -77,17 +124,17 @@ try {
     $novelRel = "测试批次/小说片段.txt"
     $novelAbs = Join-Path $DataDir ($novelRel -replace '/', [IO.Path]::DirectorySeparatorChar)
     $esc = [uri]::EscapeDataString($novelRel)
-    $before = Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/files/metadata?path=$esc"
+    $before = Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/files/metadata?path=$esc" -Headers $H
     $linesBefore = $before.attributes.'cod-text-lines'
     Add-Content -LiteralPath $novelAbs -Value "`n雨停了。梅贝尔合上了最后一册清单。（e2e 直改）" -Encoding utf8
 
-    $bf = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8080/api/files/backfill"
+    $bf = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8080/api/files/backfill" -Headers $H
     if (-not $bf.success) { throw "backfill success=false" }
     if ($bf.analyzed -lt 1) { throw "backfill analyzed = $($bf.analyzed)，绕口直改未被 checksum/mtime 对账发现" }
     Write-Host "  PASS: backfill analyzed = $($bf.analyzed)（直改被对账发现并重分析）" -ForegroundColor Green
 
     # 核对（口径中立的相对断言）：行数较直改前增加、checksum 刷新、ver 与描述三件套保留
-    $meta = Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/files/metadata?path=$esc"
+    $meta = Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/files/metadata?path=$esc" -Headers $H
     $linesAfter = $meta.attributes.'cod-text-lines'
     if ($linesAfter -le $linesBefore) { throw "cod-text-lines 直改后 = $linesAfter（直改前 $linesBefore），事实未刷新" }
     if ($meta.checksum -eq $before.checksum) { throw "checksum 未刷新（重分析未落库？）" }
@@ -96,7 +143,7 @@ try {
     Write-Host "  PASS: cod-text-lines $linesBefore → $linesAfter，checksum 刷新，ver/description 完好" -ForegroundColor Green
 
     # 幂等：再跑一轮 backfill，直改已消化，不应再重分析该文件
-    $bf2 = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8080/api/files/backfill"
+    $bf2 = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8080/api/files/backfill" -Headers $H
     Write-Host "  PASS: 第二轮 backfill analyzed = $($bf2.analyzed)（幂等收敛）" -ForegroundColor Green
 
     # =================================================================

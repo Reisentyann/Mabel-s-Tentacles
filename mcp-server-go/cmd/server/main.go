@@ -97,10 +97,11 @@ func main() {
 		return mt
 	})
 
-	// MCP server
+	// MCP server。通道鉴权双轨：master key（.env，管家）/ 外部 key
+	// （agent_keys 表，绑定用户）；空 key = 开发放行（上方已大红 WARN）
 	s := mcpserver.New(cfg, st, mgr, orch)
 	sse := server.NewSSEServer(s, server.WithBaseURL(cfg.Server.BaseURL))
-	mcpAuth := mcpserver.AuthMiddleware(sse, cfg.MCP.APIKey)
+	mcpAuth := mcpserver.AuthMiddleware(sse, cfg.MCP.APIKey, st)
 
 	// 组合 MCP + HTTP API 到同一个 mux。
 	// orch 实现 search.Searcher（检索门面：索引优先 → SQL 降级，索引化检索待 uuid 取件批次）
@@ -169,18 +170,26 @@ func warnInsecureDefaults(cfg *config.Config) {
 	if cfg.Admin.Password == "admin123" {
 		slog.Warn("insecure config: admin.password 还是示例默认值 admin123，任何人都能登录管理端，生产环境必须修改（config.yml 或 ADMIN_PASSWORD 环境变量）")
 	}
-	if cfg.API.RequireAuth {
-		// 开着鉴权却没配下载 token 时，/api/files/download 会裸奔，这里只提示一句
-		if cfg.API.AccessToken == "" {
-			slog.Warn("insecure config: require_auth 已开启但 api.access_token 为空，/api/files/download 下载端点将不做鉴权")
-		}
+	if cfg.MCP.APIKey == "" {
+		slog.Warn("insecure config: mcp.api_key（master key）未配置——MCP 通道无鉴权放行（开发口径），生产环境必须配置强随机值（.env 的 MCP_API_KEY），否则任何能访问 /sse 的客户端都拥有管家全权（含 execute_command）")
+	}
+	if cfg.API.AccessToken == "" {
+		slog.Info("config note: api.access_token 为空——/api/files/download 需 JWT（前端 blob 下载）；agent 直发链接场景需配置该静态 token（过渡口径，将来由管理机下载票据域取代）")
 	}
 }
 
-// bootstrapAdmin 启动时确保默认管理员存在（等价 Python 的 lifespan）。
+// bootstrapAdmin 启动时确保默认管理员存在且持有 admin 角色（权限批次
+// 2026-09-06）：迁移给存量行落的默认角色是 'user'，这里对配置的管理员
+// 用户名做存在性 + 角色双保障——已有账号自动提升（密码不动）。
 func bootstrapAdmin(ctx context.Context, st repo.Store, cfg *config.Config) error {
-	_, err := st.GetUserByUsername(ctx, cfg.Admin.Username)
+	u, err := st.GetUserByUsername(ctx, cfg.Admin.Username)
 	if err == nil {
+		if u.Role != "admin" {
+			if err := st.SetUserRole(ctx, cfg.Admin.Username, "admin"); err != nil {
+				return err
+			}
+			slog.Info("existing admin promoted to admin role", "username", cfg.Admin.Username)
+		}
 		return nil
 	}
 	if !errors.Is(err, pgx.ErrNoRows) {
@@ -191,9 +200,9 @@ func bootstrapAdmin(ctx context.Context, st repo.Store, cfg *config.Config) erro
 	if err != nil {
 		return err
 	}
-	if _, err := st.CreateUser(ctx, cfg.Admin.Username, hash, "admin@example.com"); err != nil {
+	if _, err := st.CreateUser(ctx, cfg.Admin.Username, hash, "admin@example.com", "admin"); err != nil {
 		return err
 	}
-	slog.Info("default admin created", "username", cfg.Admin.Username)
+	slog.Info("default admin created", "username", cfg.Admin.Username, "role", "admin")
 	return nil
 }

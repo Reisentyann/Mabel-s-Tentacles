@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/api/analyze.go —— T2/T3 端点：POST analyze（单文件重分析）/ POST backfill（一轮批量回填）
-// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
 
 package api
 
@@ -41,6 +41,10 @@ func (s *Server) analyzeFile(w http.ResponseWriter, r *http.Request) {
 	}
 	if info, err := os.Stat(target); err != nil || info.IsDir() {
 		writeError(w, http.StatusNotFound, "file not found")
+		return
+	}
+	// 写授权：重分析是改元数据的动手操作，owner/admin 之外拒绝
+	if !s.canActFile(w, r, req.Path, "analyze", true) {
 		return
 	}
 

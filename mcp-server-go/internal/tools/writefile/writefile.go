@@ -12,6 +12,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/Reisentyann/Mabel-s-Tentacles/common"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
@@ -44,6 +45,9 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		mcp.WithString("file_type",
 			mcp.Description("File type, e.g. text / image / code / other. Defaults to inferred from extension."),
 		),
+		mcp.WithString("visibility",
+			mcp.Description("Who can see this file: 'private' (default, only you), 'public' (everyone can read), or 'group' (members of its group)."),
+		),
 	)
 
 	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -72,6 +76,12 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		start := time.Now()
 		params := map[string]any{"file_path": filePath, "content_size": len(content), "has_description": description != "" || len(tags) > 0}
 
+		// 覆写授权：目标已有元数据行时按写矩阵判（新路径 = 创建，放行）
+		if denied, reason := tools.CanFile(ctx, deps.Store, filePath, true); denied {
+			tools.RecordOperation(ctx, deps.Store, sessionID, "write_file", filePath, "denied", reason, params)
+			return tools.Deny(ctx, "write_file", filePath, reason), nil
+		}
+
 		if err := service.SafeWrite(deps.Cfg.DataDir, filePath, content); err != nil {
 			slog.Error("write_file failed", "path", filePath, "session", sessionID, "error", err, "duration", time.Since(start).String())
 			tools.RecordOperation(ctx, deps.Store, sessionID, "write_file", filePath, "failed", err.Error(), params)
@@ -82,17 +92,20 @@ func register(s *server.MCPServer, deps tools.Deps) {
 
 		// 编排机异步接管 T1（盘写成功即回，agent 不等描述）：agent 顺带
 		// 描述字段随事件走，执行器单次 Upsert 落库并喂索引——旧的双 upsert 已灭。
+		// Actor/Visibility 为权限批次的归属与可见性打标（默认 private）。
 		// 事件可丢（容灾铁律 2）：队列满由 Submit 内部 WARN + T2 对账兜底。
 		if deps.Orch != nil {
 			deps.Orch.Submit(core.Event{
-				Kind:      core.KindWrite,
-				Path:      filePath,
-				SessionID: sessionID,
+				Kind:       core.KindWrite,
+				Path:       filePath,
+				SessionID:  sessionID,
+				Actor:      tools.Actor(ctx),
+				Visibility: req.GetString("visibility", ""),
 				Agent: &core.AgentMeta{
-					Title:       tools.StrPtr(title),
-					Description: tools.StrPtr(description),
+					Title:       common.StrPtr(title),
+					Description: common.StrPtr(description),
 					Tags:        tags,
-					FileType:    tools.StrPtr(fileType),
+					FileType:    common.StrPtr(fileType),
 				},
 			})
 		}

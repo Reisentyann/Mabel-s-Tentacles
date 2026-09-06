@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/config/config.go —— 配置加载：config.yml + 环境变量覆盖（服务器/日志/DB/JWT/API/管理员/T2 回填）
-// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
 
 package config
 
@@ -106,7 +106,11 @@ func defaults() *Config {
 			MaxConns: 10,
 		},
 		MCP: MCPConfig{},
-		API: APIConfig{},
+		API: APIConfig{
+			// 安全默认（权限批次 2026-09-06）：/api/* 一律 JWT。
+			// 本地开发要裸奔请设 REQUIRE_AUTH=false（与 MCP 空 key 同款开发口径）
+			RequireAuth: true,
+		},
 		Security: SecurityConfig{
 			SecretKey:              "supersecretkey",
 			Algorithm:              "HS256",
@@ -163,6 +167,11 @@ func (c *Config) loadEnv() {
 	}
 	if v := os.Getenv("MCP_API_KEY"); v != "" {
 		c.MCP.APIKey = v
+	}
+	if v := os.Getenv("REQUIRE_AUTH"); v != "" {
+		if b, err := strconv.ParseBool(v); err == nil {
+			c.API.RequireAuth = b
+		}
 	}
 	if v := os.Getenv("ACCESS_TOKEN"); v != "" {
 		c.API.AccessToken = v

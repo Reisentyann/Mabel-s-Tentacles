@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/api/middleware.go —— HTTP 中间件：请求日志（bytes/ip/user）/ 尾斜杠归一 / JWT 鉴权 / 下载 token
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
 
 package api
 
@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Reisentyann/Mabel-s-Tentacles/common"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/authz"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 )
 
@@ -36,7 +38,7 @@ func RequestLog(next http.Handler) http.Handler {
 			"path", r.URL.Path,
 			"status", rec.status,
 			"bytes", rec.bytes,
-			"ip", clientIP(r),
+			"ip", common.ClientIP(r),
 			"duration", time.Since(start).String(),
 		}
 		if rec.user != "" {
@@ -46,20 +48,7 @@ func RequestLog(next http.Handler) http.Handler {
 	})
 }
 
-// clientIP 取真实客户端 IP：反代场景（1Panel 等）优先 X-Forwarded-For 首段，
-// 否则 RemoteAddr 去端口。
-func clientIP(r *http.Request) string {
-	if xf := r.Header.Get("X-Forwarded-For"); xf != "" {
-		if i := strings.Index(xf, ","); i > 0 {
-			return strings.TrimSpace(xf[:i])
-		}
-		return strings.TrimSpace(xf)
-	}
-	if i := strings.LastIndex(r.RemoteAddr, ":"); i > 0 {
-		return r.RemoteAddr[:i]
-	}
-	return r.RemoteAddr
-}
+// clientIP 已收敛 common.ClientIP（MCP 侧 mcp/auth.go 的同款副本同步退役）。
 
 type statusRecorder struct {
 	http.ResponseWriter
@@ -93,37 +82,76 @@ func bearerToken(r *http.Request) string {
 	return ""
 }
 
-// requireAuth JWT 校验中间件，校验通过后把 claims 放入 context。
-// 当 config 里 api.require_auth=false（开发阶段）时直接放行，不做鉴权。
+// requireAuth JWT 校验中间件（权限批次 2026-09-06 重做）：
+// 解 token → 查库取实时 is_active/role/组 → Principal 进 context
+// （下游 authz.CanRead/CanWrite 统一取用）。查库换实时封号——
+// admin 停用账号即刻生效，不等 token 过期。
+// api.require_auth=false（本地开发显式关闭）时放行并注入匿名管理员主体
+// ——下游授权代码路径保持同一形状（与 MCP 空 key 放行同款开发口径）。
 func (s *Server) requireAuth(next http.Handler) http.Handler {
-	if !s.cfg.API.RequireAuth {
-		return next
-	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !s.cfg.API.RequireAuth {
+			p := &authz.Principal{Kind: authz.KindUser, Name: "anonymous", Role: "admin"}
+			next.ServeHTTP(w, r.WithContext(authz.WithPrincipal(r.Context(), p)))
+			return
+		}
 		claims, err := service.ParseToken(s.cfg.Security.SecretKey, bearerToken(r))
 		if err != nil {
 			writeError(w, http.StatusUnauthorized, "invalid or expired token")
 			return
 		}
+		p := s.loadPrincipal(r.Context(), claims)
+		if p == nil {
+			slog.Warn("auth rejected: account disabled or missing",
+				"user", claims.Subject, "ip", common.ClientIP(r), "path", r.URL.Path)
+			writeError(w, http.StatusUnauthorized, "invalid or expired token")
+			return
+		}
 		// 把用户名写回顶层日志记录器，RequestLog 结束后随请求日志一起落盘
 		if rec, ok := w.(*statusRecorder); ok {
-			rec.user = claims.Subject
+			rec.user = p.Name
 		}
-		next.ServeHTTP(w, r.WithContext(contextWithUser(r.Context(), claims)))
+		next.ServeHTTP(w, r.WithContext(authz.WithPrincipal(r.Context(), p)))
 	})
 }
 
-type ctxKey int
-
-const userKey ctxKey = 0
-
-func contextWithUser(ctx context.Context, claims *service.Claims) context.Context {
-	return context.WithValue(ctx, userKey, claims)
+// loadPrincipal claims → 实时主体（查库）。nil = 拒绝（账号不存在/已停用）。
+// 无库兜底（测试/降级）：信 claims 的角色快照。
+func (s *Server) loadPrincipal(ctx context.Context, claims *service.Claims) *authz.Principal {
+	if s.repo == nil {
+		return &authz.Principal{Kind: authz.KindUser, UID: claims.UserID, Name: claims.Subject, Role: claims.Role}
+	}
+	u, err := s.repo.GetUserByID(ctx, claims.UserID)
+	if err != nil || u == nil || !u.IsActive {
+		return nil
+	}
+	gids, gerr := s.repo.UserGroupIDs(ctx, u.ID)
+	if gerr != nil {
+		slog.Warn("load user groups failed", "user", u.Username, "error", gerr)
+		gids = nil
+	}
+	return &authz.Principal{Kind: authz.KindUser, UID: u.ID, Name: u.Username, Role: u.Role, GroupIDs: gids}
 }
 
-func userFromContext(ctx context.Context) (*service.Claims, bool) {
-	claims, ok := ctx.Value(userKey).(*service.Claims)
-	return claims, ok
+// requireAdmin admin 专属端点包装（用户/组/钥匙管理、backfill）。
+// 拒绝必须留痕（谁 tried what）——越权尝试是安全审计的第一现场。
+func (s *Server) requireAdmin(next http.Handler) http.Handler {
+	return s.requireAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		p := authz.PrincipalFrom(r.Context())
+		if p == nil || !p.IsAdmin() {
+			slog.Warn("admin access denied",
+				"user", authz.PrincipalFrom(r.Context()).Subject(),
+				"ip", common.ClientIP(r), "path", r.URL.Path)
+			writeError(w, http.StatusForbidden, "admin only")
+			return
+		}
+		next.ServeHTTP(w, r)
+	}))
+}
+
+// principalOf 请求主体（requireAuth 注入后取用；公开端点自证时可能为 nil）。
+func principalOf(r *http.Request) *authz.Principal {
+	return authz.PrincipalFrom(r.Context())
 }
 
 // checkAccessToken 校验下载接口的 query token，配置为空时不校验。

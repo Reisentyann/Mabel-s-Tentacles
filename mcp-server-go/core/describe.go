@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/core/describe.go —— 同步描述入口：LLMStore 闸门 + 单次 Upsert + 喂索引（describe_file 与 HTTP describe 的唯一实现）
-// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
 
 package core
 
@@ -13,6 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
+	"github.com/Reisentyann/Mabel-s-Tentacles/common"
 	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go"
 	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go/llm"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
@@ -28,6 +29,9 @@ type DescribeRequest struct {
 	Tags        []string
 	FileType    *string
 	Mode        string         // "append"：描述追加为下一段；其余 = 覆写
+	Visibility  string         // public / group / private；空 = 保留既有值
+	GroupID     *int64         // group 可见性的组；nil = 不动
+	Actor       Actor          // 提交者（无既有行时的归属打标）
 	Attributes  map[string]any // llm 轨输入（过 LLMStore 闸门）；nil/空 = 无
 }
 
@@ -54,7 +58,9 @@ func (o *Orchestrator) Describe(ctx context.Context, req DescribeRequest, sessio
 	// 读旧：attrs（llm 合并基底 + sink diff 旧值侧）与旧描述（append 拼接）
 	var oldAttrs map[string]any
 	var oldDesc string
+	var hadRow bool
 	if m, gerr := o.opts.Store.GetMetadata(ctx, req.Path); gerr == nil && m != nil {
+		hadRow = true
 		oldAttrs = describer.AttrsFromJSON(m.Attributes)
 		if m.Description != nil {
 			oldDesc = *m.Description
@@ -96,8 +102,15 @@ func (o *Orchestrator) Describe(ctx context.Context, req DescribeRequest, sessio
 		Description: descPtr,
 		Tags:        req.Tags,
 		FileType:    req.FileType,
-		SessionID:   strPtr(sessionID),
+		SessionID:   common.StrPtr(sessionID),
+		Visibility:  req.Visibility,
+		GroupID:     req.GroupID,
 		Attributes:  describer.JSONFromAttrs(attrs),
+	}
+	// 归属打标：首描述（此前无行）时落提交者；已有行不动归属
+	if !hadRow && req.Actor.Name != "" {
+		owner := req.Actor.Name
+		meta.OwnerID = &owner
 	}
 	uuid, err := o.opts.Store.UpsertMetadata(ctx, meta)
 	if err != nil {

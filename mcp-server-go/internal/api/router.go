@@ -6,6 +6,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/manager-go"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
@@ -20,19 +21,20 @@ type Server struct {
 	searcher search.Searcher    // 检索门面 = 编排机（索引优先 → SQL 降级）
 	orch     *core.Orchestrator // 编排机：describe 同步入口 + 写路径事件
 	manager  *manager.Manager   // updater 域（T2/T3 端点）；nil = 未装配
+	limiter  *rateLimiter       // 登录/注册限流（注册开放后的基础防滥用）
 }
 
 // Register 把 HTTP API 路由挂到 mux 上。orch 兼任检索门面（实现 search.Searcher）。
 func Register(mux *http.ServeMux, cfg *config.Config, st repo.Store, orch *core.Orchestrator, mgr *manager.Manager) {
-	s := &Server{cfg: cfg, repo: st, searcher: orch, orch: orch, manager: mgr}
+	s := &Server{cfg: cfg, repo: st, searcher: orch, orch: orch, manager: mgr, limiter: newRateLimiter()}
 
-	// 公共路由
+	// 公共路由（登录/注册限流：撞库与滥注册的第一道闸）
 	mux.HandleFunc("GET /health", s.health)
-	mux.HandleFunc("POST /api/auth/login", s.login)
-	mux.HandleFunc("POST /api/auth/refresh", s.refresh)
+	mux.HandleFunc("POST /api/auth/login", s.limit("login", 5, time.Minute, s.login))
+	mux.HandleFunc("POST /api/auth/refresh", s.limit("refresh", 10, time.Minute, s.refresh))
 	mux.HandleFunc("POST /api/auth/logout", s.logout)
-	mux.HandleFunc("POST /api/auth/register", s.register)
-	mux.HandleFunc("GET /api/files/download", s.downloadFile)
+	mux.HandleFunc("POST /api/auth/register", s.limit("register", 3, time.Hour, s.register))
+	mux.HandleFunc("GET /api/files/download", s.downloadFile) // 自证端点：静态 token（agent 链接）或 JWT
 
 	// 受 JWT 保护
 	mux.Handle("GET /api/files", s.requireAuth(http.HandlerFunc(s.listFiles)))
@@ -42,7 +44,20 @@ func Register(mux *http.ServeMux, cfg *config.Config, st repo.Store, orch *core.
 	mux.Handle("PUT /api/files/metadata", s.requireAuth(http.HandlerFunc(s.describeFile)))
 	mux.Handle("POST /api/files/copy", s.requireAuth(http.HandlerFunc(s.copyFile)))
 	mux.Handle("POST /api/files/analyze", s.requireAuth(http.HandlerFunc(s.analyzeFile)))
-	mux.Handle("POST /api/files/backfill", s.requireAuth(http.HandlerFunc(s.backfillFile)))
+
+	// admin 专属（权限批次 2026-09-06）：全库扫描与账号/组/钥匙管理
+	mux.Handle("POST /api/files/backfill", s.requireAdmin(http.HandlerFunc(s.backfillFile)))
+	mux.Handle("GET /api/admin/users", s.requireAdmin(http.HandlerFunc(s.listUsers)))
+	mux.Handle("PUT /api/admin/users/{username}/active", s.requireAdmin(http.HandlerFunc(s.setUserActive)))
+	mux.Handle("POST /api/admin/groups", s.requireAdmin(http.HandlerFunc(s.createGroup)))
+	mux.Handle("GET /api/admin/groups", s.requireAdmin(http.HandlerFunc(s.listGroups)))
+	mux.Handle("DELETE /api/admin/groups/{id}", s.requireAdmin(http.HandlerFunc(s.deleteGroup)))
+	mux.Handle("POST /api/admin/groups/{id}/members", s.requireAdmin(http.HandlerFunc(s.addGroupMember)))
+	mux.Handle("DELETE /api/admin/groups/{id}/members/{username}", s.requireAdmin(http.HandlerFunc(s.removeGroupMember)))
+	mux.Handle("POST /api/admin/agent-keys", s.requireAdmin(http.HandlerFunc(s.issueAgentKey)))
+	mux.Handle("GET /api/admin/agent-keys", s.requireAdmin(http.HandlerFunc(s.listAgentKeys)))
+	mux.Handle("DELETE /api/admin/agent-keys/{id}", s.requireAdmin(http.HandlerFunc(s.revokeAgentKey)))
+
 	mux.Handle("GET /api/operations", s.requireAuth(http.HandlerFunc(s.listOperations)))
 	mux.Handle("GET /api/commands", s.requireAuth(http.HandlerFunc(s.listCommands)))
 	mux.Handle("GET /api/commands/{id}", s.requireAuth(http.HandlerFunc(s.getCommand)))

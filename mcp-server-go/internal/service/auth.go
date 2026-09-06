@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/service/auth.go —— 认证服务：bcrypt 哈希 / JWT 签发与解析
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
 
 package service
 
@@ -40,9 +40,11 @@ type TokenPair struct {
 	TokenType    string `json:"token_type"`
 }
 
-// Claims JWT 载荷。前端只读 sub 和 exp，refresh 流程依赖 jti。
+// Claims JWT 载荷。前端只读 sub 和 exp，refresh 流程依赖 jti；
+// Role 为签发时的角色快照——requireAuth 每请求查库取实时值，claim 只做兜底。
 type Claims struct {
-	UserID int64 `json:"user_id"`
+	UserID int64  `json:"user_id"`
+	Role   string `json:"role"`
 	jwt.RegisteredClaims
 }
 
@@ -52,10 +54,11 @@ func newJTI() string {
 	return fmt.Sprintf("%x", b)
 }
 
-func issueToken(secretKey string, userID int64, username string, lifetime time.Duration) (string, error) {
+func issueToken(secretKey string, userID int64, username, role string, lifetime time.Duration) (string, error) {
 	now := time.Now()
 	claims := Claims{
 		UserID: userID,
+		Role:   role,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   username,
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -66,14 +69,14 @@ func issueToken(secretKey string, userID int64, username string, lifetime time.D
 	return jwt.NewWithClaims(jwt.SigningMethodHS256, claims).SignedString([]byte(secretKey))
 }
 
-// GenerateTokens 签发 access + refresh。
-func GenerateTokens(cfg *config.Config, userID int64, username string) (*TokenPair, error) {
-	access, err := issueToken(cfg.Security.SecretKey, userID, username,
+// GenerateTokens 签发 access + refresh（role 来自 users 表实时值）。
+func GenerateTokens(cfg *config.Config, userID int64, username, role string) (*TokenPair, error) {
+	access, err := issueToken(cfg.Security.SecretKey, userID, username, role,
 		time.Duration(cfg.Security.AccessTokenExpireMin)*time.Minute)
 	if err != nil {
 		return nil, err
 	}
-	refresh, err := issueToken(cfg.Security.SecretKey, userID, username,
+	refresh, err := issueToken(cfg.Security.SecretKey, userID, username, role,
 		time.Duration(cfg.Security.RefreshTokenExpireDays)*24*time.Hour)
 	if err != nil {
 		return nil, err

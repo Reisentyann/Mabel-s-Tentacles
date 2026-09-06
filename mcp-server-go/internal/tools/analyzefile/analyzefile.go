@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/analyzefile/analyzefile.go —— MCP 工具 analyze_file：T3 手动重分析（manager updater 域）
-// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
 
 package analyzefile
 
@@ -40,6 +40,12 @@ func register(s *server.MCPServer, deps tools.Deps) {
 
 		sessionID := tools.SessionID(ctx)
 		start := time.Now()
+
+		// 写授权：重分析改的是文件元数据（整族刷新），owner/admin 之外拒绝
+		if denied, reason := tools.CanFile(ctx, deps.Store, filePath, true); denied {
+			tools.RecordOperation(ctx, deps.Store, sessionID, "analyze_file", filePath, "denied", reason, nil)
+			return tools.Deny(ctx, "analyze_file", filePath, reason), nil
+		}
 
 		report, err := deps.Manager.AnalyzeFile(ctx, filePath)
 		if err != nil {
