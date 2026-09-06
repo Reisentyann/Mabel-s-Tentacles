@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/search/sql.go —— SQLSearcher：PostgreSQL 关键词/标签/类型/scope 检索实现
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
 
 package search
 
@@ -29,5 +29,8 @@ func (s *SQLSearcher) Search(ctx context.Context, q Query) ([]repo.FileMetadata,
 		IncludeDeleted: q.IncludeDeleted,
 		Page:           q.Page,
 		Size:           q.Size,
+		ViewerName:     q.ViewerName,
+		ViewerAdmin:    q.ViewerAdmin,
+		ViewerGroups:   q.ViewerGroups,
 	})
 }

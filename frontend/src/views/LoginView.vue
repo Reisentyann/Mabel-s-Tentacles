@@ -2,7 +2,7 @@
   <div class="login-page">
     <form class="login-card" @submit.prevent="handleLogin">
       <h1>Mabel's Tentacles</h1>
-      <p class="subtitle">请使用管理员账户登录</p>
+      <p class="subtitle">登录以管理你的文件</p>
 
       <label class="field">
         <span>Username</span>
@@ -24,13 +24,18 @@
       </button>
 
       <p v-if="error" class="error">{{ error }}</p>
+
+      <p class="alt">
+        还没有账号？
+        <router-link to="/register">注册一个</router-link>
+      </p>
     </form>
   </div>
 </template>
 
 <script setup>
 import { ref } from "vue";
-import { useRouter } from "vue-router";
+import { useRouter, useRoute } from "vue-router";
 import { useAuthStore } from "../stores/auth";
 
 const username = ref("");
@@ -38,6 +43,7 @@ const password = ref("");
 const loading = ref(false);
 const error = ref("");
 const router = useRouter();
+const route = useRoute();
 const authStore = useAuthStore();
 
 const handleLogin = async () => {
@@ -48,7 +54,7 @@ const handleLogin = async () => {
       username: username.value,
       password: password.value,
     });
-    router.push("/files");
+    router.push(route.query.redirect || "/files");
   } catch (err) {
     error.value = err.response?.data?.detail || "Login failed";
   } finally {
@@ -106,5 +112,11 @@ const handleLogin = async () => {
 .submit {
   width: 100%;
   margin-top: 0.5rem;
+}
+.alt {
+  text-align: center;
+  margin: 1rem 0 0;
+  font-size: 0.9rem;
+  color: var(--color-text-muted);
 }
 </style>

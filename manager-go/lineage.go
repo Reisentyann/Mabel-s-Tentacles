@@ -1,5 +1,5 @@
 // 文件：manager-go/lineage.go —— 谱系域：文件之间的关系（copied_from 现成边 + lineage 表将来）
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
 
 // lineage 域职责：文件之间的关系。现成边是 file_metadata.copied_from
 // （copy_file 产生）与命令执行记录；将来补一张 lineage 表即可成 DAG

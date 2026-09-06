@@ -1,5 +1,5 @@
-// 文件：mcp-server-go/internal/tools/describefile/describefile.go —— MCP 工具 describe_file：描述三件套 + llm 字段（过 LLMStore 闸门）
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 文件：mcp-server-go/internal/tools/describefile/describefile.go —— MCP 工具 describe_file：描述三件套 + llm 字段（编排机同步入口，拒因当场回传）
+// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
 
 package describefile
 
@@ -7,17 +7,14 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
-	"os"
 	"strings"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go"
-	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go/llm"
-	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
-	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
+	"github.com/Reisentyann/Mabel-s-Tentacles/common"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
 )
 
@@ -53,6 +50,9 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		mcp.WithString("attributes",
 			mcp.Description(`Optional JSON object of LLM semantic fields, e.g. {"llm-semantic-type":"novel","llm-characters":["梅贝尔"],"sp-llm-游戏名":"狼人杀"}.`),
 		),
+		mcp.WithString("visibility",
+			mcp.Description("Optional: change who can see this file: 'private' / 'public' / 'group'. Only the file owner or admin may change it. Omit to keep current."),
+		),
 	)
 
 	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -77,68 +77,51 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		sessionID := tools.SessionID(ctx)
 		start := time.Now()
 
-		target, err := service.ResolvePath(deps.Cfg.DataDir, filePath)
-		if err != nil {
-			return tools.ResultError(err.Error()), nil
-		}
-		if info, err := os.Stat(target); err != nil || info.IsDir() {
-			return tools.ResultError("error: file '" + filePath + "' does not exist"), nil
+		if deps.Orch == nil {
+			return tools.ResultError("orchestrator unavailable"), nil
 		}
 
-		// 既有元数据：追加模式与 llm 字段合并都需要
-		var existing map[string]any
-		var oldDesc string
-		if deps.Store != nil {
-			if m, err := deps.Store.GetMetadata(ctx, filePath); err == nil && m != nil {
-				existing = describer.AttrsFromJSON(m.Attributes)
-				if m.Description != nil {
-					oldDesc = *m.Description
-				}
-			}
-		}
-		if mode == "append" && oldDesc != "" && description != "" {
-			description = oldDesc + "\n\n" + description
+		// 写授权：describe 改的是文件元数据（含可见性），owner/组内/admin 之外拒绝
+		if denied, reason := tools.CanFile(ctx, deps.Store, filePath, true); denied {
+			tools.RecordOperation(ctx, deps.Store, sessionID, "describe_file", filePath, "denied", reason, nil)
+			return tools.Deny(ctx, "describe_file", filePath, reason), nil
 		}
 
-		// llm 语义字段：LLMStore 中间件（唯一写入口）
-		// cod-* 只读 / 审计字段系统专属 / 受控词表 / null 墓碑删除
-		var rejectedList []string
+		// 编排机同步入口（与 HTTP describe 同一份实现，原复制粘贴已灭）：
+		// 存在性校验 → LLMStore 闸门（cod-* 只读 / 受控词表 / null 墓碑）→
+		// 单次 Upsert → 喂索引（llm-* 是可索引字段，原先不喂的漂移洞已堵）。
+		// 同步是因为拒绝列表必须当场回传给模型自纠错。
+		attrs := map[string]any{}
 		if raw := req.GetString("attributes", ""); raw != "" {
-			var in map[string]any
-			if err := json.Unmarshal([]byte(raw), &in); err != nil {
+			if err := json.Unmarshal([]byte(raw), &attrs); err != nil {
 				return tools.ResultError("invalid attributes JSON: " + err.Error()), nil
 			}
-			st := llm.OpenLLM()
-			st.SetMany(in)
-			for _, r := range st.Rejected() {
-				slog.Warn("describe_file attribute rejected by llm middleware",
-					"path", filePath, "session", sessionID, "key", r.Key, "op", r.Op, "reason", r.Reason)
-				rejectedList = append(rejectedList, r.Key+"("+r.Op+"): "+r.Reason)
-			}
-			existing = st.Commit(existing, llm.LLMSourceAgent, time.Now())
 		}
-
-		meta := &repo.FileMetadata{
-			FilePath:    filePath,
-			Title:       tools.StrPtr(title),
-			Description: tools.StrPtr(description),
+		res, derr := deps.Orch.Describe(ctx, core.DescribeRequest{
+			Path:        filePath,
+			Title:       common.StrPtr(title),
+			Description: common.StrPtr(description),
 			Tags:        tags,
-			FileType:    tools.StrPtr(fileType),
-			SessionID:   tools.StrPtr(sessionID),
-			Attributes:  describer.JSONFromAttrs(existing),
-		}
-		if deps.Store != nil {
-			if err := deps.Store.UpsertMetadata(ctx, meta); err != nil {
-				slog.Error("describe_file failed", "path", filePath, "session", sessionID, "error", err, "duration", time.Since(start).String())
-				return tools.ResultError("Database error: " + err.Error()), nil
-			}
+			FileType:    common.StrPtr(fileType),
+			Mode:        mode,
+			Visibility:  req.GetString("visibility", ""),
+			Actor:       tools.Actor(ctx),
+			Attributes:  attrs,
+		}, sessionID)
+		if derr != nil {
+			slog.Error("describe_file failed",
+				"path", filePath, "session", sessionID,
+				"error", derr, "duration", time.Since(start).String())
+			return tools.ResultError(derr.Error()), nil
 		}
 
-		slog.Info("describe_file ok", "path", filePath, "mode", mode, "rejected", len(rejectedList), "session", sessionID, "duration", time.Since(start).String())
+		slog.Info("describe_file ok",
+			"path", filePath, "mode", mode, "rejected", len(res.Rejected),
+			"session", sessionID, "duration", time.Since(start).String())
 		tools.RecordOperation(ctx, deps.Store, sessionID, "describe_file", filePath, "success", "", map[string]any{"description": description, "tags": tags, "file_type": fileType, "mode": mode})
 		result := map[string]any{"success": true, "message": "Successfully described " + filePath}
-		if len(rejectedList) > 0 {
-			result["rejected"] = rejectedList // 回传拒绝原因，模型可自纠错
+		if len(res.Rejected) > 0 {
+			result["rejected"] = res.Rejected // 回传拒绝原因，模型可自纠错
 		}
 		return tools.Result(result), nil
 	})

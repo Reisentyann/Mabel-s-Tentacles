@@ -1,5 +1,5 @@
 // 文件：describer-go/cmd/verify/main.go —— L2 夹具验证器：跑全插件流水线出 JSON 报告（无 DB）
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
 
 // verify 夹具验证器：对目录下每个文件跑完整 Analyze，输出 family→attrs 的 JSON 报告，
 // 供 test/测试规则.md 的断言表核对。无 DB，纯 describer 引擎直跑。
@@ -13,16 +13,14 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 
+	"github.com/Reisentyann/Mabel-s-Tentacles/common"
 	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go"
 	_ "github.com/Reisentyann/Mabel-s-Tentacles/describer-go/all"
 )
-
-const maxFull = 5 << 20 // 与 maxFileSize 一致的 5MB 预算
 
 func main() {
 	flag.Parse()
@@ -43,13 +41,13 @@ func main() {
 		if err != nil {
 			return err
 		}
-		full, err := readUpTo(path, maxFull)
+		full, err := common.ReadLimited(path, describer.MaxFullBytes)
 		if err != nil {
 			return fmt.Errorf("%s: %w", path, err)
 		}
 		head := full
-		if len(head) > 512 {
-			head = head[:512]
+		if len(head) > describer.MaxHeadBytes {
+			head = head[:describer.MaxHeadBytes]
 		}
 		results := describer.Analyze(describer.Input{
 			Path:  filepath.ToSlash(mustRel(root, path)),
@@ -79,15 +77,6 @@ func main() {
 	} else {
 		fmt.Println(string(b))
 	}
-}
-
-func readUpTo(path string, max int64) ([]byte, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	return io.ReadAll(io.LimitReader(f, max))
 }
 
 func mustRel(root, path string) string {

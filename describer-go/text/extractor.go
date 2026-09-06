@@ -1,5 +1,5 @@
 // 文件：describer-go/text/extractor.go —— cod-text 字段注册表：一个字段一个 extractor，注册序即产出序
-// 修改：2026-09-04（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
 
 // Package text 内的 extractor.go 定义字段注册表：一个字段一个 extractor，
 // 注册序即产出序（确定）。加字段不动 text.go 主编排，只动本文件 + 对应分类文件。

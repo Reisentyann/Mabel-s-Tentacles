@@ -1,5 +1,5 @@
-// 文件：mcp-server-go/internal/tools/common.go —— 工具共享层：Result 构造 / SessionID / RecordOperation / RecordFileMeta（T1 管线）/ DownloadURL
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 文件：mcp-server-go/internal/tools/common.go —— 工具共享层：Result / SessionID / RecordOperation / Principal 授权助手 / DownloadURL
+// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
 
 package tools
 
@@ -9,16 +9,14 @@ import (
 	"log/slog"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go"
-	_ "github.com/Reisentyann/Mabel-s-Tentacles/describer-go/all"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/authz"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/config"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
-	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 )
 
 func Result(v map[string]any) *mcp.CallToolResult {
@@ -46,101 +44,71 @@ func RecordOperation(ctx context.Context, st repo.Store, sessionID, tool, filePa
 	}
 }
 
-// RecordFileMeta 写文件后自动记录元数据：确定性描述（describer-go 全插件流水线，
-// cod-* 事实）+ 技术元数据（类型/大小/校验和/会话/分区）。
-// attributes 走读-改-写合并，保留 llm-* / sp-* 既有字段（docs/元数据字段说明.md）；
-// game/ 前缀的文件自动归入 game 分区（游戏室预留命名空间）。
-func RecordFileMeta(ctx context.Context, st repo.Store, filePath string, content []byte, sessionID string) {
+// Principal 工具侧取请求主体（mcp.AuthMiddleware 注入；nil = 通道异常，
+// 敏感操作一律拒绝——fail-closed）。
+func Principal(ctx context.Context) *authz.Principal {
+	return authz.PrincipalFrom(ctx)
+}
+
+// Actor Principal → 编排机 Actor 投影（owner 落库标识）。
+func Actor(ctx context.Context) core.Actor {
+	a := core.Actor{}
+	if p := authz.PrincipalFrom(ctx); p != nil {
+		a.Name = p.Name
+	}
+	return a
+}
+
+// Deny 统一拒绝回执：WARN 留痕（谁在哪个工具试图动哪个文件、为什么拒绝
+// ——安全审计第一现场）+ 给 agent 的人话原因（可自纠错）。
+func Deny(ctx context.Context, tool, path, reason string) *mcp.CallToolResult {
+	p := authz.PrincipalFrom(ctx)
+	slog.Warn("mcp permission denied",
+		"tool", tool, "path", path, "principal", p.Subject(),
+		"session", SessionID(ctx), "reason", reason)
+	return ResultError("权限不足: " + reason)
+}
+
+// CanFile 工具侧对目标文件做 authz 判定。denied=true 时调用方直接
+// 返回 Deny 的结果。
+func CanFile(ctx context.Context, st repo.Store, path string, write bool) (denied bool, reason string) {
+	p := authz.PrincipalFrom(ctx)
+	if p == nil {
+		return true, "未认证主体"
+	}
 	if st == nil {
-		return
+		return false, ""
 	}
-	start := time.Now()
-	now := start
-
-	// 确定性描述：字节进、事实出（head 512B 嗅探 + 全量分析）
-	head := content
-	if len(head) > 512 {
-		head = head[:512]
+	m, err := st.GetMetadata(ctx, path)
+	if err != nil {
+		if write {
+			if ok, r := authz.CanWrite(p, authz.FileACL{}); !ok {
+				return true, r
+			}
+			return false, ""
+		}
+		if ok, r := authz.CanRead(p, authz.FileACL{}); !ok {
+			return true, r
+		}
+		return false, ""
 	}
-	results := describer.Analyze(describer.Input{
-		Path:    filePath,
-		Head:    head,
-		Full:    content,
-		Size:    int64(len(content)),
-		MTime:   now,
-		ExtMime: extMime(filePath),
-	}, nil)
-
-	// 读-改-写：整族合并 cod-*，保留 llm-* / sp-*（单会话写单文件，竞态窗口极小）
-	var existing map[string]any
-	if m, err := st.GetMetadata(ctx, filePath); err == nil && m != nil {
-		existing = describer.AttrsFromJSON(m.Attributes)
+	if m.IsDeleted {
+		return true, "文件已被软删除"
 	}
-	merged := describer.MergeResults(existing, results, now)
-
-	ft, mt := service.InferFileMeta(filePath)
-	ext := service.InferExtension(filePath)
-	cs := service.ChecksumSHA256(content)
-	size := int64(len(content))
-	meta := &repo.FileMetadata{
-		FilePath:   filePath,
-		Scope:      service.InferScope(filePath),
-		FileType:   &ft,
-		MimeType:   &mt,
-		Extension:  StrPtr(ext),
-		SizeBytes:  &size,
-		Checksum:   &cs,
-		SessionID:  StrPtr(sessionID),
-		Attributes: describer.JSONFromAttrs(merged),
+	if write {
+		if ok, r := authz.CanWrite(p, authz.ACLOf(m.OwnerID, m.Visibility, m.GroupID)); !ok {
+			return true, r
+		}
+		return false, ""
 	}
-	if err := st.UpsertMetadata(ctx, meta); err != nil {
-		slog.Warn("record file metadata failed",
-			"path", filePath, "session", sessionID,
-			"families", familyNames(results), "error", err,
-			"duration", time.Since(start).String())
-		return
+	if ok, r := authz.CanRead(p, authz.ACLOf(m.OwnerID, m.Visibility, m.GroupID)); !ok {
+		return true, r
 	}
-	slog.Info("file metadata recorded",
-		"path", filePath,
-		"session", sessionID,
-		"scope", meta.Scope,
-		"families", familyNames(results),
-		"cod_keys", attrKeyCount(results),
-		"size", size,
-		"duration", time.Since(start).String())
+	return false, ""
 }
 
-// familyNames 本次分析命中的插件家族（路由正确与否的第一现场）。
-func familyNames(results []describer.Result) []string {
-	out := make([]string, 0, len(results))
-	for _, r := range results {
-		out = append(out, r.Family)
-	}
-	return out
-}
-
-// attrKeyCount 本次新产出的 cod/sp-cod 键总数（字段缺失类 bug 的对照基线）。
-func attrKeyCount(results []describer.Result) int {
-	n := 0
-	for _, r := range results {
-		n += len(r.Attrs)
-	}
-	return n
-}
-
-// extMime 扩展名推断的 MIME（供 cod-basic-mime-match 对比嗅探结果）。
-func extMime(path string) string {
-	_, mt := service.InferFileMeta(path)
-	return mt
-}
-
-// StrPtr 空字符串返回 nil（表示「不覆盖原值」），非空返回指针。
-func StrPtr(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
-}
+// StrPtr 空串→nil 的指针语义转换已收敛 common.StrPtr（core 侧 strPtr、
+// repo 侧 derefStr 同步退役），本包不再持有副本。
 
 // DownloadURL 构造文件的对外下载地址。download_base_url 未配置时返回空串（不返回下载链接）。
 func DownloadURL(cfg *config.Config, filePath string) string {

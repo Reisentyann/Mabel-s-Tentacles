@@ -29,6 +29,7 @@
 | `modify_data_file` | 追加或覆写已有文件，元数据自动刷新 |
 | `list_data_files` | 分页列出文件与简略元数据，可按路径关键词过滤，标出缺描述的文件 |
 | `describe_file` | 写描述、标签与语义字段（支持追加模式；llm 字段受前缀闸门保护） |
+| `analyze_file` | 手动重分析（T3）：重新跑描述引擎并返回本次事实产出，绕口直改后的对账入口 |
 | `copy_file` | 复制文件（内容 + 元数据一起搬） |
 | `execute_command` / `get_results` | 执行 Shell 命令（60s 超时）/ 查询历史执行结果 |
 
@@ -47,11 +48,11 @@
 | 功能 | 状态 |
 |---|---|
 | 文件内容解析并分类 | 描述引擎 v2 已上线（cod-text 41 事实字段 + 家族版本号）；语义分类待 llm 轨 |
-| 字段索引机 | 已实现模块级（`indexer-go/` 纯库：三型桶 + `Query`/`Update`/`Rebuild` + 并发安全；条件 → 文件 uuid 集合，每字段独立索引桶，uuid 是组件间货币。进程内接线（启动 Rebuild + 写路径喂食）随管理机批次落地，SQL 检索保留兜底） |
-| 文件管理机 | 规划中（文件生命周期编排层：显式移动 + 谱系边、短期下载票据、T2/T3 更新回填、盘库对账；DB 交互归 repo 层；自动只巡检报告，动手走 `move_file`） |
-| 存量文件回填 | describer 侧已实现（FamilyVersion + IsStale 陈旧判定）；T2 启动回填 / T3 analyze 端点待实现 |
+| 字段索引机 | 模块级已实现（`indexer-go/` 纯库：三型桶 + `Query`/`Update`/`Rebuild`）+ **装配完成（2026-09-06）**：经编排机 `mcp-server-go/core/` 串联三机——启动 Rebuild、写路径/描述/复制/T2/T3 全喂食、检索门面（索引优先 → SQL 降级）；索引化检索待 uuid 取件批次（repo 按 uuid 批量取件 + 管理机 fetch 域）；SQL 检索保留兜底 |
+| 文件管理机 | 规划中（文件生命周期编排层：显式移动 + 谱系边、短期下载票据、盘库对账；DB 交互归 repo 层；自动只巡检报告，动手走 `move_file`）。**updater 域已实现**（T2/T3，见下） |
+| 存量文件回填 | **已实现**：T3 手动入口（MCP `analyze_file` / HTTP `POST /api/files/analyze`）+ T2 一轮批量回填（`POST /api/files/backfill`；启动后台轮询 `describe.backfill` 配置默认关）+ IsStale 四条件（缺 ver / 版本落后 / checksum 漂 / mtime 新）+ 幽灵 3 轮软删 |
 | 文件谱系图 | 规划中（`copied_from` 列与命令执行记录已是现成的边，补一张 lineage 表即可成 DAG） |
-| 文件删除入口（软删除） | 待实现 |
+| 文件删除入口（软删除） | 部分实现（T2 幽灵 3 轮自动软删已接 `SoftDeleteMetadata`；agent 显式删除入口待文件管理机批次） |
 | 游戏室分区 | 命名空间已预留（`game/` 路径自动归档） |
 | 真随机机 | 规划中（未来功能，职责形态待定） |
 | 机器人分段回复 | 已禁用退役 |
@@ -88,6 +89,7 @@ AstrBot 等 MCP 客户端的接入配置，见[部署指南](部署指南.md)第
 
 - [部署指南](部署指南.md) —— 环境准备、Docker Compose 部署、安全组配置、MCP 客户端（AstrBot 等）接入方法、1Panel 反代挂载子域名
 - [架构设计](docs/架构设计.md) —— 组件职责与约定：管理机（位置与谱系唯一知情者）、索引机（条件→uuid 纯查询）、describer（字节进事实出）、组件间货币与依赖方向铁律
+- [common 共享层](docs/common共享层.md) —— 跨模块纯函数复用清单与准入规则：防穿越 / 盘读三件套 / 指针转换 / ClientIP；写纯函数前先查它，避免重复造轮子
 
 ## 许可证
 

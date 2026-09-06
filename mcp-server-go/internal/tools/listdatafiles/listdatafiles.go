@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/listdatafiles/listdatafiles.go —— MCP 工具 list_data_files：分页列表 + 路径过滤 + 简略元数据
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
 
 package listdatafiles
 
@@ -12,6 +12,8 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/Reisentyann/Mabel-s-Tentacles/common"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/authz"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
@@ -68,6 +70,33 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		}
 
 		total := len(filtered)
+
+		// 可见性过滤（权限批次 2026-09-06）：非 admin 只见自己读得到的
+		// 文件（authz.CanRead；无行按存量 public 口径）。admin/管家全量。
+		if p := tools.Principal(ctx); p != nil && !p.IsAdmin() && deps.Store != nil {
+			metas, err := deps.Store.GetMetadataByPaths(ctx, filtered)
+			if err != nil {
+				slog.Warn("list_data_files fetch metadata for filter failed", "error", err)
+			} else {
+				kept := filtered[:0]
+				for _, fp := range filtered {
+					m := metas[fp]
+					if m == nil {
+						kept = append(kept, fp) // 无行 = 存量 public（与 CanRead 空 ACL 一致）
+						continue
+					}
+					if m.IsDeleted {
+						continue // 软删文件不列出
+					}
+					if ok, _ := authz.CanRead(p, authz.ACLOf(m.OwnerID, m.Visibility, m.GroupID)); ok {
+						kept = append(kept, fp)
+					}
+				}
+				filtered = kept
+				total = len(filtered)
+			}
+		}
+
 		start := (page - 1) * size
 		if start >= total {
 			tools.RecordOperation(ctx, deps.Store, sessionID, "list_data_files", "", "success", "", map[string]any{"count": 0, "page": page, "total": total})
@@ -102,16 +131,16 @@ func register(s *server.MCPServer, deps tools.Deps) {
 				"has_description": false,
 			}
 			if m != nil {
-				title := ptrStr(m.Title)
-				desc := ptrStr(m.Description)
+				title := common.DerefStr(m.Title)
+				desc := common.DerefStr(m.Description)
 				tags := m.Tags
 				if tags == nil {
 					tags = []string{}
 				}
 				item["title"] = title
 				item["description"] = desc
-				item["file_type"] = ptrStr(m.FileType)
-				item["size_bytes"] = ptrInt64(m.SizeBytes)
+				item["file_type"] = common.DerefStr(m.FileType)
+				item["size_bytes"] = common.DerefInt64(m.SizeBytes)
 				item["tags"] = tags
 				item["updated_at"] = m.UpdatedAt
 				item["has_description"] = title != "" || desc != "" || len(tags) > 0
@@ -129,18 +158,4 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			"files":   items,
 		}), nil
 	})
-}
-
-func ptrStr(p *string) string {
-	if p == nil {
-		return ""
-	}
-	return *p
-}
-
-func ptrInt64(p *int64) int64 {
-	if p == nil {
-		return 0
-	}
-	return *p
 }

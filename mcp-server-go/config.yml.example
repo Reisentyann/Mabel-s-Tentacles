@@ -19,11 +19,11 @@ database:
   max_conns: 10
 
 mcp:
-  api_key: ""         # MCP 鉴权（Authorization: Bearer），空 = 关闭
+  api_key: ""         # MCP master key（管家 agent，无限权限）；生产必配强随机值！空 = 开发放行（启动大红 WARN）
 
 api:
-  access_token: ""    # HTTP 下载鉴权（query token），空 = 关闭
-  require_auth: false # /api/* 是否需要 JWT；开发阶段 false，上线改 true
+  access_token: ""    # HTTP 下载鉴权（query token，agent 直发链接的过渡口径）；空 = 下载走 JWT
+  require_auth: true  # /api/* 需要 JWT（安全默认）；本地开发裸奔设 REQUIRE_AUTH=false
   download_base_url: "" # 对外下载地址前缀（如 http://你的域名:18080），空=不返回下载链接
 
 security:

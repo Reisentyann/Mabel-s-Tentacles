@@ -1,5 +1,5 @@
-// 文件：mcp-server-go/internal/tools/modifydatafile/modifydatafile.go —— MCP 工具 modify_data_file：append/overwrite + 元数据刷新
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 文件：mcp-server-go/internal/tools/modifydatafile/modifydatafile.go —— MCP 工具 modify_data_file：append/overwrite + 编排机事件异步刷新元数据
+// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
 
 package modifydatafile
 
@@ -11,6 +11,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
 )
@@ -50,17 +51,22 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		start := time.Now()
 		params := map[string]any{"file_path": filePath, "mode": mode, "content_size": len(content)}
 
+		// 写授权：modify 是对既有文件的动手操作，owner/组内/admin 之外拒绝
+		if denied, reason := tools.CanFile(ctx, deps.Store, filePath, true); denied {
+			tools.RecordOperation(ctx, deps.Store, sessionID, "modify_data_file", filePath, "denied", reason, params)
+			return tools.Deny(ctx, "modify_data_file", filePath, reason), nil
+		}
+
 		if err := service.SafeModify(deps.Cfg.DataDir, filePath, content, mode); err != nil {
 			slog.Error("modify_data_file failed", "path", filePath, "mode", mode, "session", sessionID, "error", err, "duration", time.Since(start).String())
 			tools.RecordOperation(ctx, deps.Store, sessionID, "modify_data_file", filePath, "failed", err.Error(), params)
 			return tools.ResultError(err.Error()), nil
 		}
 
-		// 刷新元数据：append/overwrite 后 size 与 checksum 会变化，读取整文件重算
-		if full, rerr := service.SafeRead(deps.Cfg.DataDir, filePath); rerr == nil {
-			tools.RecordFileMeta(ctx, deps.Store, filePath, full, sessionID)
-		} else {
-			slog.Warn("refresh metadata after modify failed", "path", filePath, "session", sessionID, "error", rerr)
+		// 元数据刷新走编排机事件（异步）：worker 盘上重读终态重算
+		// size/checksum/描述（后写胜出），此处不再整读文件，agent 即写即回
+		if deps.Orch != nil {
+			deps.Orch.Submit(core.Event{Kind: core.KindModify, Path: filePath, SessionID: sessionID, Actor: tools.Actor(ctx)})
 		}
 
 		slog.Info("modify_data_file ok", "path", filePath, "mode", mode, "session", sessionID, "duration", time.Since(start).String())

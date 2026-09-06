@@ -1,5 +1,5 @@
 // 文件：indexer-go/bucket.go —— 三型桶数据结构：每字段独立索引，加字段=加桶（架构设计.md 第 3 节）
-// 修改：2026-09-04（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
 
 // Package indexer 的 bucket.go 实现三型索引桶与归一化原语。
 //

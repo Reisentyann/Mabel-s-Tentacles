@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/repo/repo.go —— 数据访问接口 Store + pgx 连接池实现（可 mock）
-// 修改：2026-09-03（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
 
 package repo
 
@@ -15,7 +15,25 @@ import (
 type Store interface {
 	// 用户
 	GetUserByUsername(ctx context.Context, username string) (*User, error)
-	CreateUser(ctx context.Context, username, passwordHash, email string) (*User, error)
+	GetUserByID(ctx context.Context, id int64) (*User, error)
+	CreateUser(ctx context.Context, username, passwordHash, email, role string) (*User, error)
+	ListUsers(ctx context.Context) ([]User, error)
+	SetUserActive(ctx context.Context, username string, active bool) error
+	SetUserRole(ctx context.Context, username, role string) error
+
+	// 组（权限批次：group 可见性的成员面）
+	CreateGroup(ctx context.Context, name string) (*Group, error)
+	ListGroups(ctx context.Context) ([]Group, error)
+	DeleteGroup(ctx context.Context, id int64) error
+	AddGroupMember(ctx context.Context, groupID, userID int64) error
+	RemoveGroupMember(ctx context.Context, groupID, userID int64) error
+	UserGroupIDs(ctx context.Context, userID int64) ([]int64, error)
+
+	// 外部 agent key（master key 走 .env 不入库；这里只管受限 key）
+	CreateAgentKey(ctx context.Context, name, keyHash string, principalUID int64) (*AgentKey, error)
+	GetAgentKeyByHash(ctx context.Context, keyHash string) (*AgentKey, error)
+	ListAgentKeys(ctx context.Context) ([]AgentKey, error)
+	RevokeAgentKey(ctx context.Context, id int64) error
 
 	// token 黑名单
 	InsertBlacklist(ctx context.Context, jti string, expiresAt time.Time) error
@@ -33,13 +51,19 @@ type Store interface {
 	GetOperations(ctx context.Context, page, size int) ([]OperationResult, int, error)
 
 	// 文件元数据
-	UpsertMetadata(ctx context.Context, m *FileMetadata) error
+	UpsertMetadata(ctx context.Context, m *FileMetadata) (uuid string, err error)
 	GetMetadata(ctx context.Context, filePath string) (*FileMetadata, error)
 	GetMetadataByPaths(ctx context.Context, paths []string) (map[string]*FileMetadata, error)
 	SearchFiles(ctx context.Context, fs FileSearch) ([]FileMetadata, int, error)
-	CopyMetadata(ctx context.Context, source, target, sessionID, userID string) error
+	CopyMetadata(ctx context.Context, source, target, owner, sessionID string) error
 	SoftDeleteMetadata(ctx context.Context, filePath string) error
 	IncrementDownloadCount(ctx context.Context, filePath string) error
+	// ListMetadataPage 按 file_path 升序的游标分页（sincePath 之后 limit 条，
+	// 不含软删）——manager updater T2 回填扫描用。
+	ListMetadataPage(ctx context.Context, sincePath string, limit int) ([]FileMetadata, error)
+	// MarkMissingRound 盘上缺失计数 +1 并返回累计轮次（连续 3 轮触发软删除，
+	// manager updater 的幽灵存续状态；Upsert 即文件存在证据，会清零）。
+	MarkMissingRound(ctx context.Context, filePath string) (rounds int, err error)
 
 	Close()
 }
@@ -173,6 +197,46 @@ var migrations = []string{
 	`CREATE INDEX IF NOT EXISTS idx_meta_type  ON file_metadata (file_type)`,
 	`CREATE INDEX IF NOT EXISTS idx_meta_by    ON file_metadata (user_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_meta_del   ON file_metadata (is_deleted)`,
+	// 幽灵元数据存续状态：T2 回填轮次中盘上连续缺失的计数（3 轮软删除，
+	// manager updater 域）。Upsert 视为文件存在证据，写入时清零。
+	`ALTER TABLE file_metadata ADD COLUMN IF NOT EXISTS missing_rounds INT NOT NULL DEFAULT 0`,
+
+	// ---- 权限批次（2026-09-06，docs/权限设计.md）：角色 / 归属 / 组 / 外部 agent key ----
+	// 用户角色：admin 越过一切归属检查；user 走矩阵。存量行自动落 'user'，
+	// bootstrap admin 由装配层在建号/启动时提升（迁移 SQL 不认用户名，不能写死）。
+	`ALTER TABLE users ADD COLUMN IF NOT EXISTS role TEXT NOT NULL DEFAULT 'user'`,
+	// 文件归属与可见性：owner_id 列已存在（此前闲置，现在开始真写）；
+	// visibility 存量默认 public——老文件维持"人人可读"，写权归 admin（无主遗产口径）
+	`ALTER TABLE file_metadata ADD COLUMN IF NOT EXISTS visibility TEXT NOT NULL DEFAULT 'public'`,
+	`ALTER TABLE file_metadata ADD COLUMN IF NOT EXISTS group_id BIGINT`,
+	`CREATE INDEX IF NOT EXISTS idx_meta_visibility ON file_metadata (visibility)`,
+	`CREATE INDEX IF NOT EXISTS idx_meta_owner ON file_metadata (owner_id)`,
+	// 组（group 可见性的成员面）
+	`CREATE TABLE IF NOT EXISTS groups (
+		id         BIGSERIAL PRIMARY KEY,
+		uuid       UUID NOT NULL DEFAULT gen_random_uuid(),
+		name       VARCHAR(100) UNIQUE NOT NULL,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`,
+	`ALTER TABLE groups ADD COLUMN IF NOT EXISTS uuid UUID NOT NULL DEFAULT gen_random_uuid()`,
+	`CREATE TABLE IF NOT EXISTS group_members (
+		group_id   BIGINT NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
+		user_id    BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		PRIMARY KEY (group_id, user_id)
+	)`,
+	// 外部 agent key：raw key 只在签发响应里出现一次，库中只存 sha256。
+	// master key 走 .env 不入库（服务器自己的管家）。
+	`CREATE TABLE IF NOT EXISTS agent_keys (
+		id            BIGSERIAL PRIMARY KEY,
+		uuid          UUID NOT NULL DEFAULT gen_random_uuid(),
+		name          VARCHAR(100) NOT NULL,
+		key_hash      TEXT UNIQUE NOT NULL,
+		principal_uid BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+		is_active     BOOLEAN NOT NULL DEFAULT TRUE,
+		created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`,
+	`ALTER TABLE agent_keys ADD COLUMN IF NOT EXISTS uuid UUID NOT NULL DEFAULT gen_random_uuid()`,
 }
 
 func New(ctx context.Context, dsn string, maxConns int32) (Store, error) {
