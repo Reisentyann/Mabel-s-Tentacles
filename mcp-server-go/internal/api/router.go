@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/api/router.go —— HTTP API 路由装配：公共路由 + JWT 保护路由 + Server 结构
-// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
 
 package api
 
@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/manager-go"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/config"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/search"
@@ -16,13 +17,14 @@ import (
 type Server struct {
 	cfg      *config.Config
 	repo     repo.Store
-	searcher search.Searcher
-	manager  *manager.Manager // updater 域（T2/T3 端点）；nil = 未装配
+	searcher search.Searcher    // 检索门面 = 编排机（索引优先 → SQL 降级）
+	orch     *core.Orchestrator // 编排机：describe 同步入口 + 写路径事件
+	manager  *manager.Manager   // updater 域（T2/T3 端点）；nil = 未装配
 }
 
-// Register 把 HTTP API 路由挂到 mux 上。
-func Register(mux *http.ServeMux, cfg *config.Config, st repo.Store, searcher search.Searcher, mgr *manager.Manager) {
-	s := &Server{cfg: cfg, repo: st, searcher: searcher, manager: mgr}
+// Register 把 HTTP API 路由挂到 mux 上。orch 兼任检索门面（实现 search.Searcher）。
+func Register(mux *http.ServeMux, cfg *config.Config, st repo.Store, orch *core.Orchestrator, mgr *manager.Manager) {
+	s := &Server{cfg: cfg, repo: st, searcher: orch, orch: orch, manager: mgr}
 
 	// 公共路由
 	mux.HandleFunc("GET /health", s.health)

@@ -48,7 +48,7 @@
 | 功能 | 状态 |
 |---|---|
 | 文件内容解析并分类 | 描述引擎 v2 已上线（cod-text 41 事实字段 + 家族版本号）；语义分类待 llm 轨 |
-| 字段索引机 | 已实现模块级（`indexer-go/` 纯库：三型桶 + `Query`/`Update`/`Rebuild` + 并发安全；条件 → 文件 uuid 集合，每字段独立索引桶，uuid 是组件间货币）。接线（启动 Rebuild + 检索接入）随索引机批次落地；**喂食钩子已预埋**（T1/T3 写路径 Upsert 后 diff 喂食的 sink 接口，装配层注入即点亮）；SQL 检索保留兜底 |
+| 字段索引机 | 模块级已实现（`indexer-go/` 纯库：三型桶 + `Query`/`Update`/`Rebuild`）+ **装配完成（2026-09-06）**：经编排机 `mcp-server-go/core/` 串联三机——启动 Rebuild、写路径/描述/复制/T2/T3 全喂食、检索门面（索引优先 → SQL 降级）；索引化检索待 uuid 取件批次（repo 按 uuid 批量取件 + 管理机 fetch 域）；SQL 检索保留兜底 |
 | 文件管理机 | 规划中（文件生命周期编排层：显式移动 + 谱系边、短期下载票据、盘库对账；DB 交互归 repo 层；自动只巡检报告，动手走 `move_file`）。**updater 域已实现**（T2/T3，见下） |
 | 存量文件回填 | **已实现**：T3 手动入口（MCP `analyze_file` / HTTP `POST /api/files/analyze`）+ T2 一轮批量回填（`POST /api/files/backfill`；启动后台轮询 `describe.backfill` 配置默认关）+ IsStale 四条件（缺 ver / 版本落后 / checksum 漂 / mtime 新）+ 幽灵 3 轮软删 |
 | 文件谱系图 | 规划中（`copied_from` 列与命令执行记录已是现成的边，补一张 lineage 表即可成 DAG） |

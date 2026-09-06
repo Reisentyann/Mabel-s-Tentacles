@@ -1,5 +1,5 @@
-// 文件：mcp-server-go/internal/api/metadata.go —— 元数据端点：搜索 / 查看元数据 / 描述（llm 闸门）/ 复制
-// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
+// 文件：mcp-server-go/internal/api/metadata.go —— 元数据端点：搜索 / 查看元数据 / 描述（编排机同步入口）/ 复制（KindCopy 事件）
+// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
 
 package api
 
@@ -10,13 +10,10 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 
-	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go"
-	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go/llm"
-	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/search"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 )
@@ -112,67 +109,38 @@ func (s *Server) describeFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "file not found")
 		return
 	}
-
-	// 既有元数据：追加模式与 llm 字段合并都需要
-	var existing map[string]any
-	var oldDesc string
-	if s.repo != nil {
-		if m, err := s.repo.GetMetadata(r.Context(), req.Path); err == nil && m != nil {
-			existing = describer.AttrsFromJSON(m.Attributes)
-			if m.Description != nil {
-				oldDesc = *m.Description
-			}
-		}
-	}
-	desc := ""
-	if req.Description != nil {
-		desc = *req.Description
-	}
-	if req.Mode == "append" && oldDesc != "" && desc != "" {
-		desc = oldDesc + "\n\n" + desc
-	}
-	var descPtr *string
-	if desc != "" {
-		descPtr = &desc
+	if s.orch == nil {
+		writeError(w, http.StatusInternalServerError, "orchestrator unavailable")
+		return
 	}
 
-	// llm 语义字段：LLMStore 中间件（唯一写入口）
-	// cod-* 只读 / 审计字段系统专属 / 受控词表 / null 墓碑删除
-	var rejectedList []string
+	// 编排机同步入口（与 MCP describe_file 同一份实现）：LLMStore 闸门 +
+	// 单次 Upsert + 喂索引——llm-* 是可索引字段，原先不喂的漂移洞已堵
+	attrs := map[string]any{}
 	if len(req.Attributes) > 0 {
-		var in map[string]any
-		if err := json.Unmarshal(req.Attributes, &in); err != nil {
+		if err := json.Unmarshal(req.Attributes, &attrs); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid attributes JSON")
 			return
 		}
-		st := llm.OpenLLM()
-		st.SetMany(in)
-		for _, r := range st.Rejected() {
-			slog.Warn("describe attribute rejected by llm middleware", "path", req.Path, "key", r.Key, "op", r.Op, "reason", r.Reason)
-			rejectedList = append(rejectedList, r.Key+"("+r.Op+"): "+r.Reason)
-		}
-		existing = st.Commit(existing, llm.LLMSourceAgent, time.Now())
 	}
-
-	m := &repo.FileMetadata{
-		FilePath:    req.Path,
+	res, derr := s.orch.Describe(r.Context(), core.DescribeRequest{
+		Path:        req.Path,
 		Title:       req.Title,
-		Description: descPtr,
+		Description: req.Description,
 		Tags:        req.Tags,
 		FileType:    req.FileType,
-		Attributes:  describer.JSONFromAttrs(existing),
+		Mode:        req.Mode,
+		Attributes:  attrs,
+	}, "")
+	if derr != nil {
+		slog.Error("describe file failed", "path", req.Path, "error", derr)
+		writeError(w, http.StatusInternalServerError, derr.Error())
+		return
 	}
-	if s.repo != nil {
-		if _, err := s.repo.UpsertMetadata(r.Context(), m); err != nil {
-			slog.Error("describe file failed", "path", req.Path, "error", err)
-			writeError(w, http.StatusInternalServerError, err.Error())
-			return
-		}
-	}
-	slog.Info("describe file ok", "path", req.Path, "mode", req.Mode)
+	slog.Info("describe file ok", "path", req.Path, "mode", req.Mode, "rejected", len(res.Rejected))
 	resp := map[string]string{"message": "metadata updated"}
-	if len(rejectedList) > 0 {
-		writeJSON(w, http.StatusOK, map[string]any{"message": "metadata updated", "rejected": rejectedList})
+	if len(res.Rejected) > 0 {
+		writeJSON(w, http.StatusOK, map[string]any{"message": "metadata updated", "rejected": res.Rejected})
 		return
 	}
 	writeJSON(w, http.StatusOK, resp)
@@ -211,22 +179,13 @@ func (s *Server) copyFile(w http.ResponseWriter, r *http.Request) {
 
 	if s.repo != nil {
 		if err := s.repo.CopyMetadata(r.Context(), req.Source, req.Target, "", ""); err != nil {
-			// 源文件可能没有元数据，复制失败不致命；回填目标基础元数据，避免检索遗漏
-			slog.Warn("copy metadata failed, recording basic meta", "source", req.Source, "error", err)
-			ft, mt := service.InferFileMeta(req.Target)
-			ext := service.InferExtension(req.Target)
-			cs := service.ChecksumSHA256(content)
-			size := int64(len(content))
-			_, _ = s.repo.UpsertMetadata(r.Context(), &repo.FileMetadata{
-				FilePath:  req.Target,
-				Scope:     "global",
-				FileType:  &ft,
-				MimeType:  &mt,
-				Extension: &ext,
-				SizeBytes: &size,
-				Checksum:  &cs,
-			})
+			// 源文件可能没有元数据，复制失败不致命：编排机 KindCopy 事件的
+			// 执行器会从盘上重建目标元数据并喂索引（COALESCE 保留 copied_from 等复制列）
+			slog.Warn("copy metadata failed, orchestrator will rebuild target meta", "source", req.Source, "error", err)
 		}
+	}
+	if s.orch != nil {
+		s.orch.Submit(core.Event{Kind: core.KindCopy, Path: req.Target})
 	}
 	slog.Info("copy file ok", "source", req.Source, "target", req.Target)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Successfully copied " + req.Source + " to " + req.Target})

@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/repo/manager_adapter.go —— manager.Store 适配器：repo 存取 → manager 最小面（DTO 转换 + 顶层列推导归装配侧）
-// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
 
 package repo
 
@@ -78,6 +78,22 @@ func (a *ManagerStore) MarkMissing(ctx context.Context, path string) (int, error
 
 func (a *ManagerStore) SoftDeleteMeta(ctx context.Context, path string) error {
 	return a.st.SoftDeleteMetadata(ctx, path)
+}
+
+// errFetchPending 取件批次未落地的装配侧占位（manager 取件接口已钉面，
+// repo 按 uuid 查询的实现与接线随后续批次；manager.go fetch.go / buffer.go）。
+var errFetchPending = errors.New("repo: fetch by uuid pending implementation")
+
+// GetMetaByUUID 凭 uuid 取件视图（fetch 域 Locate 的支撑）。
+// TODO 取件实现批次：repo.Store 补按 uuid 查询（单行）→ FileRef 组装。
+func (a *ManagerStore) GetMetaByUUID(ctx context.Context, uuid string) (*manager.FileRef, error) {
+	return nil, errFetchPending
+}
+
+// GetMetaByUUIDs 批量取件视图（fetch 域 LocateMany 的支撑）。
+// TODO 取件实现批次：repo.Store 补按 uuid 集合查询（WHERE uuid = ANY($1)）。
+func (a *ManagerStore) GetMetaByUUIDs(ctx context.Context, uuids []string) (map[string]*manager.FileRef, error) {
+	return nil, errFetchPending
 }
 
 func toMetaRow(m *FileMetadata) manager.MetaRow {

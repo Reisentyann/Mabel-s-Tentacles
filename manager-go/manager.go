@@ -1,5 +1,5 @@
 // 文件：manager-go/manager.go —— 管理机门面：文件位置与谱系的唯一知情者（架构设计.md 第 4 节）
-// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
 
 // Package manager 是文件生命周期的编排层与信息权威（docs/架构设计.md 第 4 节）：
 // 文件在哪（位置）、文件之间的关系（谱系）只有它知道，其他组件一律问它，
@@ -38,12 +38,13 @@ type MetaRecord struct {
 	Attributes json.RawMessage
 }
 
-// Store manager 所需的最小存储面（依赖倒置，io.Reader 模式）：updater 域批次。
+// Store manager 所需的最小存储面（依赖倒置，io.Reader 模式）：updater + fetch 域批次。
 // mcp-server-go 的 repo 实现满足签名后由装配层注入（repo/manager_adapter.go），
 // manager 不 import 任何兄弟模块——同级模块只允许被上层 require，
 // 不允许反向依赖装配层（依赖方向铁律：HTTP/MCP → manager → repo + describer + indexer）。
 // TODO（placement/audit/download/lineage 域实现时扩充方法与配套 DTO）：
-// GetMetadataByUUID / 元数据全量列接口 / lineage 表 / 幽灵计数批量接口 …
+// 元数据全量列接口 / lineage 表 / 幽灵计数批量接口 …
+// （fetch 域的 GetMetaByUUID / GetMetaByUUIDs 已钉面，2026-09-05）
 type Store interface {
 	// ListMetaPage 按 Path 升序的游标分页：sincePath 之后（不含）limit 条，
 	// 不含软删。T2 回填的扫描入口，可中断续跑。
@@ -57,6 +58,13 @@ type Store interface {
 	MarkMissing(ctx context.Context, path string) (int, error)
 	// SoftDeleteMeta 软删除（打标记不物理删，元数据可追溯）。
 	SoftDeleteMeta(ctx context.Context, path string) error
+	// GetMetaByUUID 凭 uuid 读单行取件视图（fetch 域 Locate 的支撑；
+	// uuid 是组件货币而既有接口只有按 path 查——交接文档 4.3 点名的缺口，
+	// 2026-09-05 取件接口轮钉面）。无行返回 (nil, nil)（与 GetMeta 同口径）。
+	GetMetaByUUID(ctx context.Context, uuid string) (*FileRef, error)
+	// GetMetaByUUIDs 批量取件视图：uuid 集合 → 映射，缺失的 uuid 不入 map
+	// （fetch 域 LocateMany 的支撑，搜索结果一次取齐）。
+	GetMetaByUUIDs(ctx context.Context, uuids []string) (map[string]*FileRef, error)
 }
 
 // IndexSink 索引喂食钩子：写路径 Upsert 后把 attributes 的 old/new diff
@@ -73,10 +81,18 @@ type Manager struct {
 	dataDir string                   // 文件系统根（updater 读盘 / placement 改名）
 	sink    IndexSink                // 索引喂食钩子（可空：索引机批次前为 nil）
 	extMime func(path string) string // 扩展名→MIME 推导（装配层注入；与 mime_type 顶层列同源，cod-basic-mime-match 的对比口径；nil = 不产该字段）
+	buf     *fileBuffer              // 取件缓冲区（fetch 域 Open/Read 的快速路径；纯派生态，可丢可清）
 }
 
 // New 构造管理机。dataDir 为 data 目录根；sink 与 extMime 允许 nil
 // （sink=nil 索引不喂食；extMime=nil 时 cod-basic-mime-match 不产出）。
+// 取件缓冲区按默认预算构造（64MB / 单条目 5MB，见 buffer.go）。
 func New(st Store, dataDir string, sink IndexSink, extMime func(path string) string) *Manager {
-	return &Manager{store: st, dataDir: dataDir, sink: sink, extMime: extMime}
+	return &Manager{
+		store:   st,
+		dataDir: dataDir,
+		sink:    sink,
+		extMime: extMime,
+		buf:     newFileBuffer(defaultBufCapBytes, defaultBufMaxEntry),
+	}
 }

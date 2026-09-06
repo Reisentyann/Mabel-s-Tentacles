@@ -1,5 +1,5 @@
 // 文件：manager-go/updater_test.go —— updater 域 L1：T3 执行器（路由/合并/穿越/喂食）+ T2 陈旧四条件 + 幽灵软删 + batch 上限
-// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
 
 package manager_test
 
@@ -91,6 +91,16 @@ func (s *fakeStore) SoftDeleteMeta(ctx context.Context, path string) error {
 	s.softDeleted[path] = true
 	delete(s.rows, path)
 	return nil
+}
+
+// 取件域钉面补齐（fetch.go 接口轮，2026-09-05）：updater 用例不触达，
+// 零值占位保证 fakeStore 满足 Store 面。
+func (s *fakeStore) GetMetaByUUID(ctx context.Context, uuid string) (*manager.FileRef, error) {
+	return nil, nil
+}
+
+func (s *fakeStore) GetMetaByUUIDs(ctx context.Context, uuids []string) (map[string]*manager.FileRef, error) {
+	return nil, nil
 }
 
 // fakeSink 索引喂食钩子的录音机。

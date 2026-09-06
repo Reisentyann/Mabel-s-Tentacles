@@ -1,5 +1,5 @@
-// 文件：mcp-server-go/internal/tools/copyfile/copyfile.go —— MCP 工具 copy_file：内容 + 元数据一起复制
-// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
+// 文件：mcp-server-go/internal/tools/copyfile/copyfile.go —— MCP 工具 copy_file：内容 + 元数据一起复制（KindCopy 事件喂索引）
+// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
 
 package copyfile
 
@@ -11,6 +11,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
 )
@@ -58,10 +59,16 @@ func register(s *server.MCPServer, deps tools.Deps) {
 
 		if deps.Store != nil {
 			if err := deps.Store.CopyMetadata(ctx, source, target, sessionID, ""); err != nil {
-				// 源文件可能没有元数据，复制失败不致命；回填目标基础元数据，避免检索遗漏
-				slog.Warn("copy metadata failed, recording basic meta", "source", source, "target", target, "session", sessionID, "error", err)
-				tools.RecordFileMeta(ctx, deps, target, content, sessionID)
+				// 源文件可能没有元数据，复制失败不致命：KindCopy 事件的执行器
+				// 会从盘上重建目标元数据并喂索引（COALESCE 保留 copied_from 谱系列）
+				slog.Warn("copy metadata failed, orchestrator will rebuild target meta",
+					"source", source, "target", target, "session", sessionID, "error", err)
 			}
+		}
+		// 复制主路径原本的喂食洞（目标 uuid 从不挂索引）由此堵上：
+		// 执行器重分析目标 + Upsert + Sink.Update，CopyMetadata 成败与否都覆盖
+		if deps.Orch != nil {
+			deps.Orch.Submit(core.Event{Kind: core.KindCopy, Path: target, SessionID: sessionID})
 		}
 
 		slog.Info("copy_file ok", "source", source, "target", target, "bytes", len(content), "session", sessionID, "duration", time.Since(start).String())

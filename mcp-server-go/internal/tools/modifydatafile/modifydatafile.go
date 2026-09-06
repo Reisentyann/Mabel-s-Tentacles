@@ -1,5 +1,5 @@
-// 文件：mcp-server-go/internal/tools/modifydatafile/modifydatafile.go —— MCP 工具 modify_data_file：append/overwrite + 元数据刷新
-// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
+// 文件：mcp-server-go/internal/tools/modifydatafile/modifydatafile.go —— MCP 工具 modify_data_file：append/overwrite + 编排机事件异步刷新元数据
+// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
 
 package modifydatafile
 
@@ -11,6 +11,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
 )
@@ -56,11 +57,10 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			return tools.ResultError(err.Error()), nil
 		}
 
-		// 刷新元数据：append/overwrite 后 size 与 checksum 会变化，读取整文件重算
-		if full, rerr := service.SafeRead(deps.Cfg.DataDir, filePath); rerr == nil {
-			tools.RecordFileMeta(ctx, deps, filePath, full, sessionID)
-		} else {
-			slog.Warn("refresh metadata after modify failed", "path", filePath, "session", sessionID, "error", rerr)
+		// 元数据刷新走编排机事件（异步）：worker 盘上重读终态重算
+		// size/checksum/描述（后写胜出），此处不再整读文件，agent 即写即回
+		if deps.Orch != nil {
+			deps.Orch.Submit(core.Event{Kind: core.KindModify, Path: filePath, SessionID: sessionID})
 		}
 
 		slog.Info("modify_data_file ok", "path", filePath, "mode", mode, "session", sessionID, "duration", time.Since(start).String())

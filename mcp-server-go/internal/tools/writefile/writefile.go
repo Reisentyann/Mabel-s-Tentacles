@@ -1,5 +1,5 @@
-// 文件：mcp-server-go/internal/tools/writefile/writefile.go —— MCP 工具 write_file：写文件 + 内联描述 + T1 元数据
-// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
+// 文件：mcp-server-go/internal/tools/writefile/writefile.go —— MCP 工具 write_file：写文件 + 内联描述字段随编排机事件异步落库
+// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
 
 package writefile
 
@@ -12,7 +12,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
 )
@@ -79,22 +79,22 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		}
 
 		slog.Info("write_file ok", "path", filePath, "bytes", len(content), "session", sessionID, "duration", time.Since(start).String())
-		tools.RecordFileMeta(ctx, deps, filePath, []byte(content), sessionID)
 
-		// 内联描述：AI 传了任意描述字段就一次性落库，避免事后文件找不到。
-		// UpsertMetadata 用 COALESCE，仅覆盖非空字段，不影响 RecordFileMeta 已写的技术元数据。
-		if deps.Store != nil && (title != "" || description != "" || len(tags) > 0 || fileType != "") {
-			meta := &repo.FileMetadata{
-				FilePath:    filePath,
-				Title:       tools.StrPtr(title),
-				Description: tools.StrPtr(description),
-				Tags:        tags,
-				FileType:    tools.StrPtr(fileType),
-				SessionID:   tools.StrPtr(sessionID),
-			}
-			if _, err := deps.Store.UpsertMetadata(ctx, meta); err != nil {
-				slog.Warn("write_file upsert description failed", "path", filePath, "session", sessionID, "error", err)
-			}
+		// 编排机异步接管 T1（盘写成功即回，agent 不等描述）：agent 顺带
+		// 描述字段随事件走，执行器单次 Upsert 落库并喂索引——旧的双 upsert 已灭。
+		// 事件可丢（容灾铁律 2）：队列满由 Submit 内部 WARN + T2 对账兜底。
+		if deps.Orch != nil {
+			deps.Orch.Submit(core.Event{
+				Kind:      core.KindWrite,
+				Path:      filePath,
+				SessionID: sessionID,
+				Agent: &core.AgentMeta{
+					Title:       tools.StrPtr(title),
+					Description: tools.StrPtr(description),
+					Tags:        tags,
+					FileType:    tools.StrPtr(fileType),
+				},
+			})
 		}
 
 		tools.RecordOperation(ctx, deps.Store, sessionID, "write_file", filePath, "success", "", params)

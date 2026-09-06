@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/core/orchestrator.go —— 编排机门面：生命周期事件 + 异步队列 + worker 池（三机之上的统一编排层骨架）
-// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
 
 // Package core 是编排机：把描述机（describer-go，字节进事实出）/ 索引机
 // （indexer-go，条件→uuid）/ 管理机（manager-go，位置与谱系）的编排，
@@ -20,13 +20,17 @@
 // 布局：orchestrator.go 门面与队列 / executor.go 统一执行器 /
 // describe.go 同步描述入口 / search.go 检索门面与索引重建。
 //
-// 现状为骨架（2026-09-05），细节按批次落地（接线点各文件 TODO 标注）：
-//   - tools/main/api 接线：Deps 增 Orch，write/modify/copy 切 Submit
-//   - write_file 双 upsert 合一（Agent 顺带字段并入执行器单次 Upsert）
-//   - copy 主路径喂食：repo.CopyMetadata 补返回 uuid 后由编排机直接喂
-//   - describe_file / HTTP describe 切 Describe（消灭两处复制粘贴）
-//   - 检索索引化：uuid 批量取件 + 降级链（见 search.go）
-//   - T2/T3 与 manager-go 共享执行器核心（manager 另线维护，本包不动它）
+// 接线状态（2026-09-06 装配批次，三机串联点亮）：
+//   - 已点亮：Deps.Orch / api.Server.orch 注入；write/modify/copy 切 Submit
+//     （异步，agent 即写即回）；write_file 双 upsert 合一（Agent 顺带字段
+//     随事件单次 Upsert）；copy 主路径喂食（KindCopy 事件重分析目标，
+//     CopyMetadata 成败皆覆盖）；describe_file / HTTP describe 切 Describe
+//     （复制粘贴已灭，llm 喂食洞已堵）；启动 RebuildIndex + indexer 实例
+//     注入 Sink/Index（manager 的 T2/T3 喂食随之点亮）；HTTP 检索注入本包
+//     Searcher（索引优先 → SQL 降级链就位）；关停排空（Stop 优雅收尾）
+//   - 待后续批次：检索索引化（q.Attributes → Index.Query → uuid 批量取件，
+//     依赖 repo GetMetadataByUUIDs 与 manager fetch 域实现）；
+//     T2/T3 与 manager-go 共享执行器核心（manager 另线维护，本包不动它）
 package core
 
 import (

@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/cmd/server/main.go —— 服务入口：装配 config/logging/repo/search/api/mcp + 优雅关停 + 不安全默认值告警
-// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
 
 package main
 
@@ -18,7 +18,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/Reisentyann/Mabel-s-Tentacles/indexer-go"
 	"github.com/Reisentyann/Mabel-s-Tentacles/manager-go"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/api"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/config"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/logging"
@@ -66,25 +68,46 @@ func main() {
 		slog.Warn("bootstrap admin failed", "error", err)
 	}
 
-	// 管理机（updater 域：T2/T3）+ 索引喂食钩子。
-	// sink 现为 nil——索引机批次接线时注入 indexer 实例（启动 Rebuild 后），
-	// T1/T3 写路径喂食随之点亮，本处签名不变。
-	var sink manager.IndexSink
-	mgr := manager.New(repo.NewManagerStore(st), cfg.DataDir, sink, func(p string) string {
+	// 三机经编排机串联（2026-09-06 接线批次）：
+	//   - indexer 实例同时注入编排机（T1/describe/copy 喂食 + 检索门面）与
+	//     管理机（T2/T3 喂食）——喂食链全点亮
+	//   - 启动全量 Rebuild（DB 是事实源，索引是派生缓存）；失败仅告警，
+	//     检索自动降级 SQL，服务照常起
+	//   - 写路径走编排机事件队列（异步）；describe 走同步入口
+	idx := indexer.New()
+	orch, err := core.New(core.Options{
+		DataDir:  cfg.DataDir,
+		Store:    st,
+		Sink:     idx,
+		Index:    idx,
+		Fallback: search.NewSQLSearcher(st),
+	})
+	if err != nil {
+		slog.Error("init orchestrator failed", "error", err)
+		os.Exit(1)
+	}
+	if err := orch.RebuildIndex(ctx); err != nil {
+		slog.Warn("index rebuild failed, search degrades to SQL until next restart", "error", err)
+	}
+	orch.Start(ctx)
+
+	// 管理机（updater 域：T2/T3）：sink 同为 idx 实例，重分析喂食随之点亮
+	mgr := manager.New(repo.NewManagerStore(st), cfg.DataDir, idx, func(p string) string {
 		_, mt := service.InferFileMeta(p)
 		return mt
 	})
 
 	// MCP server
-	s := mcpserver.New(cfg, st, mgr, sink)
+	s := mcpserver.New(cfg, st, mgr, orch)
 	sse := server.NewSSEServer(s, server.WithBaseURL(cfg.Server.BaseURL))
 	mcpAuth := mcpserver.AuthMiddleware(sse, cfg.MCP.APIKey)
 
-	// 组合 MCP + HTTP API 到同一个 mux
+	// 组合 MCP + HTTP API 到同一个 mux。
+	// orch 实现 search.Searcher（检索门面：索引优先 → SQL 降级，索引化检索待 uuid 取件批次）
 	mux := http.NewServeMux()
 	mux.Handle("/sse", mcpAuth)
 	mux.Handle("/message", mcpAuth)
-	api.Register(mux, cfg, st, search.NewSQLSearcher(st), mgr)
+	api.Register(mux, cfg, st, orch, mgr)
 
 	// T2 启动后台回填（describe.backfill，默认关闭）：先跑一轮再按 interval 轮询，
 	// 一轮结束即返回（铁律 3：绝不自旋），关停即断点（幂等可续跑）
@@ -109,6 +132,9 @@ func main() {
 	slog.Info("shutting down")
 	sse.CloseSessions()
 	_ = httpServer.Shutdown(context.Background())
+	// 编排机排空在途事件（尽力而为：ctx 已取消的落库失败按容灾立场丢弃，
+	// 盘上文件是事实源，T2 对账兜底重建）
+	orch.Stop()
 }
 
 // backfillLoop T2 轮询驱动：启动先跑一轮，之后按 interval 反复调用
