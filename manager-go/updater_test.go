@@ -100,6 +100,28 @@ func (s *fakeStore) ReserveMeta(ctx context.Context, logicPath string) (string, 
 	return s.uuids[logicPath], nil
 }
 
+// MoveMeta 键改（intake 域 Move 的支撑）：谱系 moved_from + 行键迁移；
+// 目标占用 → manager.ErrKeyExists；无行/软删 → manager.ErrNotFound/ErrDeleted
+// 由 manager.Move 前置判定（这里零行上抛 ErrNotFound 口径即可）。
+func (s *fakeStore) MoveMeta(ctx context.Context, from, to string) (string, error) {
+	r, ok := s.rows[from]
+	if !ok || r.IsDeleted {
+		return "", manager.ErrNotFound
+	}
+	if _, occupied := s.rows[to]; occupied {
+		return "", manager.ErrKeyExists
+	}
+	uuid := r.UUID
+	delete(s.rows, from)
+	delete(s.uuids, from)
+	delete(s.missing, from)
+	r.Path = to
+	r.MovedFrom = from
+	s.rows[to] = r
+	s.uuids[to] = uuid
+	return uuid, nil
+}
+
 func (s *fakeStore) MarkMissing(ctx context.Context, path string) (int, error) {
 	s.missing[path]++
 	return s.missing[path], nil

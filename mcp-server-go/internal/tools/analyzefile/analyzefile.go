@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/analyzefile/analyzefile.go —— MCP 工具 analyze_file：T3 手动重分析（manager updater 域）
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 package analyzefile
 
@@ -41,24 +41,32 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		sessionID := tools.SessionID(ctx)
 		start := time.Now()
 
+		// 键空间（owner 隔离批次）：无前缀 = 自己；~A/ = 跨用户寻址
+		// （重分析是写操作，跨用户由行内 owner 矩阵拒）
+		sc, serr := tools.ScopePath(ctx, filePath)
+		if serr != nil {
+			return tools.Deny(ctx, "analyze_file", filePath, serr.Error()), nil
+		}
+		key := sc.Key
+
 		// 写授权：重分析改的是文件元数据（整族刷新），owner/admin 之外拒绝
-		if denied, reason := tools.CanFile(ctx, deps.Store, filePath, true); denied {
-			tools.RecordOperation(ctx, deps.Store, sessionID, "analyze_file", filePath, "denied", reason, nil)
-			return tools.Deny(ctx, "analyze_file", filePath, reason), nil
+		if denied, reason := tools.CanFile(ctx, deps.Store, key, true); denied {
+			tools.RecordOperation(ctx, deps.Store, sessionID, "analyze_file", key, "denied", reason, nil)
+			return tools.Deny(ctx, "analyze_file", key, reason), nil
 		}
 
-		report, err := deps.Manager.AnalyzeFile(ctx, filePath)
+		report, err := deps.Manager.AnalyzeFile(ctx, key)
 		if err != nil {
-			slog.Error("analyze_file failed", "path", filePath, "session", sessionID, "error", err, "duration", time.Since(start).String())
-			tools.RecordOperation(ctx, deps.Store, sessionID, "analyze_file", filePath, "failed", err.Error(), map[string]any{"file_path": filePath})
+			slog.Error("analyze_file failed", "path", key, "session", sessionID, "error", err, "duration", time.Since(start).String())
+			tools.RecordOperation(ctx, deps.Store, sessionID, "analyze_file", key, "failed", err.Error(), map[string]any{"file_path": filePath})
 			return tools.ResultError(err.Error()), nil
 		}
 
-		slog.Info("analyze_file ok", "path", filePath, "session", sessionID, "families", report.Families, "cod_keys", len(report.Attrs), "duration", time.Since(start).String())
-		tools.RecordOperation(ctx, deps.Store, sessionID, "analyze_file", filePath, "success", "", map[string]any{"families": report.Families})
+		slog.Info("analyze_file ok", "path", key, "session", sessionID, "families", report.Families, "cod_keys", len(report.Attrs), "duration", time.Since(start).String())
+		tools.RecordOperation(ctx, deps.Store, sessionID, "analyze_file", key, "success", "", map[string]any{"families": report.Families})
 		return tools.Result(map[string]any{
 			"success":  true,
-			"message":  "Successfully analyzed " + filePath,
+			"message":  "Successfully analyzed " + key,
 			"path":     report.Path,
 			"families": report.Families,
 			"attrs":    report.Attrs,

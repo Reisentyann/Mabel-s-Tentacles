@@ -43,32 +43,40 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		sessionID := tools.SessionID(ctx)
 		start := time.Now()
 
-		// 读授权：看不到的文件不给读（无元数据 = 归属不明，仅管家/admin 可读）
-		if denied, reason := tools.CanFile(ctx, deps.Store, path, false); denied {
-			tools.RecordOperation(ctx, deps.Store, sessionID, "read_file", path, "denied", reason, map[string]any{"path": path})
-			return tools.Deny(ctx, "read_file", path, reason), nil
+		// 键空间（owner 隔离批次）：无前缀 = 自己；~A/ = 跨用户只读寻址
+		sc, serr := tools.ScopePath(ctx, path)
+		if serr != nil {
+			return tools.Deny(ctx, "read_file", path, serr.Error()), nil
+		}
+		key := sc.Key
+
+		// 读授权：看不到的文件不给读（跨用户寻址走行内 ACL；无元数据 =
+		// 归属不明，仅管家/admin 可读）
+		if denied, reason := tools.CanFile(ctx, deps.Store, key, false); denied {
+			tools.RecordOperation(ctx, deps.Store, sessionID, "read_file", key, "denied", reason, map[string]any{"path": path})
+			return tools.Deny(ctx, "read_file", key, reason), nil
 		}
 
 		// 取件走管理机（fetch 域逻辑口）：uuid 派生物理路径 + buffer 快路径
 		if deps.Manager == nil {
 			return tools.ResultError("manager not wired"), nil
 		}
-		rf, err := deps.Manager.ReadByLogic(ctx, path, maxReadSize)
+		rf, err := deps.Manager.ReadByLogic(ctx, key, maxReadSize)
 		if err != nil {
-			slog.Error("read_file failed", "path", path, "session", sessionID, "error", err, "duration", time.Since(start).String())
-			tools.RecordOperation(ctx, deps.Store, sessionID, "read_file", path, "failed", err.Error(), map[string]any{"path": path})
+			slog.Error("read_file failed", "path", key, "session", sessionID, "error", err, "duration", time.Since(start).String())
+			tools.RecordOperation(ctx, deps.Store, sessionID, "read_file", key, "failed", err.Error(), map[string]any{"path": path})
 			return tools.ResultError(err.Error()), nil
 		}
 
 		content := rf.Content
 		truncated := rf.FileRef.SizeBytes > maxReadSize
 
-		slog.Info("read_file ok", "path", path, "size", len(content), "truncated", truncated, "session", sessionID, "duration", time.Since(start).String())
-		tools.RecordOperation(ctx, deps.Store, sessionID, "read_file", path, "success", "", map[string]any{"path": path, "truncated": truncated})
+		slog.Info("read_file ok", "path", key, "size", len(content), "truncated", truncated, "session", sessionID, "duration", time.Since(start).String())
+		tools.RecordOperation(ctx, deps.Store, sessionID, "read_file", key, "success", "", map[string]any{"path": path, "truncated": truncated})
 
 		return tools.Result(map[string]any{
 			"success":   true,
-			"path":      path,
+			"path":      key,
 			"size":      len(content),
 			"truncated": truncated,
 			"content":   string(content),

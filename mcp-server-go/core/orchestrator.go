@@ -80,6 +80,7 @@ const (
 	KindModify  Kind = "modify"  // 追加/覆写修改
 	KindCopy    Kind = "copy"    // 复制完成（目标路径视角）
 	KindAnalyze Kind = "analyze" // 显式重分析（预留：T3 接线批次）
+	KindMove    Kind = "move"    // 逻辑键改完成（文件管理域：键已在管理机改好，事件仅记账）
 )
 
 // Event 生命周期事件。不携带文件内容——worker 处理时盘上重读（后写胜出，

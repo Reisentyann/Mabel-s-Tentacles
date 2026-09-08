@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/describefile/describefile.go —— MCP 工具 describe_file：描述三件套 + llm 字段（编排机同步入口，拒因当场回传）
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 package describefile
 
@@ -81,10 +81,18 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			return tools.ResultError("orchestrator unavailable"), nil
 		}
 
+		// 键空间（owner 隔离批次）：无前缀 = 自己；~A/ = 跨用户寻址
+		// （describe 是写操作，跨用户由行内 owner 矩阵拒）
+		sc, serr := tools.ScopePath(ctx, filePath)
+		if serr != nil {
+			return tools.Deny(ctx, "describe_file", filePath, serr.Error()), nil
+		}
+		key := sc.Key
+
 		// 写授权：describe 改的是文件元数据（含可见性），owner/组内/admin 之外拒绝
-		if denied, reason := tools.CanFile(ctx, deps.Store, filePath, true); denied {
-			tools.RecordOperation(ctx, deps.Store, sessionID, "describe_file", filePath, "denied", reason, nil)
-			return tools.Deny(ctx, "describe_file", filePath, reason), nil
+		if denied, reason := tools.CanFile(ctx, deps.Store, key, true); denied {
+			tools.RecordOperation(ctx, deps.Store, sessionID, "describe_file", key, "denied", reason, nil)
+			return tools.Deny(ctx, "describe_file", key, reason), nil
 		}
 
 		// 编排机同步入口（与 HTTP describe 同一份实现，原复制粘贴已灭）：
@@ -98,7 +106,7 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			}
 		}
 		res, derr := deps.Orch.Describe(ctx, core.DescribeRequest{
-			Path:        filePath,
+			Path:        key,
 			Title:       common.StrPtr(title),
 			Description: common.StrPtr(description),
 			Tags:        tags,
@@ -110,16 +118,16 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		}, sessionID)
 		if derr != nil {
 			slog.Error("describe_file failed",
-				"path", filePath, "session", sessionID,
+				"path", key, "session", sessionID,
 				"error", derr, "duration", time.Since(start).String())
 			return tools.ResultError(derr.Error()), nil
 		}
 
 		slog.Info("describe_file ok",
-			"path", filePath, "mode", mode, "rejected", len(res.Rejected),
+			"path", key, "mode", mode, "rejected", len(res.Rejected),
 			"session", sessionID, "duration", time.Since(start).String())
-		tools.RecordOperation(ctx, deps.Store, sessionID, "describe_file", filePath, "success", "", map[string]any{"description": description, "tags": tags, "file_type": fileType, "mode": mode})
-		result := map[string]any{"success": true, "message": "Successfully described " + filePath}
+		tools.RecordOperation(ctx, deps.Store, sessionID, "describe_file", key, "success", "", map[string]any{"description": description, "tags": tags, "file_type": fileType, "mode": mode})
+		result := map[string]any{"success": true, "message": "Successfully described " + key}
 		if len(res.Rejected) > 0 {
 			result["rejected"] = res.Rejected // 回传拒绝原因，模型可自纠错
 		}

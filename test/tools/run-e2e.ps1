@@ -94,8 +94,10 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "MCP 端到端有断言失败（见上方 FAIL 行）" }
 
     # 普通用户对 admin 的私文件 describe → 期待 403（授权单点生效）。
-    # 物理随机化后行是存在性事实源：挪到 write 之后，行在盘在，越权 403 真实可测
-    $provBody = [System.Text.Encoding]::UTF8.GetBytes(('{"path":"测试批次/小说片段.txt","description":"越权尝试"}'))
+    # 物理随机化后行是存在性事实源：挪到 write 之后，行在盘在，越权 403 真实可测。
+    # owner 键空间（2026-09-08）：MCP 管家通道写的文件键 = ~agent/<逻辑路径>，
+    # 普通用户显式跨用户寻址（行内 owner 矩阵拒写）
+    $provBody = [System.Text.Encoding]::UTF8.GetBytes(('{"path":"~agent/测试批次/小说片段.txt","description":"越权尝试"}'))
     $denied = $false
     try {
         Invoke-RestMethod -Method Put -Uri "http://127.0.0.1:8080/api/files/metadata" `
@@ -104,13 +106,13 @@ try {
         $denied = ($_.Exception.Response.StatusCode -eq 403)
     }
     if (-not $denied) { throw "普通用户 describe 他人文件未被拒绝（授权失效！）" }
-    Write-Host "  PASS: 普通用户 describe 他人文件被 403 拒绝" -ForegroundColor Green
+    Write-Host "  PASS: 普通用户 describe 他人文件被 403 拒绝（~agent/ 显式跨用户寻址）" -ForegroundColor Green
 
     # =================================================================
     # [4/6] HTTP T3：POST /api/files/analyze
     # =================================================================
     Write-Host "[4/6] HTTP analyze 端点 ..." -ForegroundColor Cyan
-    $body = [System.Text.Encoding]::UTF8.GetBytes('{"path":"测试批次/临时笔记.md"}')
+    $body = [System.Text.Encoding]::UTF8.GetBytes('{"path":"~agent/测试批次/临时笔记.md"}')
     $resp = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:8080/api/files/analyze" -Headers $H `
         -ContentType "application/json; charset=utf-8" -Body $body
     if (-not $resp.success) { throw "HTTP analyze success=false" }
@@ -121,7 +123,7 @@ try {
     # [5/6] 绕口对账（execute_command 场景）：直改盘上文件 → backfill → 核对
     # =================================================================
     Write-Host "[5/6] 绕口对账：直改盘上文件 → backfill 一轮 ..." -ForegroundColor Cyan
-    $novelRel = "测试批次/小说片段.txt"
+    $novelRel = "~agent/测试批次/小说片段.txt"
     # 物理随机化后盘面无明文名：绕口直改目标 = uuid 派生位（查 DB 拿 uuid，
     # 模拟绕口 agent ls 盘面后摸到的随机名文件——对账口径不变）
     $uuid = (docker exec agent_postgres psql -U postgres -d agent_db -t -A -c "SELECT uuid FROM file_metadata WHERE file_path='$novelRel'") | Select-Object -First 1

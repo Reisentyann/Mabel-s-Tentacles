@@ -29,10 +29,34 @@ import (
 type memStore struct {
 	mu   sync.Mutex
 	rows map[string]*repo.FileMetadata
+	ups  int // Upsert 次数（KindMove 零触发断言用）
 }
 
 func newMemStore() *memStore {
 	return &memStore{rows: map[string]*repo.FileMetadata{}}
+}
+
+// upserts 累计 Upsert 次数（KindMove 早退断言：move 不得触发重分析落库）。
+func (s *memStore) upserts() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ups
+}
+
+// rename 模拟管理机 Move 后的行形态（测试基建）：键迁移 + moved_from
+// 记谱系，uuid / 归属 / 描述全不动——repo.MoveMetadata 的内存镜像。
+func (s *memStore) rename(t *testing.T, from, to string) {
+	t.Helper()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, ok := s.rows[from]
+	if !ok {
+		t.Fatalf("rename: no row for %q", from)
+	}
+	delete(s.rows, from)
+	m.FilePath = to
+	m.MovedFrom = &from
+	s.rows[to] = m
 }
 
 func (s *memStore) GetMetadata(_ context.Context, p string) (*repo.FileMetadata, error) {
@@ -48,6 +72,7 @@ func (s *memStore) GetMetadata(_ context.Context, p string) (*repo.FileMetadata,
 func (s *memStore) UpsertMetadata(_ context.Context, m *repo.FileMetadata) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.ups++
 	if old, ok := s.rows[m.FilePath]; ok {
 		if m.Title != nil {
 			old.Title = m.Title
@@ -267,6 +292,41 @@ func TestNewValidation(t *testing.T) {
 	if _, err := New(Options{DataDir: "x"}); err == nil {
 		t.Fatal("expected error for nil store")
 	}
+}
+
+// TestExecuteMoveEarlyExit KindMove 早退（文件管理域 2026-09-08）：键已由
+// 管理机改好——执行器零盘读、零 Upsert、零喂索引（Move = 纯 DB 键改，
+// 统一描述管线不触发）。
+func TestExecuteMoveEarlyExit(t *testing.T) {
+	dir := t.TempDir()
+	ms := newMemStore()
+	uuid := intakeSeed(t, ms, dir, "旧.txt", "# 内容\n\n正文不变。\n")
+	// 模拟管理机 Move 后的行形态：键已迁、uuid 不变
+	ms.rename(t, "旧.txt", "新.txt")
+
+	sn := &fakeSink{}
+	o, err := New(Options{DataDir: dir, Store: ms, Sink: sn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	feedsBefore := len(sn.snapshot())
+	upsBefore := ms.upserts()
+
+	rep, err := o.execute(context.Background(), Event{Kind: KindMove, Path: "新.txt", SessionID: "s-move"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep == nil {
+		t.Fatal("move report nil")
+	}
+	// 零触发三连：无新喂食 / 无新 Upsert / 盘未动（描述事实不变）
+	if got := len(sn.snapshot()); got != feedsBefore {
+		t.Fatalf("sink feeds = %d, want %d (move must not feed index)", got, feedsBefore)
+	}
+	if got := ms.upserts(); got != upsBefore {
+		t.Fatalf("upserts = %d, want %d (move must not re-analyze)", got, upsBefore)
+	}
+	_ = uuid
 }
 
 func TestExecutePipeline(t *testing.T) {

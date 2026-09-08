@@ -82,6 +82,20 @@ func (a *ManagerStore) ReserveMeta(ctx context.Context, logicPath string) (strin
 	return a.st.ReserveMeta(ctx, logicPath)
 }
 
+// MoveMeta 键改直通（哨兵翻译：pgx.ErrNoRows → manager ErrNotFound/
+// ErrDeleted 语义由 manager.Move 前置 GetMeta 判定，这里原样上抛；
+// repo.ErrKeyExists 透传 manager.ErrKeyExists 同名语义）。
+func (a *ManagerStore) MoveMeta(ctx context.Context, from, to string) (string, error) {
+	uuid, err := a.st.MoveMetadata(ctx, from, to)
+	if err != nil {
+		if errors.Is(err, ErrKeyExists) {
+			return "", manager.ErrKeyExists
+		}
+		return "", err
+	}
+	return uuid, nil
+}
+
 func (a *ManagerStore) SoftDeleteMeta(ctx context.Context, path string) error {
 	return a.st.SoftDeleteMetadata(ctx, path)
 }
@@ -137,5 +151,6 @@ func toMetaRow(m *FileMetadata) manager.MetaRow {
 		IsDeleted:  m.IsDeleted,
 		SizeBytes:  common.DerefInt64(m.SizeBytes),
 		UpdatedAt:  m.UpdatedAt,
+		MovedFrom:  common.DerefStr(m.MovedFrom),
 	}
 }

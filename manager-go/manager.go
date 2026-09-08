@@ -35,6 +35,7 @@ type MetaRow struct {
 	IsDeleted  bool            // 软删标记（fetch 语义：照报位置、拒取内容）
 	SizeBytes  int64           // 逻辑树视图计量
 	UpdatedAt  time.Time       // 逻辑树视图计量
+	MovedFrom  string          // 谱系：最近一次移动的原键（空 = 从未移动）
 }
 
 // MetaRecord updater 域的元数据写视图：T2/T3 重分析后的落库载荷。
@@ -77,6 +78,10 @@ type Store interface {
 	// 文件存在证据——missing_rounds 清零）。intake 域 Write 的支撑：
 	// uuid 生成权归 DB，盘写发生在 uuid 之后（物理路径由它派生）。
 	ReserveMeta(ctx context.Context, logicPath string) (string, error)
+	// MoveMeta 逻辑键改（intake 域 Move 的支撑，文件管理域 2026-09-08）：
+	// from 行键改 to + moved_from 记谱系，返回该行 uuid。无行 / 软删行 /
+	// to 已占用分别返回对应哨兵错误。owner 键空间隔离下键改即完成"移动"。
+	MoveMeta(ctx context.Context, from, to string) (string, error)
 }
 
 // IndexSink 索引喂食钩子：写路径 Upsert 后把 attributes 的 old/new diff

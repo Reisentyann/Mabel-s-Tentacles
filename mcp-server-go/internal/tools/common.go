@@ -1,11 +1,12 @@
 // 文件：mcp-server-go/internal/tools/common.go —— 工具共享层：Result / SessionID / RecordOperation / Principal 授权助手 / DownloadURL
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 package tools
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/url"
 	"strings"
@@ -121,4 +122,76 @@ func DownloadURL(cfg *config.Config, filePath string) string {
 		u += "&token=" + url.QueryEscape(cfg.API.AccessToken)
 	}
 	return u
+}
+
+// ===== owner 键空间（多用户隔离批次 2026-09-08）=====
+
+// OwnerMark 保留段前缀：DB 键 = ~<主体名>/逻辑路径（S3 bucket / Unix home
+// 形态）。~ 不在 usernamePattern 字符集内，保留段不可伪装。agent 寻址
+// 语言：无前缀 = 自己空间（工具层自动拼接，agent 无感知）；显式 ~A/ =
+// 跨用户寻址（只读语义——可见性由行内 ACL 授权判定，写操作一律拒绝）。
+const OwnerMark = "~"
+
+// ScopedPath 寻址解析结果：最终 DB 键 + 目标空间主体 + 是否自己空间。
+type ScopedPath struct {
+	Key   string // 最终 DB 键（~owner/逻辑路径）
+	Owner string // 目标空间主体名
+	Self  bool   // 是否自己空间
+}
+
+// ScopePath 解析 agent 给的寻址路径 → 键空间规则：
+//   - "笔记.txt" / "~/笔记.txt"：自己空间 → ~<主体>/笔记.txt
+//   - "~A/笔记.txt"：A 的空间（跨用户寻址；写侧调用方须拒）
+//
+// 未认证主体 / 空路径 / 裸 "~" / 坏段 → err（fail-closed）。
+func ScopePath(ctx context.Context, path string) (ScopedPath, error) {
+	p := authz.PrincipalFrom(ctx)
+	if p == nil {
+		return ScopedPath{}, errors.New("未认证主体")
+	}
+	if path == "" {
+		return ScopedPath{}, errors.New("路径为空")
+	}
+	first, rest, hasRest := strings.Cut(path, "/")
+	switch {
+	case first == OwnerMark: // "~/..." → 自己
+		if !hasRest || rest == "" {
+			return ScopedPath{}, errors.New(`"~"后缺少路径段`)
+		}
+		return selfScope(p.Name, rest), nil
+	case strings.HasPrefix(first, OwnerMark): // "~A/..."
+		target := strings.TrimPrefix(first, OwnerMark)
+		if target == "" || !hasRest || rest == "" {
+			return ScopedPath{}, errors.New("跨用户寻址格式：~<用户名>/<路径>")
+		}
+		return ScopedPath{Key: OwnerMark + target + "/" + rest, Owner: target, Self: target == p.Name}, nil
+	default: // 无前缀 → 自己
+		return selfScope(p.Name, path), nil
+	}
+}
+
+func selfScope(actor, rest string) ScopedPath {
+	return ScopedPath{Key: OwnerMark + actor + "/" + rest, Owner: actor, Self: true}
+}
+
+// ScopeWrite 写侧寻址：跨用户一律拒绝（MCP 工具不代人写；admin 管理走
+// HTTP admin 端点）。副本/移动的目标键同口径（拿走即拥有 → 只入自己空间）。
+func ScopeWrite(ctx context.Context, path string) (ScopedPath, error) {
+	sc, err := ScopePath(ctx, path)
+	if err != nil {
+		return sc, err
+	}
+	if !sc.Self {
+		return sc, errors.New("跨用户写入禁止（~用户名/ 前缀仅支持只读寻址）")
+	}
+	return sc, nil
+}
+
+// OwnerPrefix 主体的键空间前缀（~<主体名>/）——列目录侧过滤用。
+func OwnerPrefix(ctx context.Context) (string, error) {
+	p := authz.PrincipalFrom(ctx)
+	if p == nil {
+		return "", errors.New("未认证主体")
+	}
+	return OwnerMark + p.Name + "/", nil
 }

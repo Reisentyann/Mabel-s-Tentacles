@@ -155,6 +155,89 @@ func (m *Manager) Modify(ctx context.Context, logicPath, content, mode string) e
 	return nil
 }
 
+// ErrKeyExists 目标逻辑键已被占用（Move 拒绝覆盖既有文件——键空间唯一性
+// 由 DB UNIQUE 兜底，本哨兵是人话口径）。
+var ErrKeyExists = errors.New("manager: logic key already exists")
+
+// MoveReceipt 键改回执：uuid + 原键 + 新键 + 物理位是否随 ext 变化搬移。
+type MoveReceipt struct {
+	UUID        string `json:"uuid"`
+	From        string `json:"from"`
+	To          string `json:"to"`
+	StorageMove bool   `json:"storage_move"`
+}
+
+// Move 逻辑键改（文件管理域 2026-09-08；intake 域设计红利兑现）：
+//
+//   - uuid 不变、行事实（描述/归属/谱系）不变、索引键（uuid）不动——
+//     统一描述管线零触发（KindMove 事件在执行器早退）
+//   - ext 不变 = 纯 DB 键改，零盘操作；ext 变化 = 物理位随派生规则
+//     rename（同卷原子，uuid 分层目录不变）
+//   - 谱系 moved_from 记原键（行内列，元数据端点自然带出——谱系查询
+//     零新端点）
+//   - 无行 / 软删行拒（ErrNotFound / ErrDeleted 哨兵）；目标占用拒
+//     （ErrKeyExists）
+func (m *Manager) Move(ctx context.Context, from, to string) (*MoveReceipt, error) {
+	if err := validLogicPath(from); err != nil {
+		return nil, err
+	}
+	if err := validLogicPath(to); err != nil {
+		return nil, err
+	}
+	if from == to {
+		return nil, fmt.Errorf("error: source and target are the same")
+	}
+	row, err := m.store.GetMeta(ctx, from)
+	if err != nil {
+		return nil, fmt.Errorf("get meta: %w", err)
+	}
+	if row == nil {
+		return nil, ErrNotFound
+	}
+	if row.IsDeleted {
+		return nil, ErrDeleted
+	}
+
+	// 键改（谱系 + uuid 回执归 Store 一手落——repo 侧 UNIQUE 兜底并发竞态）
+	uuid, err := m.store.MoveMeta(ctx, from, to)
+	if err != nil {
+		return nil, err
+	}
+
+	// 物理位随 ext 变化才动（同 uuid 派生：分层目录恒同，rename 同卷原子）
+	oldRel, err := StoragePathOf(uuid, from)
+	if err != nil {
+		return nil, err
+	}
+	newRel, err := StoragePathOf(uuid, to)
+	if err != nil {
+		return nil, err
+	}
+	moved := oldRel != newRel
+	if moved {
+		oldAbs, rerr := m.resolve(oldRel)
+		if rerr != nil {
+			return nil, rerr
+		}
+		newAbs, rerr := m.resolve(newRel)
+		if rerr != nil {
+			return nil, rerr
+		}
+		if err := os.MkdirAll(filepath.Dir(newAbs), 0o755); err != nil {
+			return nil, fmt.Errorf("create directory: %w", err)
+		}
+		if err := os.Rename(oldAbs, newAbs); err != nil {
+			// 键改已落库而盘 rename 失败：回滚键改保一致（行是事实源，
+			// 盘位由行派生——行不改则盘位口径不漂）
+			if _, rbErr := m.store.MoveMeta(ctx, to, from); rbErr != nil {
+				return nil, fmt.Errorf("rename %w (rollback failed: %v)", err, rbErr)
+			}
+			return nil, fmt.Errorf("rename file: %w", err)
+		}
+	}
+	return &MoveReceipt{UUID: uuid, From: from, To: to, StorageMove: moved}, nil
+}
+
 // LogicNode 逻辑树节点（与前端树视图结构同构：name/path/type/size/updated）。
 type LogicNode struct {
 	Name      string       `json:"name"`

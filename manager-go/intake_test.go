@@ -164,3 +164,103 @@ func TestStoragePathOfShape(t *testing.T) {
 		t.Fatal("short uuid must be rejected")
 	}
 }
+
+// TestMovePureKeyChange 纯键改（ext 不变）：uuid 不变、物理位不动、
+// 零盘操作——intake 域设计红利的兑现口径；谱系 moved_from 记原键。
+func TestMovePureKeyChange(t *testing.T) {
+	m, st, _, dir := newTestManager(t)
+	ctx := context.Background()
+	r, err := m.Write(ctx, "小说/旧名.txt", "正文")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mv, err := m.Move(ctx, "小说/旧名.txt", "小说/新名.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if mv.UUID != r.UUID {
+		t.Fatalf("uuid changed on move: %q → %q", r.UUID, mv.UUID)
+	}
+	if mv.StorageMove {
+		t.Fatal("same ext must be pure DB rename (zero disk ops)")
+	}
+	// 谱系：行迁到新键 + moved_from 记原键
+	if st.uuids["小说/新名.txt"] != r.UUID || st.uuids["小说/旧名.txt"] != "" {
+		t.Fatal("key space must migrate")
+	}
+	if row := st.rows["小说/新名.txt"]; row == nil || row.MovedFrom != "小说/旧名.txt" {
+		t.Fatalf("row after move = %+v (moved_from missing?)", row)
+	}
+	if st.rows["小说/旧名.txt"] != nil {
+		t.Fatal("old key row must be gone")
+	}
+	// 内容随键可达（uuid 派生位不变）
+	rf, err := m.ReadByLogic(ctx, "小说/新名.txt", 0)
+	if err != nil || string(rf.Content) != "正文" {
+		t.Fatalf("read after move = %q err=%v", rf.Content, err)
+	}
+	_ = dir
+}
+
+// TestMoveExtChangeRename ext 变化：物理位随派生规则 rename（uuid 分层
+// 目录不变，同卷原子）；rename 失败键改回滚（行是事实源口径由调用方保证，
+// 本用例钉正路径）。
+func TestMoveExtChangeRename(t *testing.T) {
+	m, st, _, dir := newTestManager(t)
+	ctx := context.Background()
+	r, err := m.Write(ctx, "笔记.txt", "内容")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mv, err := m.Move(ctx, "笔记.txt", "笔记.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !mv.StorageMove {
+		t.Fatal("ext change must rename stored file")
+	}
+	if mv.UUID != r.UUID {
+		t.Fatalf("uuid changed on move: %q → %q", r.UUID, mv.UUID)
+	}
+	// 新派生位有文件、旧派生位没有
+	newRel, _ := manager.StoragePathOf(r.UUID, "笔记.md")
+	if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(newRel))); err != nil {
+		t.Fatalf("new storage missing: %v", err)
+	}
+	oldRel, _ := manager.StoragePathOf(r.UUID, "笔记.txt")
+	if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(oldRel))); !os.IsNotExist(err) {
+		t.Fatal("old storage must be gone after rename")
+	}
+	_ = st
+}
+
+// TestMoveGuards 拒绝口径：无行 / 目标占用 / 同键 / 软删行。
+func TestMoveGuards(t *testing.T) {
+	m, st, _, _ := newTestManager(t)
+	ctx := context.Background()
+	if _, err := m.Write(ctx, "a.txt", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Write(ctx, "b.txt", "y"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := m.Move(ctx, "无此文件.txt", "z.txt"); err == nil {
+		t.Fatal("missing row must be rejected")
+	}
+	if _, err := m.Move(ctx, "a.txt", "b.txt"); err == nil {
+		t.Fatal("occupied target must be rejected")
+	}
+	if _, err := m.Move(ctx, "a.txt", "a.txt"); err == nil {
+		t.Fatal("same key must be rejected")
+	}
+	// 软删行拒取内容口径（fake 状态直改，同 BackfillGhost 用例模式）
+	st.softDeleted["a.txt"] = true
+	st.rows["a.txt"].IsDeleted = true
+	if _, err := m.Move(ctx, "a.txt", "c.txt"); err == nil {
+		t.Fatal("soft-deleted row must be rejected")
+	}
+	_ = st
+}

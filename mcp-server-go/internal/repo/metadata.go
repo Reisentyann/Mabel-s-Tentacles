@@ -6,9 +6,11 @@ package repo
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // FileMetadata 文件的描述/标签/属性等元数据。指针字段为 NULL 时表示「未提供」。
@@ -32,6 +34,7 @@ type FileMetadata struct {
 	UserID         *string         `json:"user_id"`
 	Attributes     json.RawMessage `json:"attributes"`
 	CopiedFrom     *string         `json:"copied_from"`
+	MovedFrom      *string         `json:"moved_from"` // 谱系：最近一次移动的原键（文件管理域）
 	DownloadCount  int64           `json:"download_count"`
 	LastAccessedAt *time.Time      `json:"last_accessed_at"`
 	ExpiresAt      *time.Time      `json:"expires_at"`
@@ -59,7 +62,7 @@ type FileSearch struct {
 	ViewerGroups []int64 // 观察者所在组
 }
 
-const metaColumns = `id, uuid, file_path, scope, owner_id, visibility, group_id, title, description, tags, file_type, mime_type, extension, size_bytes, checksum, session_id, user_id, attributes, copied_from, download_count, last_accessed_at, expires_at, is_deleted, deleted_at, missing_rounds, created_at, updated_at`
+const metaColumns = `id, uuid, file_path, scope, owner_id, visibility, group_id, title, description, tags, file_type, mime_type, extension, size_bytes, checksum, session_id, user_id, attributes, copied_from, moved_from, download_count, last_accessed_at, expires_at, is_deleted, deleted_at, missing_rounds, created_at, updated_at`
 
 const metaWhere = `is_deleted = $1
  AND ($2::text   IS NULL OR description ILIKE '%'||$2||'%' OR file_path ILIKE '%'||$2||'%')
@@ -75,7 +78,7 @@ func scanMeta(row pgx.Row) (*FileMetadata, error) {
 	if err := row.Scan(&m.ID, &m.UUID, &m.FilePath, &m.Scope, &m.OwnerID, &m.Visibility, &m.GroupID,
 		&m.Title, &m.Description, &m.Tags,
 		&m.FileType, &m.MimeType, &m.Extension, &m.SizeBytes, &m.Checksum, &m.SessionID, &m.UserID,
-		&m.Attributes, &m.CopiedFrom, &m.DownloadCount, &m.LastAccessedAt, &m.ExpiresAt,
+		&m.Attributes, &m.CopiedFrom, &m.MovedFrom, &m.DownloadCount, &m.LastAccessedAt, &m.ExpiresAt,
 		&m.IsDeleted, &m.DeletedAt, &m.MissingRounds, &m.CreatedAt, &m.UpdatedAt); err != nil {
 		return nil, err
 	}
@@ -303,6 +306,42 @@ func (s *pgxStore) SoftDeleteMetadata(ctx context.Context, filePath string) erro
 	_, err := s.pool.Exec(ctx,
 		`UPDATE file_metadata SET is_deleted=TRUE, deleted_at=NOW(), updated_at=NOW() WHERE file_path=$1`, filePath)
 	return err
+}
+
+// ErrKeyExists 目标逻辑键已被占用（Move 拒绝覆盖；file_path UNIQUE 兜底
+// 并发竞态——两个 Move 同时抢同一目标键时后者在 UNIQUE 上撞出本哨兵）。
+var ErrKeyExists = errors.New("repo: logic key already exists")
+
+// MoveMetadata 逻辑键改（文件管理域 2026-09-08；manager.Move 的支撑）：
+// from 行键改 to + moved_from 记谱系，返回行 uuid。无行 / 软删行 →
+// pgx.ErrNoRows（调用方翻译哨兵）；to 已占用 → ErrKeyExists。
+// uuid / 归属 / 描述 / 索引键全不动——键改即完成"移动"。
+func (s *pgxStore) MoveMetadata(ctx context.Context, from, to string) (string, error) {
+	// 预查目标占用（人话错误）；并发竞态由 UNIQUE 约束兜底（下方 23505 捕获）
+	var exists bool
+	if err := s.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM file_metadata WHERE file_path=$1)`, to).Scan(&exists); err != nil {
+		return "", err
+	}
+	if exists {
+		return "", ErrKeyExists
+	}
+	var uuid string
+	err := s.pool.QueryRow(ctx,
+		`UPDATE file_metadata SET file_path=$2, moved_from=$1, updated_at=NOW()
+		 WHERE file_path=$1 AND is_deleted=FALSE
+		 RETURNING uuid`, from, to).Scan(&uuid)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", pgx.ErrNoRows // 无行 / 软删行
+		}
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return "", ErrKeyExists // UNIQUE 兜底：并发抢键的后到者
+		}
+		return "", err
+	}
+	return uuid, nil
 }
 
 // IncrementDownloadCount 递增下载计数并刷新最后访问时间。

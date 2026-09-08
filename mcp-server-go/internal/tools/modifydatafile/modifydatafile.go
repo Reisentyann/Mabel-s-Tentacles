@@ -50,30 +50,38 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		start := time.Now()
 		params := map[string]any{"file_path": filePath, "mode": mode, "content_size": len(content)}
 
+		// 键空间（owner 隔离批次）：modify 仅自己空间（跨用户写禁止）
+		sc, serr := tools.ScopeWrite(ctx, filePath)
+		if serr != nil {
+			tools.RecordOperation(ctx, deps.Store, sessionID, "modify_data_file", filePath, "denied", serr.Error(), params)
+			return tools.Deny(ctx, "modify_data_file", filePath, serr.Error()), nil
+		}
+		key := sc.Key
+
 		// 写授权：modify 是对既有文件的动手操作，owner/组内/admin 之外拒绝
-		if denied, reason := tools.CanFile(ctx, deps.Store, filePath, true); denied {
-			tools.RecordOperation(ctx, deps.Store, sessionID, "modify_data_file", filePath, "denied", reason, params)
-			return tools.Deny(ctx, "modify_data_file", filePath, reason), nil
+		if denied, reason := tools.CanFile(ctx, deps.Store, key, true); denied {
+			tools.RecordOperation(ctx, deps.Store, sessionID, "modify_data_file", key, "denied", reason, params)
+			return tools.Deny(ctx, "modify_data_file", key, reason), nil
 		}
 
 		// 修改走管理机（intake 域 Modify：逻辑键 → uuid 派生物理路径）
 		if deps.Manager == nil {
 			return tools.ResultError("manager not wired"), nil
 		}
-		if err := deps.Manager.Modify(ctx, filePath, content, mode); err != nil {
-			slog.Error("modify_data_file failed", "path", filePath, "mode", mode, "session", sessionID, "error", err, "duration", time.Since(start).String())
-			tools.RecordOperation(ctx, deps.Store, sessionID, "modify_data_file", filePath, "failed", err.Error(), params)
+		if err := deps.Manager.Modify(ctx, key, content, mode); err != nil {
+			slog.Error("modify_data_file failed", "path", key, "mode", mode, "session", sessionID, "error", err, "duration", time.Since(start).String())
+			tools.RecordOperation(ctx, deps.Store, sessionID, "modify_data_file", key, "failed", err.Error(), params)
 			return tools.ResultError(err.Error()), nil
 		}
 
 		// 元数据刷新走编排机事件（异步）：worker 盘上重读终态重算
 		// size/checksum/描述（后写胜出），此处不再整读文件，agent 即写即回
 		if deps.Orch != nil {
-			deps.Orch.Submit(core.Event{Kind: core.KindModify, Path: filePath, SessionID: sessionID, Actor: tools.Actor(ctx)})
+			deps.Orch.Submit(core.Event{Kind: core.KindModify, Path: key, SessionID: sessionID, Actor: tools.Actor(ctx)})
 		}
 
-		slog.Info("modify_data_file ok", "path", filePath, "mode", mode, "session", sessionID, "duration", time.Since(start).String())
-		tools.RecordOperation(ctx, deps.Store, sessionID, "modify_data_file", filePath, "success", "", params)
-		return tools.Result(map[string]any{"success": true, "message": "Successfully modified " + filePath + " in " + mode + " mode"}), nil
+		slog.Info("modify_data_file ok", "path", key, "mode", mode, "session", sessionID, "duration", time.Since(start).String())
+		tools.RecordOperation(ctx, deps.Store, sessionID, "modify_data_file", key, "success", "", params)
+		return tools.Result(map[string]any{"success": true, "message": "Successfully modified " + key + " in " + mode + " mode"}), nil
 	})
 }

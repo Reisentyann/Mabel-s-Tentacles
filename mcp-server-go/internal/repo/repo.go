@@ -73,6 +73,10 @@ type Store interface {
 	// 幂等拿 uuid——存在即复用（missing_rounds 清零），不存在则落最小占位行
 	// （其余列走 DDL 默认值）。uuid 生成权归 DB（gen_random_uuid）。
 	ReserveMeta(ctx context.Context, logicPath string) (string, error)
+	// MoveMetadata 逻辑键改（manager intake 域 Move 的支撑，文件管理域
+	// 2026-09-08）：from 行键改 to + moved_from 记谱系，返回行 uuid。
+	// 无行/软删 → pgx.ErrNoRows；to 占用 → ErrKeyExists（UNIQUE 兜底并发）。
+	MoveMetadata(ctx context.Context, from, to string) (string, error)
 
 	Close()
 }
@@ -209,6 +213,10 @@ var migrations = []string{
 	// 幽灵元数据存续状态：T2 回填轮次中盘上连续缺失的计数（3 轮软删除，
 	// manager updater 域）。Upsert 视为文件存在证据，写入时清零。
 	`ALTER TABLE file_metadata ADD COLUMN IF NOT EXISTS missing_rounds INT NOT NULL DEFAULT 0`,
+
+	// ---- 文件管理域（2026-09-08）：Move 谱系 ----
+	// 最近一次移动的原键（空 = 从未移动）；copied_from 同款谱系语义。
+	`ALTER TABLE file_metadata ADD COLUMN IF NOT EXISTS moved_from TEXT`,
 
 	// ---- 权限批次（2026-09-06，docs/权限设计.md）：角色 / 归属 / 组 / 外部 agent key ----
 	// 用户角色：admin 越过一切归属检查；user 走矩阵。存量行自动落 'user'，
