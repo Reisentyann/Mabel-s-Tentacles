@@ -99,6 +99,9 @@ test/fixtures-report.json
 test/tools/mcpclient/mcpclient.exe
 test/tools/scenario/scenario.exe
 
+# 部署交叉编译产物（不入库；上传后服务器留存 /opt/mabel/mabel-server）
+mcp-server-go/mabel-server-linux
+
 # 本地小结备忘（不入库）
 小结.md
 
