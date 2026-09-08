@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/repo/metadata.go —— file_metadata 表存取：模型 / Upsert(COALESCE 返回 uuid) / 搜索 / 分页扫描 / 缺失计数 / 软删
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 package repo
 
@@ -160,6 +160,37 @@ func (s *pgxStore) GetMetadataByPaths(ctx context.Context, paths []string) (map[
 			return nil, err
 		}
 		out[m.FilePath] = m
+	}
+	return out, rows.Err()
+}
+
+// GetMetadataByUUID 凭 uuid 读单行（含软删行——manager fetch 的 Locate
+// 语义"软删照报"；无行返回 pgx.ErrNoRows，由调用方映射）。
+func (s *pgxStore) GetMetadataByUUID(ctx context.Context, uuid string) (*FileMetadata, error) {
+	return scanMeta(s.pool.QueryRow(ctx,
+		`SELECT `+metaColumns+` FROM file_metadata WHERE uuid=$1`, uuid))
+}
+
+// GetMetadataByUUIDs 批量凭 uuid 取行（含软删行）：uuid → 行映射，
+// 缺失的 uuid 不入 map（调用方对照入参找缺）。搜索索引路径一次取齐
+// （Index.Query → uuids → 本方法，免 N+1）。
+func (s *pgxStore) GetMetadataByUUIDs(ctx context.Context, uuids []string) (map[string]*FileMetadata, error) {
+	out := make(map[string]*FileMetadata, len(uuids))
+	if len(uuids) == 0 {
+		return out, nil
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+metaColumns+` FROM file_metadata WHERE uuid = ANY($1)`, uuids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		m, err := scanMeta(rows)
+		if err != nil {
+			return nil, err
+		}
+		out[m.UUID] = m
 	}
 	return out, rows.Err()
 }

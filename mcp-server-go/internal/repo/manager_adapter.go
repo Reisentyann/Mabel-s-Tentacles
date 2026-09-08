@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/repo/manager_adapter.go —— manager.Store 适配器：repo 存取 → manager 最小面（DTO 转换 + 顶层列推导归装配侧）
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 package repo
 
@@ -81,20 +81,46 @@ func (a *ManagerStore) SoftDeleteMeta(ctx context.Context, path string) error {
 	return a.st.SoftDeleteMetadata(ctx, path)
 }
 
-// errFetchPending 取件批次未落地的装配侧占位（manager 取件接口已钉面，
-// repo 按 uuid 查询的实现与接线随后续批次；manager.go fetch.go / buffer.go）。
-var errFetchPending = errors.New("repo: fetch by uuid pending implementation")
+// errFetchPending 已退役（取件实现批次 2026-09-06：repo.GetMetadataByUUID(s)
+// 落地，uuid 是组件货币——按 uuid 取件的出库口自此贯通）。
 
 // GetMetaByUUID 凭 uuid 取件视图（fetch 域 Locate 的支撑）。
-// TODO 取件实现批次：repo.Store 补按 uuid 查询（单行）→ FileRef 组装。
+// manager 约定：无行 = (nil, nil)（Locate 映射 ErrNotFound）。
 func (a *ManagerStore) GetMetaByUUID(ctx context.Context, uuid string) (*manager.FileRef, error) {
-	return nil, errFetchPending
+	m, err := a.st.GetMetadataByUUID(ctx, uuid)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return toFileRef(m), nil
 }
 
-// GetMetaByUUIDs 批量取件视图（fetch 域 LocateMany 的支撑）。
-// TODO 取件实现批次：repo.Store 补按 uuid 集合查询（WHERE uuid = ANY($1)）。
+// GetMetaByUUIDs 批量取件视图（fetch 域 LocateMany / 检索索引路径的支撑）：
+// 缺失的 uuid 不入 map。
 func (a *ManagerStore) GetMetaByUUIDs(ctx context.Context, uuids []string) (map[string]*manager.FileRef, error) {
-	return nil, errFetchPending
+	items, err := a.st.GetMetadataByUUIDs(ctx, uuids)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]*manager.FileRef, len(items))
+	for u, m := range items {
+		out[u] = toFileRef(m)
+	}
+	return out, nil
+}
+
+// toFileRef repo 行 → manager 取件视图（DTO 归属 manager，装配侧只做转换）。
+func toFileRef(m *FileMetadata) *manager.FileRef {
+	return &manager.FileRef{
+		UUID:      m.UUID,
+		Path:      m.FilePath,
+		Scope:     m.Scope,
+		SizeBytes: common.DerefInt64(m.SizeBytes),
+		MimeType:  common.DerefStr(m.MimeType),
+		IsDeleted: m.IsDeleted,
+	}
 }
 
 func toMetaRow(m *FileMetadata) manager.MetaRow {

@@ -1,5 +1,5 @@
 // 文件：manager-go/updater_test.go —— updater 域 L1：T3 执行器（路由/合并/穿越/喂食）+ T2 陈旧四条件 + 幽灵软删 + batch 上限
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 package manager_test
 
@@ -20,13 +20,16 @@ import (
 )
 
 // fakeStore updater 域最小面的内存实现（path 键；软删行退出扫描，对齐
-// repo 的 is_deleted=FALSE 过滤口径）。
+// repo 的 is_deleted=FALSE 过滤口径）。refs 为取件域的独立事实源
+// （uuid → FileRef，fetch 测试直接塞入；与 rows 解耦——updater 写路径
+// 不维护它，避免测试双簿记漂移）。
 type fakeStore struct {
 	rows        map[string]*manager.MetaRow
 	ups         map[string]manager.MetaRecord
 	uuids       map[string]string
 	missing     map[string]int
 	softDeleted map[string]bool
+	refs        map[string]*manager.FileRef
 }
 
 func newFakeStore() *fakeStore {
@@ -36,6 +39,7 @@ func newFakeStore() *fakeStore {
 		uuids:       map[string]string{},
 		missing:     map[string]int{},
 		softDeleted: map[string]bool{},
+		refs:        map[string]*manager.FileRef{},
 	}
 }
 
@@ -93,14 +97,25 @@ func (s *fakeStore) SoftDeleteMeta(ctx context.Context, path string) error {
 	return nil
 }
 
-// 取件域钉面补齐（fetch.go 接口轮，2026-09-05）：updater 用例不触达，
-// 零值占位保证 fakeStore 满足 Store 面。
+// 取件域面（fetch 实现批次 2026-09-06）：refs 直查——软删行照报
+// （IsDeleted 由测试塞入时自带；DB 口径 = 按 uuid 查询不过滤 is_deleted）。
 func (s *fakeStore) GetMetaByUUID(ctx context.Context, uuid string) (*manager.FileRef, error) {
+	if r, ok := s.refs[uuid]; ok {
+		cp := *r
+		return &cp, nil
+	}
 	return nil, nil
 }
 
 func (s *fakeStore) GetMetaByUUIDs(ctx context.Context, uuids []string) (map[string]*manager.FileRef, error) {
-	return nil, nil
+	out := make(map[string]*manager.FileRef, len(uuids))
+	for _, u := range uuids {
+		if r, ok := s.refs[u]; ok {
+			cp := *r
+			out[u] = &cp
+		}
+	}
+	return out, nil
 }
 
 // fakeSink 索引喂食钩子的录音机。

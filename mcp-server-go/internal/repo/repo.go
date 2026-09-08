@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/repo/repo.go —— 数据访问接口 Store + pgx 连接池实现（可 mock）
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 package repo
 
@@ -54,6 +54,11 @@ type Store interface {
 	UpsertMetadata(ctx context.Context, m *FileMetadata) (uuid string, err error)
 	GetMetadata(ctx context.Context, filePath string) (*FileMetadata, error)
 	GetMetadataByPaths(ctx context.Context, paths []string) (map[string]*FileMetadata, error)
+	// GetMetadataByUUID(s) 凭组件货币取件（manager fetch 域 Locate/LocateMany
+	// 与检索索引化批量取件的支撑；含软删行——Locate 语义"软删照报"，
+	// 无行 = ErrNoRows / 批量缺失不入 map）。
+	GetMetadataByUUID(ctx context.Context, uuid string) (*FileMetadata, error)
+	GetMetadataByUUIDs(ctx context.Context, uuids []string) (map[string]*FileMetadata, error)
 	SearchFiles(ctx context.Context, fs FileSearch) ([]FileMetadata, int, error)
 	CopyMetadata(ctx context.Context, source, target, owner, sessionID string) error
 	SoftDeleteMetadata(ctx context.Context, filePath string) error
