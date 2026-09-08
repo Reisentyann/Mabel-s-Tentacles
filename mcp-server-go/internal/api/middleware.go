@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/api/middleware.go —— HTTP 中间件：请求日志（bytes/ip/user）/ 尾斜杠归一 / JWT 鉴权 / 下载 token
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 package api
 
@@ -154,7 +154,11 @@ func principalOf(r *http.Request) *authz.Principal {
 	return authz.PrincipalFrom(r.Context())
 }
 
-// checkAccessToken 校验下载接口的 query token，配置为空时不校验。
+// checkAccessToken 已退役（2026-09-08 限时票据批次）：静态 ACCESS_TOKEN
+// 曾是"通过即跳过全部授权"的万能下载钥匙——链接一旦外泄等于全站任意
+// 文件（含私密）永久可下载。下载自证改走 exp+ticket 限时票据（单文件
+// 绑定 + 半小时过期，service/ticket.go）。函数体保留仅作口径变更的考古
+// 注记，无调用方。
 func (s *Server) checkAccessToken(r *http.Request) bool {
 	token := s.cfg.API.AccessToken
 	if token == "" {
