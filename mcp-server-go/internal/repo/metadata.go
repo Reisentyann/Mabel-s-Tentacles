@@ -315,6 +315,9 @@ var ErrKeyExists = errors.New("repo: logic key already exists")
 // MoveMetadata 逻辑键改（文件管理域 2026-09-08；manager.Move 的支撑）：
 // from 行键改 to + moved_from 记谱系，返回行 uuid。无行 / 软删行 →
 // pgx.ErrNoRows（调用方翻译哨兵）；to 已占用 → ErrKeyExists。
+// MoveMetadata 逻辑键改（文件管理域 2026-09-08；manager.Move 的支撑）：
+// from 行键改 to + moved_from 记谱系，返回行 uuid。无行/软删 →
+// pgx.ErrNoRows；to 占用 → ErrKeyExists（UNIQUE 兜底并发竞态）。
 // uuid / 归属 / 描述 / 索引键全不动——键改即完成"移动"。
 func (s *pgxStore) MoveMetadata(ctx context.Context, from, to string) (string, error) {
 	// 预查目标占用（人话错误）；并发竞态由 UNIQUE 约束兜底（下方 23505 捕获）
