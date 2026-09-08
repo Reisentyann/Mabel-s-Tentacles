@@ -76,19 +76,6 @@ try {
     $UH = @{ Authorization = "Bearer $($reg.access_token)" }
     Write-Host "  PASS: 普通用户就位（e2e_user）" -ForegroundColor Green
 
-    # 普通用户对 admin 的私文件 describe → 期待 403（授权单点生效）
-    $deniedPath = [uri]::EscapeDataString("测试批次/小说片段.txt")
-    $provBody = [System.Text.Encoding]::UTF8.GetBytes(('{"path":"测试批次/小说片段.txt","description":"越权尝试"}'))
-    $denied = $false
-    try {
-        Invoke-RestMethod -Method Put -Uri "http://127.0.0.1:8080/api/files/metadata" `
-            -ContentType "application/json; charset=utf-8" -Body $provBody -Headers $UH | Out-Null
-    } catch {
-        $denied = ($_.Exception.Response.StatusCode -eq 403)
-    }
-    if (-not $denied) { throw "普通用户 describe 他人文件未被拒绝（授权失效！）" }
-    Write-Host "  PASS: 普通用户 describe 他人文件被 403 拒绝" -ForegroundColor Green
-
     # 普通 backfill 也应被拒（admin 专属）
     $bfDenied = $false
     try {
@@ -106,6 +93,19 @@ try {
     & (Join-Path $ClientDir "mcpclient.exe") -url "http://127.0.0.1:8080/sse"
     if ($LASTEXITCODE -ne 0) { throw "MCP 端到端有断言失败（见上方 FAIL 行）" }
 
+    # 普通用户对 admin 的私文件 describe → 期待 403（授权单点生效）。
+    # 物理随机化后行是存在性事实源：挪到 write 之后，行在盘在，越权 403 真实可测
+    $provBody = [System.Text.Encoding]::UTF8.GetBytes(('{"path":"测试批次/小说片段.txt","description":"越权尝试"}'))
+    $denied = $false
+    try {
+        Invoke-RestMethod -Method Put -Uri "http://127.0.0.1:8080/api/files/metadata" `
+            -ContentType "application/json; charset=utf-8" -Body $provBody -Headers $UH | Out-Null
+    } catch {
+        $denied = ($_.Exception.Response.StatusCode -eq 403)
+    }
+    if (-not $denied) { throw "普通用户 describe 他人文件未被拒绝（授权失效！）" }
+    Write-Host "  PASS: 普通用户 describe 他人文件被 403 拒绝" -ForegroundColor Green
+
     # =================================================================
     # [4/6] HTTP T3：POST /api/files/analyze
     # =================================================================
@@ -122,7 +122,12 @@ try {
     # =================================================================
     Write-Host "[5/6] 绕口对账：直改盘上文件 → backfill 一轮 ..." -ForegroundColor Cyan
     $novelRel = "测试批次/小说片段.txt"
-    $novelAbs = Join-Path $DataDir ($novelRel -replace '/', [IO.Path]::DirectorySeparatorChar)
+    # 物理随机化后盘面无明文名：绕口直改目标 = uuid 派生位（查 DB 拿 uuid，
+    # 模拟绕口 agent ls 盘面后摸到的随机名文件——对账口径不变）
+    $uuid = (docker exec agent_postgres psql -U postgres -d agent_db -t -A -c "SELECT uuid FROM file_metadata WHERE file_path='$novelRel'") | Select-Object -First 1
+    if (-not $uuid) { throw "DB 未查到 uuid（write 链路未落行？）" }
+    $novelAbs = Join-Path $DataDir (Join-Path $uuid.Substring(0,2) ($uuid + ".txt"))
+    if (-not (Test-Path -LiteralPath $novelAbs)) { throw "派生物理位不存在：$novelAbs" }
     $esc = [uri]::EscapeDataString($novelRel)
     $before = Invoke-RestMethod -Uri "http://127.0.0.1:8080/api/files/metadata?path=$esc" -Headers $H
     $linesBefore = $before.attributes.'cod-text-lines'

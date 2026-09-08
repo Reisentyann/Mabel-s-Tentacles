@@ -9,14 +9,12 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"os"
 	"strconv"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/search"
-	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 )
 
 // searchFiles 检索文件元数据：?q=&tag=&type=&creator=&scope=&color=&deleted=&page=&size=
@@ -112,13 +110,18 @@ func (s *Server) describeFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	target, err := service.ResolvePath(s.cfg.DataDir, req.Path)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+	if s.repo == nil {
+		writeError(w, http.StatusInternalServerError, "database unavailable")
 		return
 	}
-	if info, err := os.Stat(target); err != nil || info.IsDir() {
-		writeError(w, http.StatusNotFound, "file not found")
+	// 物理随机化后行是存在性的事实源（盘面只有 uuid 派生位，明文路径
+	// 永不在盘上）：无行 = 未入库，404
+	if _, err := s.repo.GetMetadata(r.Context(), req.Path); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "file not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if s.orch == nil {
