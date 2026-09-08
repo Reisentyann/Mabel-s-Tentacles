@@ -5,11 +5,11 @@
 //
 //	ticket = HMAC-SHA256(SECRET_KEY, path + "|" + uuid + "|" + exp)
 //
-//	- 单文件绑定：票据按 path+uuid 签发，换一个文件即失效
-//	- 自动过期：exp（unix 秒）随 URL 明文携带，过期即拒
-//	- 无状态：验证时重算比对，零存储、零撤销面——过期就是撤销
-//	- 动机：静态 ACCESS_TOKEN 随链接扩散等于全站任意文件（含私密）
-//	  永久可下载；票据把暴露面缩到"这一个文件的这半小时"
+//   - 单文件绑定：票据按 path+uuid 签发，换一个文件即失效
+//   - 自动过期：exp（unix 秒）随 URL 明文携带，过期即拒
+//   - 无状态：验证时重算比对，零存储、零撤销面——过期就是撤销
+//   - 动机：静态 ACCESS_TOKEN 随链接扩散等于全站任意文件（含私密）
+//     永久可下载；票据把暴露面缩到"这一个文件这一天"
 package service
 
 import (
@@ -22,8 +22,9 @@ import (
 	"time"
 )
 
-// DownloadTicketTTL 票据有效期（半小时：够人点开链接，不够长期白嫖）。
-const DownloadTicketTTL = 30 * time.Minute
+// DownloadTicketTTL 票据有效期（一天：链接发出后对方随时能点开，
+// 次日失效——单文件绑定的暴露面仍然可控）。
+const DownloadTicketTTL = 24 * time.Hour
 
 // SignDownloadTicket 签发单文件限时票据。
 func SignDownloadTicket(secret, path, uuid string, exp time.Time) string {
