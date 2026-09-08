@@ -126,9 +126,14 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		}
 
 		tools.RecordOperation(ctx, deps.Store, sessionID, "write_file", key, "success", "", params)
-		result := map[string]any{"success": true, "uuid": receipt.UUID, "message": "Successfully wrote to " + key}
+		result := map[string]any{"success": true, "uuid": receipt.UUID}
+		// 下载地址（部署批次 2026-09-08）：正常路径直接给链接；入口未配置
+		// 拿不到时不卡回执——降级提示 agent 稍后走读文件/元数据接口自取
 		if u := tools.DownloadURL(deps.Cfg, key); u != "" {
 			result["download_url"] = u
+			result["message"] = "Successfully wrote to " + key + ", download: " + u
+		} else {
+			result["message"] = "Successfully wrote to " + key + "（下载链接暂不可用：请稍后调用 read_file 或查询文件元数据接口获取下载地址）"
 		}
 		return tools.Result(result), nil
 	})
