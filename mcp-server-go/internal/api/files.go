@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/common"
 	"github.com/Reisentyann/Mabel-s-Tentacles/manager-go"
@@ -99,7 +101,7 @@ func collectPaths(nodes []*manager.LogicNode, acc []string) []string {
 //  3. require_auth=false（本地开发显式关闭）：匿名放行
 func (s *Server) downloadFile(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	path := q.Get("path")
+	path := normalizeDownloadPath(q.Get("path"))
 	ticket, expStr := q.Get("ticket"), q.Get("exp")
 
 	if s.repo == nil {
@@ -126,8 +128,14 @@ func (s *Server) downloadFile(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case s.cfg.API.RequireAuth:
-		if s.selfAuth(w, r) == nil {
+		if p := s.selfAuth(w, r); p == nil {
 			return // 响应已写（401/403/404）
+		} else {
+			// selfAuth 只返回主体不注入 context——这里补上（票据批次
+			// 重排时踩的洞：canActFile 里 principalOf 取 nil →
+			// authorization unavailable；旧代码空静态 token 时全放行，
+			// 授权分支从没真正走过，洞被掩盖到今天）
+			r = r.WithContext(authz.WithPrincipal(r.Context(), p))
 		}
 		if !s.canActFile(w, r, path, "download", false) {
 			return
@@ -162,6 +170,24 @@ func (s *Server) downloadFile(w http.ResponseWriter, r *http.Request) {
 	// 归档名用逻辑路径（物理随机名对用户无意义）
 	w.Header().Set("Content-Disposition", `attachment; filename="`+filepath.Base(path)+`"`)
 	http.ServeFile(w, r, target)
+}
+
+// normalizeDownloadPath 链接转义容错（2026-09-08）：QQ 等消息层会把
+// %2F 二次转义成 %252F（服务端按字面查键 → file not found，实测复现）。
+// 解到裸斜杠为止，至多两层；解码失败原样返回（不留新的攻击面——
+// 解出的仍要走行查询与票据验签）。
+func normalizeDownloadPath(p string) string {
+	for i := 0; i < 2; i++ {
+		if !strings.Contains(p, "%2F") && !strings.Contains(p, "%252F") {
+			return p
+		}
+		dec, err := url.QueryUnescape(p)
+		if err != nil {
+			return p
+		}
+		p = dec
+	}
+	return p
 }
 
 // selfAuth 公共端点自证（下载）：解析 Bearer JWT → 实时主体。

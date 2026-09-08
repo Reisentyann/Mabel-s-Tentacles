@@ -116,9 +116,13 @@ func CanFile(ctx context.Context, st repo.Store, path string, write bool) (denie
 
 // DownloadURL 构造文件的对外下载地址（限时票据口径，2026-09-08）：
 // base 优先 download_base_url（专门前缀），空则回退 server.base_url（同源
-// 部署）；票据按 path+uuid 无状态签发、半小时自动过期、单文件绑定——
+// 部署）；票据按 path+uuid 无状态签发、一天自动过期、单文件绑定——
 // 取代旧的 ACCESS_TOKEN 静态口径（静态 token 随链接扩散等于全站任意
 // 文件永久可下载，含私密）。入口全未配置返回空串（调用方走降级提示）。
+//
+// path 里的斜杠不编码（query 值中裸 / 合法）：QQ 等消息层会把 %2F
+// 二次转义成 %252F 导致服务端查无此键（实测 404）——源头少一个
+// 可被转义的靶子；接收侧另有容错解码兜底。
 func DownloadURL(cfg *config.Config, filePath, uuid string) string {
 	base := strings.TrimRight(cfg.API.DownloadBaseURL, "/")
 	if base == "" {
@@ -127,8 +131,9 @@ func DownloadURL(cfg *config.Config, filePath, uuid string) string {
 	if base == "" {
 		return ""
 	}
+	escapedPath := strings.ReplaceAll(url.QueryEscape(filePath), "%2F", "/")
 	exp := service.DownloadTicketExpiry()
-	return base + "/api/files/download?path=" + url.QueryEscape(filePath) +
+	return base + "/api/files/download?path=" + escapedPath +
 		"&exp=" + strconv.FormatInt(exp.Unix(), 10) +
 		"&ticket=" + url.QueryEscape(service.SignDownloadTicket(cfg.Security.SecretKey, filePath, uuid, exp))
 }
