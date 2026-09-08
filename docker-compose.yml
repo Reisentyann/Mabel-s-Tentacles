@@ -1,5 +1,11 @@
 version: "3.8"
 
+# 生产启动（配置走 .env.production，真实凭据不入库）：
+#   cp .env.production.example .env.production  → 填真实值 →
+#   docker compose --env-file .env.production up -d --build
+# 不带 --env-file 时读根目录 .env（若存在）；两者都无则用下方默认值（开发口径，
+# 启动日志会 WARN 提醒——生产看到 WARN 必须回来配好）。
+
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -37,7 +43,9 @@ services:
       - SECRET_KEY=${JWT_SECRET:-supersecretkey}
       - ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
       - ADMIN_PASSWORD=${ADMIN_PASSWORD:-admin123}
+      - MCP_API_KEY=${MCP_API_KEY:-} # MCP master key：空 = 通道无鉴权放行（开发口径），生产必配
       - ACCESS_TOKEN=${ACCESS_TOKEN:-}
+      - DOWNLOAD_BASE_URL=${DOWNLOAD_BASE_URL:-}
     ports:
       - "127.0.0.1:18001:8080" # MCP SSE：仅绑定 localhost，供同机 AstrBot 访问（不出公网）
     volumes:

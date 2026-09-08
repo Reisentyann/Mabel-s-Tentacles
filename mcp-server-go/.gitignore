@@ -3,3 +3,5 @@ bin/
 /server
 data/
 config.yml
+# 生产配置（真实值，不入库；模板见 config.yml.example）
+config.prod.yml

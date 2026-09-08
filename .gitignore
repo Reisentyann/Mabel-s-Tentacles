@@ -40,8 +40,13 @@ share/python-wheels/
 MANIFEST
 
 # 虚拟环境与环境变量 (Virtual Environments & Env files)
+# 生产真实值一律 ignore；入库的只有模板与开发值（豁免规则见下）
 .env
 .env.*
+!.env.development
+!.env.production.example
+!frontend/.env.development
+!frontend/.env.production
 
 # 配置文件 (Config files - contains sensitive credentials)
 backend/config.yml

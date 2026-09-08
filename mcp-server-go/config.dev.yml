@@ -1,0 +1,50 @@
+# 开发配置（入库版）：本地 start-dev.ps1 场景——鉴权关、master key 空（开发放行）、text 日志直控台
+# 用法：cp config.dev.yml config.yml（config.yml 已被 mcp-server-go/.gitignore 忽略）
+# 注意：DATABASE_URL / DATA_DIR / LOG_FILE 等会被 start-dev.ps1 注入的环境变量覆盖，
+#       数据库小节仅在裸跑（go run ./cmd/server）时生效
+# 生产模板：config.yml.example（复制为 config.prod.yml 填真实值，已 gitignore）
+# Docker 场景：配置全走环境变量（--env-file .env.production），yml 可不建
+
+server:
+  port: 8080
+  base_url: "http://localhost:8080"
+
+data_dir: "./data"        # start-dev 场景被 .env 的 DATA_DIR（仓库根 data）覆盖
+
+log:
+  level: "info"           # 排查时可临时改 debug
+  format: "text"          # 控制台人类可读（生产用 json）
+  file: ""                # 空 = 只输出控制台
+
+database:
+  url: ""                 # start-dev.ps1 注入 DATABASE_URL（连本地 Docker 54322）；裸跑时用下面字段
+  host: "localhost"
+  port: "54322"
+  user: "postgres"
+  password: "postgres"
+  name: "agent_db"
+  max_conns: 10
+
+mcp:
+  api_key: ""             # 开发放行（启动大红 WARN 提醒；生产必配强随机值）
+
+api:
+  access_token: ""
+  require_auth: false     # 本地开发裸奔；生产必须 true
+  download_base_url: ""
+
+security:
+  secret_key: "dev-secret-key"   # 开发固定值；生产必改
+  algorithm: "HS256"
+  access_token_expire_minutes: 30
+  refresh_token_expire_days: 7
+
+admin:
+  username: "admin"
+  password: "admin123"    # 开发固定值；生产必改
+
+describe:
+  backfill:
+    enabled: false        # 本地默认不开（要试存量回填改 true）
+    batch: 100
+    interval: 60

@@ -1,3 +1,9 @@
+# config.yml 通用模板（入库）：所有字段全集参考——复制后按场景改名
+#   开发：cp config.dev.yml config.yml（开发值已调好，可直接用）
+#   生产：cp config.yml.example config.prod.yml（填真实值；config.prod.yml 已 gitignore，
+#         适用于裸机直接运行；Docker 场景配置走环境变量 --env-file .env.production，yml 可不建）
+#   加载顺序：内置默认值 → config.yml（CONFIG_PATH 可改路径）→ 环境变量（最高优先级）
+
 server:
   port: 8080
   base_url: "http://localhost:8080"
