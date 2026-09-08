@@ -105,11 +105,12 @@ func (o *Orchestrator) execute(ctx context.Context, ev Event) (*Report, error) {
 	// 顶层列 + agent 顺带字段 → 单次 Upsert（消灭 write_file 的双 upsert）。
 	// 归属打标（权限批次 2026-09-06）：仅创建语义（KindWrite）落 owner——
 	// modify/copy 事件不动归属（COALESCE 保留原 owner；copy 的归属由
-	// CopyMetadata 落操作者）。可见性：写者指定优先，新文件缺省 private。
+	// CopyMetadata 落操作者）。可见性：写者指定优先；新文件缺省 public
+	//（两级模型 2026-09-08：共享为默认，私密是显式选择）。
 	size := info.Size()
 	visibility := ev.Visibility
 	if visibility == "" && ev.Kind == KindWrite {
-		visibility = "private"
+		visibility = "public"
 	}
 	upsert := &repo.FileMetadata{
 		FilePath:   ev.Path,

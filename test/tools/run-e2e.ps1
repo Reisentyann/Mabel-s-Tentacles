@@ -93,10 +93,14 @@ try {
     & (Join-Path $ClientDir "mcpclient.exe") -url "http://127.0.0.1:8080/sse"
     if ($LASTEXITCODE -ne 0) { throw "MCP 端到端有断言失败（见上方 FAIL 行）" }
 
-    # 普通用户对 admin 的私文件 describe → 期待 403（授权单点生效）。
-    # 物理随机化后行是存在性事实源：挪到 write 之后，行在盘在，越权 403 真实可测。
-    # owner 键空间（2026-09-08）：MCP 管家通道写的文件键 = ~agent/<逻辑路径>，
-    # 普通用户显式跨用户寻址（行内 owner 矩阵拒写）
+    # 普通用户对 admin 的私文件 describe → 期待 403（两级可见性模型
+    # 2026-09-08：public 协作放行，private 仅主人与管家——先显式设私，
+    # 顺带验证"用户可设置文件私密"的新功能面）
+    $privBody = [System.Text.Encoding]::UTF8.GetBytes(('{"path":"~agent/测试批次/小说片段.txt","visibility":"private"}'))
+    Invoke-RestMethod -Method Put -Uri "http://127.0.0.1:8080/api/files/metadata" `
+        -ContentType "application/json; charset=utf-8" -Body $privBody -Headers $H | Out-Null
+    Write-Host "  PASS: admin 已将目标文件设为 private（可见性可设置）" -ForegroundColor Green
+
     $provBody = [System.Text.Encoding]::UTF8.GetBytes(('{"path":"~agent/测试批次/小说片段.txt","description":"越权尝试"}'))
     $denied = $false
     try {
@@ -105,8 +109,8 @@ try {
     } catch {
         $denied = ($_.Exception.Response.StatusCode -eq 403)
     }
-    if (-not $denied) { throw "普通用户 describe 他人文件未被拒绝（授权失效！）" }
-    Write-Host "  PASS: 普通用户 describe 他人文件被 403 拒绝（~agent/ 显式跨用户寻址）" -ForegroundColor Green
+    if (-not $denied) { throw "普通用户 describe 他人私文件未被拒绝（两级模型失效！）" }
+    Write-Host "  PASS: 普通用户 describe 他人私文件被 403 拒绝（private 仅主人与管家）" -ForegroundColor Green
 
     # =================================================================
     # [4/6] HTTP T3：POST /api/files/analyze

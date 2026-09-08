@@ -106,7 +106,8 @@ func register(s *server.MCPServer, deps tools.Deps) {
 
 		// 编排机异步接管 T1（盘写成功即回，agent 不等描述）：agent 顺带
 		// 描述字段随事件走，执行器单次 Upsert 落库并喂索引——旧的双 upsert 已灭。
-		// Actor/Visibility 为权限批次的归属与可见性打标（默认 private）。
+		// Actor/Visibility 为归属与可见性打标（两级模型：缺省 public 共享，
+		// 私密是显式选择）。
 		// 事件可丢（容灾铁律 2）：队列满由 Submit 内部 WARN + T2 对账兜底。
 		if deps.Orch != nil {
 			deps.Orch.Submit(core.Event{

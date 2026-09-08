@@ -463,9 +463,24 @@ func main() {
 	}
 	pass("e2e_user 读自己的「笔记.txt」（无前缀 = 自己空间）")
 
-	// e2e_user 显式跨用户读管家的 private 档案 → 拒
-	if userCh.denyCall("read_file", map[string]any{"path": "~agent/书房档案/借阅清单.txt"}) {
-		pass("e2e_user 跨用户读 private 档案被拒（~agent/ 显式寻址 + 行内 owner 矩阵）")
+	// 两级可见性模型（2026-09-08）：管家写一份显式 private 的私日记——
+	// private 仅主人与管家；public（新默认）协作共享
+	if masterCh.okCall("write_file", map[string]any{
+		"file_path": "书房档案/管家私日记.txt", "content": "触手饲料的进货渠道，保密。\n",
+		"visibility": "private",
+	}) == nil {
+		os.Exit(1)
+	}
+
+	// e2e_user 读管家的 public 档案 → 通（协作共享：接入即信任）
+	if userCh.okCall("read_file", map[string]any{"path": "~agent/书房档案/借阅清单.txt"}) == nil {
+		os.Exit(1)
+	}
+	pass("e2e_user 跨用户读管家 public 档案成功（两级模型：public 协作共享）")
+
+	// e2e_user 读管家的 private 私日记 → 拒（私密 = 仅主人与管家）
+	if userCh.denyCall("read_file", map[string]any{"path": "~agent/书房档案/管家私日记.txt"}) {
+		pass("e2e_user 跨用户读 private 私日记被拒（~agent/ 显式寻址 + 两级可见性）")
 	}
 
 	// e2e_user 把自己笔记转 public → 管家跨用户读到

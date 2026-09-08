@@ -273,10 +273,10 @@ func (s *Server) moveFile(w http.ResponseWriter, r *http.Request) {
 	}
 	if s.orch != nil {
 		s.orch.Submit(core.Event{
-			Kind:     core.KindMove,
-			Path:     receipt.To,
+			Kind:      core.KindMove,
+			Path:      receipt.To,
 			SessionID: "",
-			Actor:    core.Actor{Name: principalOf(r).Name},
+			Actor:     core.Actor{Name: principalOf(r).Name},
 		})
 	}
 	slog.Info("move file ok", "from", body.From, "to", body.To, "uuid", receipt.UUID, "user", principalOf(r).Subject())
