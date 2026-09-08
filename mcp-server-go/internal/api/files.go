@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/common"
 	"github.com/Reisentyann/Mabel-s-Tentacles/manager-go"
@@ -112,6 +111,7 @@ func (s *Server) downloadFile(w http.ResponseWriter, r *http.Request) {
 	// 授权段：任一口径通过即可（票据口径顺带把行也查了）
 	m, err := s.repo.GetMetadata(r.Context(), path)
 	if err != nil || m == nil {
+		slog.Warn("download not found", "path", path, "raw_query", r.URL.RawQuery)
 		writeError(w, http.StatusNotFound, "file not found")
 		return
 	}
@@ -172,17 +172,15 @@ func (s *Server) downloadFile(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, target)
 }
 
-// normalizeDownloadPath 链接转义容错（2026-09-08）：QQ 等消息层会把
-// %2F 二次转义成 %252F（服务端按字面查键 → file not found，实测复现）。
-// 解到裸斜杠为止，至多两层；解码失败原样返回（不留新的攻击面——
-// 解出的仍要走行查询与票据验签）。
+// normalizeDownloadPath 链接转义容错（2026-09-08）：QQ 等消息层会对链接
+// 里的百分号编码做二次转义——实测 %2F（斜杠）与 %7E（波浪号）都会中招，
+// 服务端按字面查键 → file not found。r.URL.Query() 已解一层，这里再解
+// 至多两层（覆盖任意 %XX 的二次/三次转义）；解码出错或解不动原样返回
+//（含 % 的真实文件名不受影响——非法 %XX 序列直接返回）。
 func normalizeDownloadPath(p string) string {
 	for i := 0; i < 2; i++ {
-		if !strings.Contains(p, "%2F") && !strings.Contains(p, "%252F") {
-			return p
-		}
 		dec, err := url.QueryUnescape(p)
-		if err != nil {
+		if err != nil || dec == p {
 			return p
 		}
 		p = dec
