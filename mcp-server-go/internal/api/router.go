@@ -1,11 +1,15 @@
 // 文件：mcp-server-go/internal/api/router.go —— HTTP API 路由装配：公共路由 + JWT 保护路由 + Server 结构
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 package api
 
 import (
 	"encoding/json"
 	"net/http"
+	"os"
+	"path"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/manager-go"
@@ -62,6 +66,38 @@ func Register(mux *http.ServeMux, cfg *config.Config, st repo.Store, orch *core.
 	mux.Handle("GET /api/operations", s.requireAuth(http.HandlerFunc(s.listOperations)))
 	mux.Handle("GET /api/commands", s.requireAuth(http.HandlerFunc(s.listCommands)))
 	mux.Handle("GET /api/commands/{id}", s.requireAuth(http.HandlerFunc(s.getCommand)))
+
+	// 管理页前端托管（部署批次 2026-09-08）："/" 无方法兜底——已注册的
+	// API（方法树）/ SSE / message（默认树具体路径）优先匹配，其余走
+	// 此回退：静态文件命中直出，未命中回 index.html（SPA 前端路由自管）。
+	// WebDir 空 = 不托管。注意不能用 "GET /"（方法树与 /sse 等无方法
+	// 注册跨树冲突 panic——Go 1.22 mux 规则）。
+	if s.cfg.Server.WebDir != "" {
+		mux.Handle("/", s.spaHandler())
+	}
+}
+
+// spaHandler 静态目录 SPA 托管：GET/HEAD 静态直出 + 任意路径回
+// index.html（前端路由 /manage /login 由其接管）；其余方法 404。
+// 路径清洗用 http.Dir 自带语义（.. 归一），双保险再拒显式穿越段。
+func (s *Server) spaHandler() http.Handler {
+	dir := s.cfg.Server.WebDir
+	fs := http.FileServer(http.Dir(dir))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			writeError(w, http.StatusNotFound, "not found")
+			return
+		}
+		rel := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
+		if rel != "" && !strings.Contains(rel, "..") {
+			if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(rel))); err == nil {
+				fs.ServeHTTP(w, r)
+				return
+			}
+		}
+		// SPA fallback：前端路由（/manage /login）都由 index.html 接管
+		http.ServeFile(w, r, filepath.Join(dir, "index.html"))
+	})
 }
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {

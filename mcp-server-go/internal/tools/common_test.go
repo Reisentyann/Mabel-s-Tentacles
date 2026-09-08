@@ -38,6 +38,21 @@ func TestDownloadURLEmpty(t *testing.T) {
 	}
 }
 
+// TestDownloadURLFallbackBaseURL download_base_url 空时回退 server.base_url
+// （同源部署：SSE/API/下载同一入口——部署批次 2026-09-08）。
+func TestDownloadURLFallbackBaseURL(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Server.BaseURL = "https://tentacles.example.cn/"
+	if got := DownloadURL(cfg, "笔记.txt"); got != "https://tentacles.example.cn/api/files/download?path=%E7%AC%94%E8%AE%B0.txt" {
+		t.Errorf("fallback: got %q", got)
+	}
+	// 专门前缀仍然优先
+	cfg.API.DownloadBaseURL = "http://dl.internal"
+	if got := DownloadURL(cfg, "x.txt"); got != "http://dl.internal/api/files/download?path=x.txt" {
+		t.Errorf("priority: got %q", got)
+	}
+}
+
 // scopedCtx 造一个已认证主体的 context（键空间测试用）。
 func scopedCtx(name string) context.Context {
 	return authz.WithPrincipal(context.Background(), &authz.Principal{

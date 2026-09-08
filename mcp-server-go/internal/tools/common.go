@@ -112,9 +112,16 @@ func CanFile(ctx context.Context, st repo.Store, path string, write bool) (denie
 // StrPtr 空串→nil 的指针语义转换已收敛 common.StrPtr（core 侧 strPtr、
 // repo 侧 derefStr 同步退役），本包不再持有副本。
 
-// DownloadURL 构造文件的对外下载地址。download_base_url 未配置时返回空串（不返回下载链接）。
+// DownloadURL 构造文件的对外下载地址。base 优先 download_base_url（专门
+// 的对外前缀），空则回退 server.base_url（同源部署——SSE/API/下载同一
+// 入口，部署批次 2026-09-08：服务器只配 base_url 也能出链接）；两者皆空
+// 返回空串（调用方走降级提示，不卡工具回执）。access_token 非空时附带
+// （download 自证端点的静态 token 口径，agent 分享的链接可直下）。
 func DownloadURL(cfg *config.Config, filePath string) string {
 	base := strings.TrimRight(cfg.API.DownloadBaseURL, "/")
+	if base == "" {
+		base = strings.TrimRight(cfg.Server.BaseURL, "/")
+	}
 	if base == "" {
 		return ""
 	}
