@@ -82,10 +82,11 @@ func CanFile(ctx context.Context, st repo.Store, path string, write bool) (denie
 	}
 	m, err := st.GetMetadata(ctx, path)
 	if err != nil {
+		// 无行 ≠ 无主存量（owner 键空间批次校准 2026-09-08）：键已由
+		// ScopeWrite 保证在自己空间——无行 = 新建创建语义，放行；
+		// "无主存量写权归 admin"只适用于**行存在且 owner 为空**的旧口径
+		//（下方 ACLOf(m.OwnerID=nil) 分支仍然拒）。
 		if write {
-			if ok, r := authz.CanWrite(p, authz.FileACL{}); !ok {
-				return true, r
-			}
 			return false, ""
 		}
 		if ok, r := authz.CanRead(p, authz.FileACL{}); !ok {

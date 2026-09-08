@@ -2,6 +2,10 @@ import { createRouter, createWebHistory } from 'vue-router';
 import AppLayout from '../components/AppLayout.vue';
 import { useAuthStore } from '../stores/auth';
 
+// 单页管理台架构（2026-09-08 前端重设计）：登录 + manage 一页
+// （树/表/详情抽屉/统计全部整合）。files/dashboard 两页与 register 退役
+// ——本系统是 MCP 服务器对接自有 agent，管理面是自用工具不是公众产品，
+// 开放注册没有意义（管理员账号走 .env 种子）。
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
@@ -11,40 +15,29 @@ const router = createRouter({
       component: () => import('../views/LoginView.vue'),
     },
     {
-      path: '/register',
-      name: 'register',
-      component: () => import('../views/RegisterView.vue'),
-    },
-    {
       path: '/',
       component: AppLayout,
       children: [
-        { path: '', redirect: '/files' },
+        { path: '', redirect: '/manage' },
         {
-          path: 'files',
-          name: 'files',
-          component: () => import('../views/FilesView.vue'),
-        },
-        {
-          path: 'dashboard',
-          name: 'dashboard',
-          component: () => import('../views/DashboardView.vue'),
+          path: 'manage',
+          name: 'manage',
+          component: () => import('../views/ManageView.vue'),
         },
       ],
     },
   ],
 });
 
-// 导航守卫（权限批次 2026-09-06）：登录/注册公开，其余页面未登录跳 /login。
-// 深层防线在后端（require_auth=true），前端守卫只负责体验不闪白。
+// 路由前置守卫（权限批次 2026-09-06）：鉴权归后端（require_auth=true），
+// 前端只做体验性拦截不越权。
 router.beforeEach((to) => {
   const auth = useAuthStore();
-  const publicPages = ['login', 'register'];
-  if (publicPages.includes(to.name)) {
+  if (to.name === 'login') {
     return true;
   }
-  if (!auth.isAuthenticated) {
-    return { name: 'login', query: { redirect: to.fullPath } };
+  if (!auth.token) {
+    return { name: 'login' };
   }
   return true;
 });

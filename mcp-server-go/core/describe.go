@@ -1,23 +1,18 @@
 // 文件：mcp-server-go/core/describe.go —— 同步描述入口：LLMStore 闸门 + 单次 Upsert + 喂索引（describe_file 与 HTTP describe 的唯一实现）
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 package core
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"log/slog"
-	"os"
 	"time"
-
-	"github.com/jackc/pgx/v5"
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/common"
 	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go"
 	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go/llm"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
-	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 )
 
 // DescribeRequest 描述提交入参（MCP describe_file 与 HTTP describe 的
@@ -41,32 +36,28 @@ type DescribeResult struct {
 }
 
 // Describe 同步入口——为何同步：拒绝列表必须当场回传给模型自纠错，
-// 异步会把校验反馈丢进后台。执行：resolve+stat 存在性 → 读旧 attrs/旧描述
-// → append 拼接 → LLMStore.SetMany/Commit（cod-* 只读、受控词表、
+// 异步会把校验反馈丢进后台。执行：DB 行存在性（物理随机化后行是事实源，
+// 明文路径永不在盘上）→ 读旧 attrs/旧描述 → append 拼接 →
+// LLMStore.SetMany/Commit（cod-* 只读、受控词表、
 // null 墓碑删除、审计戳）→ 单次 Upsert → 喂索引（补上原实现缺的喂食洞：
 // llm-* 是可索引字段，改了不喂即索引漂移）。
 func (o *Orchestrator) Describe(ctx context.Context, req DescribeRequest, sessionID string) (*DescribeResult, error) {
 	start := time.Now()
-	abs, err := service.ResolvePath(o.opts.DataDir, req.Path)
-	if err != nil {
-		return nil, err
-	}
-	if info, serr := os.Stat(abs); serr != nil || info.IsDir() {
-		return nil, fmt.Errorf("'%s' does not exist", req.Path)
-	}
 
-	// 读旧：attrs（llm 合并基底 + sink diff 旧值侧）与旧描述（append 拼接）
+	// 读旧：attrs（llm 合并基底 + sink diff 旧值侧）与旧描述（append 拼接）。
+	// 行存在性在此判（物理随机化后行是事实源；describe 不创建行——
+	// 无行 = 未入库，404 语义原样保留）
 	var oldAttrs map[string]any
 	var oldDesc string
-	var hadRow bool
 	if m, gerr := o.opts.Store.GetMetadata(ctx, req.Path); gerr == nil && m != nil {
-		hadRow = true
 		oldAttrs = describer.AttrsFromJSON(m.Attributes)
 		if m.Description != nil {
 			oldDesc = *m.Description
 		}
-	} else if gerr != nil && !errors.Is(gerr, pgx.ErrNoRows) {
+	} else if gerr != nil {
 		return nil, fmt.Errorf("get metadata: %w", gerr)
+	} else {
+		return nil, fmt.Errorf("'%s' does not exist", req.Path)
 	}
 
 	description := ""
@@ -107,11 +98,8 @@ func (o *Orchestrator) Describe(ctx context.Context, req DescribeRequest, sessio
 		GroupID:     req.GroupID,
 		Attributes:  describer.JSONFromAttrs(attrs),
 	}
-	// 归属打标：首描述（此前无行）时落提交者；已有行不动归属
-	if !hadRow && req.Actor.Name != "" {
-		owner := req.Actor.Name
-		meta.OwnerID = &owner
-	}
+	// 归属不动（行必在——无行已在读旧处拒绝；owner 矩阵在工具层 CanFile
+	// 前置判定，describe 不改归属）
 	uuid, err := o.opts.Store.UpsertMetadata(ctx, meta)
 	if err != nil {
 		slog.Error("describe submit failed",

@@ -1,16 +1,19 @@
 <template>
   <div class="login-page">
     <form class="login-card" @submit.prevent="handleLogin">
-      <h1>Mabel's Tentacles</h1>
-      <p class="subtitle">登录以管理你的文件</p>
+      <div class="brand">
+        <span class="mark">🐙</span>
+        <h1>Mabel's Tentacles</h1>
+      </div>
+      <p class="subtitle">触手书房 · 管理员入口</p>
 
       <label class="field">
-        <span>Username</span>
+        <span>账号</span>
         <input v-model="username" type="text" autocomplete="username" required />
       </label>
 
       <label class="field">
-        <span>Password</span>
+        <span>密码</span>
         <input
           v-model="password"
           type="password"
@@ -19,44 +22,41 @@
         />
       </label>
 
-      <button class="btn submit" type="submit" :disabled="loading">
-        {{ loading ? "Signing in..." : "Login" }}
+      <button class="submit" type="submit" :disabled="loading">
+        {{ loading ? '进入书房…' : '进入管理台' }}
       </button>
 
       <p v-if="error" class="error">{{ error }}</p>
 
-      <p class="alt">
-        还没有账号？
-        <router-link to="/register">注册一个</router-link>
-      </p>
+      <p class="hint">本系统是 MCP 服务器，对接自有 agent；管理面仅限管理员（.env 种子账号），不开放注册。</p>
     </form>
   </div>
 </template>
 
 <script setup>
-import { ref } from "vue";
-import { useRouter, useRoute } from "vue-router";
-import { useAuthStore } from "../stores/auth";
+import { ref } from 'vue';
+import { useRouter, useRoute } from 'vue-router';
+import { useAuthStore } from '../stores/auth';
 
-const username = ref("");
-const password = ref("");
+const username = ref('');
+const password = ref('');
 const loading = ref(false);
-const error = ref("");
+const error = ref('');
 const router = useRouter();
 const route = useRoute();
 const authStore = useAuthStore();
 
 const handleLogin = async () => {
   loading.value = true;
-  error.value = "";
+  error.value = '';
   try {
     await authStore.loginAction({
       username: username.value,
       password: password.value,
     });
-    router.push(route.query.redirect || "/files");
-  } catch (err) {
-    error.value = err.response?.data?.detail || "Login failed";
+    router.push(route.query.redirect || '/manage');
+  } catch (e) {
+    error.value = e?.response?.data?.error || '登录失败（账号或密码不对）';
   } finally {
     loading.value = false;
   }
@@ -69,54 +69,78 @@ const handleLogin = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
+  background:
+    radial-gradient(ellipse at 30% 20%, #241f31 0%, transparent 55%),
+    radial-gradient(ellipse at 75% 80%, #1f2a2e 0%, transparent 50%),
+    var(--mabel-bg);
 }
 .login-card {
-  width: 100%;
-  max-width: 380px;
-  background-color: var(--color-surface);
-  padding: 2.5rem;
-  border-radius: 12px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+  width: 340px;
+  padding: 32px 28px;
+  background-color: var(--mabel-surface);
+  border: 1px solid var(--mabel-border);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
-.login-card h1 {
-  font-size: 1.4rem;
-  text-align: center;
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.mark {
+  font-size: 1.6rem;
+}
+h1 {
+  font-size: 1.15rem;
+  margin: 0;
 }
 .subtitle {
-  text-align: center;
-  color: var(--color-text-muted);
-  margin: 0 0 1.5rem;
-  font-size: 0.9rem;
+  margin: -6px 0 6px;
+  font-size: 0.82rem;
+  color: var(--mabel-text-muted);
 }
 .field {
-  display: block;
-  margin-bottom: 1rem;
-}
-.field span {
-  display: block;
-  margin-bottom: 0.4rem;
-  font-size: 0.85rem;
-  color: var(--color-text-muted);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--mabel-text-muted);
 }
 .field input {
-  width: 100%;
-  padding: 0.6rem;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  font-size: 1rem;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--mabel-border);
+  background-color: var(--mabel-surface-2);
+  color: var(--mabel-text);
+  outline: none;
 }
 .field input:focus {
-  outline: none;
-  border-color: var(--color-primary);
+  border-color: var(--el-color-primary);
 }
 .submit {
-  width: 100%;
-  margin-top: 0.5rem;
+  padding: 10px;
+  border: none;
+  border-radius: 8px;
+  background-color: var(--el-color-primary);
+  color: #16121f;
+  font-weight: 700;
+  cursor: pointer;
 }
-.alt {
-  text-align: center;
-  margin: 1rem 0 0;
-  font-size: 0.9rem;
-  color: var(--color-text-muted);
+.submit:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.error {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #e8756a;
+}
+.hint {
+  margin: 4px 0 0;
+  font-size: 0.72rem;
+  line-height: 1.5;
+  color: var(--mabel-text-muted);
 }
 </style>

@@ -1,12 +1,43 @@
+/* 暗色书房主题（2026-09-08 前端重设计）：深海夜色底 + 触手紫洋红品牌色，
+ * Element Plus 组件经 html.dark 挂 dark/css-vars（main.js），这里覆盖
+ * 品牌变量与全局面。旧亮色变量体系随之退役（视图层已全走 el 组件）。 */
+
 :root {
-  --color-primary: #0066cc;
-  --color-primary-hover: #0052a3;
-  --color-bg: #f5f7fa;
-  --color-surface: #ffffff;
-  --color-border: #e2e8f0;
-  --color-text: #1a202c;
-  --color-text-muted: #64748b;
-  --color-danger: #dc2626;
+  /* 品牌色：触手洋红紫（书房灯下的墨紫） */
+  --el-color-primary: #b876d9;
+  --el-color-primary-light-3: #c99ae3;
+  --el-color-primary-light-5: #d9bdec;
+  --el-color-primary-light-7: #e8d9f4;
+  --el-color-primary-light-8: #a86cc9;
+  --el-color-primary-light-9: #2a1f33;
+  --el-color-primary-dark-2: #9d5fc0;
+
+  /* 书房底色：深夜海面 */
+  --mabel-bg: #14121a;
+  --mabel-surface: #1c1926;
+  --mabel-surface-2: #241f31;
+  --mabel-border: #322c42;
+  --mabel-text: #e8e4f0;
+  --mabel-text-muted: #9b93ad;
+  --mabel-accent: #7ec8b8;
+}
+
+html.dark {
+  /* el 组件的面层对齐书房底色（默认 #141414 偏灰，压向墨紫） */
+  --el-bg-color: var(--mabel-surface);
+  --el-bg-color-overlay: var(--mabel-surface-2);
+  --el-bg-color-page: var(--mabel-bg);
+  --el-border-color: var(--mabel-border);
+  --el-border-color-light: var(--mabel-border);
+  --el-border-color-lighter: #2a2438;
+  --el-fill-color-blank: var(--mabel-surface);
+  --el-fill-color-light: var(--mabel-surface-2);
+  --el-text-color-primary: var(--mabel-text);
+  --el-text-color-regular: var(--mabel-text);
+  --el-text-color-secondary: var(--mabel-text-muted);
+  --el-text-color-placeholder: #6f6884;
+  --el-disabled-bg-color: var(--mabel-surface);
+  color-scheme: dark;
 }
 
 * {
@@ -15,10 +46,10 @@
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica,
-    Arial, sans-serif;
-  background-color: var(--color-bg);
-  color: var(--color-text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    "PingFang SC", "Microsoft YaHei", sans-serif;
+  background-color: var(--mabel-bg);
+  color: var(--mabel-text);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -33,76 +64,83 @@ button {
   cursor: pointer;
 }
 
-.btn {
-  padding: 0.5rem 1rem;
-  background-color: var(--color-primary);
-  color: #fff;
-  border: none;
-  border-radius: 6px;
-  font-size: 0.9rem;
-}
-.btn:hover {
-  background-color: var(--color-primary-hover);
-}
-.btn:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+/* 单页管理台布局槽（ManageView 用） */
+.page-shell {
+  height: calc(100vh - 56px);
+  display: flex;
+  flex-direction: column;
+  padding: 12px 16px;
+  gap: 12px;
 }
 
-.btn-ghost {
-  padding: 0.4rem 0.9rem;
-  background-color: transparent;
-  border: 1px solid var(--color-border);
-  border-radius: 6px;
-  color: var(--color-text);
-  font-size: 0.9rem;
-}
-.btn-ghost:hover {
-  background-color: var(--color-bg);
+.pane-row {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  gap: 12px;
 }
 
-.table {
-  width: 100%;
-  border-collapse: collapse;
-  background-color: var(--color-surface);
-  border-radius: 8px;
-  overflow: hidden;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+.pane {
+  background-color: var(--mabel-surface);
+  border: 1px solid var(--mabel-border);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
-.table th,
-.table td {
-  padding: 0.85rem 1rem;
-  text-align: left;
-  border-bottom: 1px solid var(--color-border);
-}
-.table th {
-  background-color: #f8fafc;
-  font-weight: 600;
+
+.pane-head {
+  padding: 10px 14px;
   font-size: 0.85rem;
-  color: var(--color-text-muted);
-}
-.table tbody tr:last-child td {
-  border-bottom: none;
-}
-.table tbody tr:hover {
-  background-color: #f8fafc;
-}
-
-.state {
-  padding: 2rem;
-  text-align: center;
-  color: var(--color-text-muted);
-  background-color: var(--color-surface);
-  border-radius: 8px;
-}
-
-.error {
-  color: var(--color-danger);
-}
-
-.view-header {
+  font-weight: 600;
+  color: var(--mabel-text-muted);
+  border-bottom: 1px solid var(--mabel-border);
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  margin-bottom: 1.5rem;
+  gap: 8px;
+  flex: none;
+}
+
+.pane-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 10px 14px;
+}
+
+/* 谱系/元数据详情的小字排版 */
+.meta-grid {
+  display: grid;
+  grid-template-columns: 150px 1fr;
+  gap: 6px 12px;
+  font-size: 0.85rem;
+}
+
+.meta-grid .k {
+  color: var(--mabel-text-muted);
+}
+
+.meta-grid .v {
+  word-break: break-all;
+}
+
+.attr-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* 滚动条压暗 */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--mabel-border);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
 }

@@ -88,7 +88,7 @@ const (
 // 合并为单次 Upsert（消灭 write_file 场景的第二次 upsert）。
 // Actor 为写者主体（owner_id 落库标识——权限批次的归属打标）；
 // Visibility 为写者指定的可见性（public/group/private；空 = 事件不动它，
-// 新文件由执行器落安全默认 private）。
+// 新文件由执行器落共享默认 public——两级模型 2026-09-08：私密是显式选择）。
 type Event struct {
 	Kind       Kind
 	Path       string

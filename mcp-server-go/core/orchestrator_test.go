@@ -470,6 +470,12 @@ func TestDescribeGateAndTombstone(t *testing.T) {
 	}
 	ctx := context.Background()
 
+	// describe 前置行（行是存在性事实源：describe 不创建行——无行 404；
+	// 归属打标由 write 路径承担）
+	if _, err := ms.UpsertMetadata(ctx, &repo.FileMetadata{FilePath: "d.txt"}); err != nil {
+		t.Fatal(err)
+	}
+
 	// 第一轮：cod 越权 + 词表外被拒；合法 sp-llm 落库
 	res, err := o.Describe(ctx, DescribeRequest{
 		Path:        "d.txt",

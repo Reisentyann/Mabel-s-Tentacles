@@ -43,6 +43,7 @@ func Register(mux *http.ServeMux, cfg *config.Config, st repo.Store, orch *core.
 	mux.Handle("GET /api/files/metadata", s.requireAuth(http.HandlerFunc(s.getFileMetadata)))
 	mux.Handle("PUT /api/files/metadata", s.requireAuth(http.HandlerFunc(s.describeFile)))
 	mux.Handle("POST /api/files/copy", s.requireAuth(http.HandlerFunc(s.copyFile)))
+	mux.Handle("POST /api/files/move", s.requireAuth(http.HandlerFunc(s.moveFile)))
 	mux.Handle("POST /api/files/analyze", s.requireAuth(http.HandlerFunc(s.analyzeFile)))
 
 	// admin 专属（权限批次 2026-09-06）：全库扫描与账号/组/钥匙管理
