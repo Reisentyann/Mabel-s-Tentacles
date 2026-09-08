@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/core/orchestrator_test.go —— 编排机骨架测试：执行器管线 / 队列生命周期 / Describe 闸门 / 检索降级 / 索引重建
-// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 package core
 
@@ -17,6 +17,7 @@ import (
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go"
 	"github.com/Reisentyann/Mabel-s-Tentacles/indexer-go"
+	"github.com/Reisentyann/Mabel-s-Tentacles/manager-go"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/search"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
@@ -28,10 +29,34 @@ import (
 type memStore struct {
 	mu   sync.Mutex
 	rows map[string]*repo.FileMetadata
+	ups  int // Upsert 次数（KindMove 零触发断言用）
 }
 
 func newMemStore() *memStore {
 	return &memStore{rows: map[string]*repo.FileMetadata{}}
+}
+
+// upserts 累计 Upsert 次数（KindMove 早退断言：move 不得触发重分析落库）。
+func (s *memStore) upserts() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.ups
+}
+
+// rename 模拟管理机 Move 后的行形态（测试基建）：键迁移 + moved_from
+// 记谱系，uuid / 归属 / 描述全不动——repo.MoveMetadata 的内存镜像。
+func (s *memStore) rename(t *testing.T, from, to string) {
+	t.Helper()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, ok := s.rows[from]
+	if !ok {
+		t.Fatalf("rename: no row for %q", from)
+	}
+	delete(s.rows, from)
+	m.FilePath = to
+	m.MovedFrom = &from
+	s.rows[to] = m
 }
 
 func (s *memStore) GetMetadata(_ context.Context, p string) (*repo.FileMetadata, error) {
@@ -47,6 +72,7 @@ func (s *memStore) GetMetadata(_ context.Context, p string) (*repo.FileMetadata,
 func (s *memStore) UpsertMetadata(_ context.Context, m *repo.FileMetadata) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.ups++
 	if old, ok := s.rows[m.FilePath]; ok {
 		if m.Title != nil {
 			old.Title = m.Title
@@ -112,6 +138,25 @@ func (s *memStore) ListMetadataPage(_ context.Context, since string, limit int) 
 	return out, nil
 }
 
+// GetMetadataByUUIDs 批量凭 uuid 取件（索引路径测试的支撑）：遍历行找
+// uuid 匹配，缺失不入 map（与 repo 口径一致）。
+func (s *memStore) GetMetadataByUUIDs(_ context.Context, uuids []string) (map[string]*repo.FileMetadata, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	want := map[string]bool{}
+	for _, u := range uuids {
+		want[u] = true
+	}
+	out := make(map[string]*repo.FileMetadata, len(uuids))
+	for _, m := range s.rows {
+		if want[m.UUID] {
+			cp := *m
+			out[m.UUID] = &cp
+		}
+	}
+	return out, nil
+}
+
 func (s *memStore) row(t *testing.T, p string) *repo.FileMetadata {
 	t.Helper()
 	s.mu.Lock()
@@ -165,15 +210,22 @@ func (s *stubSearcher) count() int {
 	return s.calls
 }
 
-// memIndex IndexSource 替身（记录重建载荷）。
+// memIndex IndexSource 替身（记录重建载荷；Query 可编程返回预设 uuid 集）。
 type memIndex struct {
 	mu       sync.Mutex
 	rebuilt  map[string]map[string]any
 	rebuilds int
+	hits     []string // Query 的预设返回（nil = 空集）
+	conds    []indexer.Condition
+	queries  int
 }
 
-func (m *memIndex) Query(_ []indexer.Condition, _ indexer.Combine) ([]string, error) {
-	return nil, nil
+func (m *memIndex) Query(conds []indexer.Condition, _ indexer.Combine) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.conds = conds
+	m.queries++
+	return m.hits, nil
 }
 
 func (m *memIndex) Rebuild(all map[string]map[string]any) error {
@@ -211,6 +263,26 @@ func mustWrite(t *testing.T, dir, name, content string) {
 	}
 }
 
+// intakeSeed 模拟入库时序（2026-09-08 物理随机化）：占位行先行拿 uuid
+// → uuid 派生物理路径落盘——工具层经管理机 Reserve+Write 保证的形态。
+func intakeSeed(t *testing.T, ms *memStore, dir, logic, content string) string {
+	t.Helper()
+	uuid, err := ms.UpsertMetadata(context.Background(), &repo.FileMetadata{FilePath: logic})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel, serr := manager.StoragePathOf(uuid, logic)
+	if serr != nil {
+		t.Fatal(serr)
+	}
+	abs := filepath.Join(dir, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, dir, filepath.FromSlash(rel), content)
+	return uuid
+}
+
 // —— 用例 ——
 
 func TestNewValidation(t *testing.T) {
@@ -222,12 +294,47 @@ func TestNewValidation(t *testing.T) {
 	}
 }
 
+// TestExecuteMoveEarlyExit KindMove 早退（文件管理域 2026-09-08）：键已由
+// 管理机改好——执行器零盘读、零 Upsert、零喂索引（Move = 纯 DB 键改，
+// 统一描述管线不触发）。
+func TestExecuteMoveEarlyExit(t *testing.T) {
+	dir := t.TempDir()
+	ms := newMemStore()
+	uuid := intakeSeed(t, ms, dir, "旧.txt", "# 内容\n\n正文不变。\n")
+	// 模拟管理机 Move 后的行形态：键已迁、uuid 不变
+	ms.rename(t, "旧.txt", "新.txt")
+
+	sn := &fakeSink{}
+	o, err := New(Options{DataDir: dir, Store: ms, Sink: sn})
+	if err != nil {
+		t.Fatal(err)
+	}
+	feedsBefore := len(sn.snapshot())
+	upsBefore := ms.upserts()
+
+	rep, err := o.execute(context.Background(), Event{Kind: KindMove, Path: "新.txt", SessionID: "s-move"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rep == nil {
+		t.Fatal("move report nil")
+	}
+	// 零触发三连：无新喂食 / 无新 Upsert / 盘未动（描述事实不变）
+	if got := len(sn.snapshot()); got != feedsBefore {
+		t.Fatalf("sink feeds = %d, want %d (move must not feed index)", got, feedsBefore)
+	}
+	if got := ms.upserts(); got != upsBefore {
+		t.Fatalf("upserts = %d, want %d (move must not re-analyze)", got, upsBefore)
+	}
+	_ = uuid
+}
+
 func TestExecutePipeline(t *testing.T) {
 	dir := t.TempDir()
 	content := "# 深夜书架\n\n第一章 来电\n\n梅贝尔整理着书架上的旧书。\n"
-	mustWrite(t, dir, "note.txt", content)
 
 	ms := newMemStore()
+	intakeSeed(t, ms, dir, "note.txt", content)
 	sn := &fakeSink{}
 	o, err := New(Options{DataDir: dir, Store: ms, Sink: sn})
 	if err != nil {
@@ -280,21 +387,31 @@ func TestExecutePipeline(t *testing.T) {
 }
 
 func TestExecuteMissingFile(t *testing.T) {
-	o, err := New(Options{DataDir: t.TempDir(), Store: newMemStore()})
+	dir := t.TempDir()
+	ms := newMemStore()
+	o, err := New(Options{DataDir: dir, Store: ms})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 容灾路径：盘上竞态消失 → 返回错误（调用方丢弃，T2 兜底），不 panic
+	// 容灾路径：占位行在、盘上竞态消失 → stat 失败返回错误（调用方丢弃，
+	// T2 兜底），不 panic
+	if _, err := ms.UpsertMetadata(context.Background(), &repo.FileMetadata{FilePath: "ghost.txt"}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := o.execute(context.Background(), Event{Kind: KindWrite, Path: "ghost.txt"}); err == nil {
 		t.Fatal("expected error for missing file")
+	}
+	// 无占位行（未入库）：同样失败（intake first）
+	if _, err := o.execute(context.Background(), Event{Kind: KindWrite, Path: "no-row.txt"}); err == nil {
+		t.Fatal("expected error for missing reserve row")
 	}
 }
 
 func TestQueueLifecycle(t *testing.T) {
 	dir := t.TempDir()
-	mustWrite(t, dir, "q.txt", "hello world\n")
 
 	ms := newMemStore()
+	intakeSeed(t, ms, dir, "q.txt", "hello world\n")
 	sn := &fakeSink{}
 	o, err := New(Options{DataDir: dir, Store: ms, Sink: sn})
 	if err != nil {
@@ -434,6 +551,111 @@ func TestSearchDegradation(t *testing.T) {
 	}
 	if _, _, err := o2.Search(ctx, search.Query{}); err == nil {
 		t.Fatal("expected error without fallback")
+	}
+}
+
+// TestSearchIndexed 索引优先路径（检索索引化 2026-09-06）：
+// 属性过滤 → Index.Query → uuid 批量取件 → 内存复判（可见性/软删）
+// → updated_at DESC 排序分页；fallback 全程不被调（未降级）。
+func TestSearchIndexed(t *testing.T) {
+	ctx := context.Background()
+	ms := newMemStore()
+	for _, p := range []string{"hit-new.txt", "hit-old.txt", "priv.txt", "gone.txt"} {
+		if _, err := ms.UpsertMetadata(ctx, &repo.FileMetadata{
+			FilePath: p, Visibility: "public", FileType: ptr("text"),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// 私文件（bob 不可见）与软删行（索引路径恒排除）
+	ms.rows["priv.txt"].Visibility = "private"
+	ms.rows["priv.txt"].OwnerID = ptr("alice")
+	ms.rows["gone.txt"].IsDeleted = true
+	// 排序口径：hit-new 比 hit-old 新
+	ms.rows["hit-old.txt"].UpdatedAt = time.Now().Add(-time.Hour)
+	ms.rows["hit-new.txt"].UpdatedAt = time.Now()
+
+	idx := &memIndex{hits: []string{"uuid-hit-new.txt", "uuid-hit-old.txt", "uuid-priv.txt", "uuid-gone.txt"}}
+	fb := &stubSearcher{}
+	o, err := New(Options{DataDir: "x", Store: ms, Index: idx, Fallback: fb})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	items, total, err := o.Search(ctx, search.Query{
+		Attributes: map[string]any{"cod-text-lines": 3},
+		ViewerName: "bob", // 非 admin：只见 public
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 2 || len(items) != 2 {
+		t.Fatalf("total=%d len=%d, want 2/2（priv 不可见、gone 软删排除）", total, len(items))
+	}
+	if items[0].FilePath != "hit-new.txt" || items[1].FilePath != "hit-old.txt" {
+		t.Fatalf("order = [%s, %s], want updated_at DESC", items[0].FilePath, items[1].FilePath)
+	}
+	if fb.count() != 0 {
+		t.Fatalf("fallback calls = %d, want 0（索引路径不降级）", fb.count())
+	}
+	// 条件映射：标量 → eq
+	if len(idx.conds) != 1 || idx.conds[0].Field != "cod-text-lines" || idx.conds[0].Op != indexer.OpEq {
+		t.Fatalf("conds = %+v, want eq cod-text-lines", idx.conds)
+	}
+
+	// 分页：page=2 size=1（同观察者口径）→ 只剩 hit-old
+	items, total, err = o.Search(ctx, search.Query{
+		Attributes: map[string]any{"k": "v"}, Page: 2, Size: 1, ViewerName: "bob",
+	})
+	if err != nil || total != 2 || len(items) != 1 || items[0].FilePath != "hit-old.txt" {
+		t.Fatalf("paged = (%d items, total %d, err %v)", len(items), total, err)
+	}
+}
+
+// TestSearchIndexedEmptyLegal 索引空集 = 合法答案（无命中）：返回空结果，
+// 不降级 SQL。
+func TestSearchIndexedEmptyLegal(t *testing.T) {
+	ctx := context.Background()
+	idx := &memIndex{} // hits=nil → Query 返回空集
+	fb := &stubSearcher{}
+	o, err := New(Options{DataDir: "x", Store: newMemStore(), Index: idx, Fallback: fb})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, total, err := o.Search(ctx, search.Query{Attributes: map[string]any{"k": "v"}})
+	if err != nil || total != 0 || len(items) != 0 {
+		t.Fatalf("empty-legal = (%d items, total %d, err %v), want 0/0/nil", len(items), total, err)
+	}
+	if fb.count() != 0 {
+		t.Fatalf("fallback calls = %d, want 0（空集不降级）", fb.count())
+	}
+}
+
+// TestSearchIndexedDegrade 降级判定：属性为空 / 文本关键词 / 含软删 /
+// 索引未装配——四种场景均走 SQL 兜底。
+func TestSearchIndexedDegrade(t *testing.T) {
+	ctx := context.Background()
+	ms := newMemStore()
+	idx := &memIndex{hits: []string{"uuid-x.txt"}}
+	fb := &stubSearcher{}
+	o, err := New(Options{DataDir: "x", Store: ms, Index: idx, Fallback: fb})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []search.Query{
+		{}, // 无属性过滤（索引无价值场景）
+		{Text: "kw", Attributes: map[string]any{"k": "v"}},           // 文本走 SQL LIKE
+		{Attributes: map[string]any{"k": "v"}, IncludeDeleted: true}, // 软删全集口径
+	} {
+		if _, _, err := o.Search(ctx, q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if fb.count() != 3 {
+		t.Fatalf("fallback calls = %d, want 3", fb.count())
+	}
+	if idx.queries != 0 {
+		t.Fatalf("index queries = %d, want 0（全部降级，不该问索引）", idx.queries)
 	}
 }
 

@@ -1,5 +1,5 @@
 // 文件：manager-go/fetch.go —— 取件域：uuid 兑换处（Locate/LocateMany 出位置，Open/Read 出内容；软删/幽灵/批量语义钉死）
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 // fetch 域职责：uuid 的兑换。调用方（编排机 / MCP 工具 / HTTP）持
 // indexer.Query 产出的 uuid 集合来问管理机——进 uuid，出位置或文件本体。
@@ -24,9 +24,12 @@
 package manager
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"os"
 )
 
 // FileRef uuid 的取件回执（业务视角：位置 + 展示性元数据，不含内容）。
@@ -62,13 +65,21 @@ var (
 	ErrGhost = errors.New("manager: file gone on disk")
 )
 
-// errNoFetch 域内未实现错误（接口轮钉面，实现批次落地）。
-var errNoFetch = errors.New("manager: fetch not implemented")
+// errNoFetch 已退役（取件实现批次 2026-09-06 落地：Locate/LocateMany/
+// Open/Read 全链路 + buffer LRU）。
 
-// Locate 凭 uuid 取位置（单个）。
-// TODO 实现批次：Store.GetMetaByUUID → 无行映射 ErrNotFound → FileRef 回执。
+// Locate 凭 uuid 取位置（单个）。软删行照报（IsDeleted=true，回收站可
+// 追溯）；DB 无行 → ErrNotFound；不做盘上存在性检查（盘偏差归 Open 的
+// 幽灵哨兵与 audit 域巡检）。
 func (m *Manager) Locate(ctx context.Context, uuid string) (*FileRef, error) {
-	return nil, errNoFetch
+	ref, err := m.store.GetMetaByUUID(ctx, uuid)
+	if err != nil {
+		return nil, fmt.Errorf("locate %s: %w", uuid, err)
+	}
+	if ref == nil {
+		return nil, ErrNotFound
+	}
+	return ref, nil
 }
 
 // LocateMany 凭 uuid 集合批量取位置。缺失的 uuid 不入返回 map（不报错，
@@ -77,22 +88,159 @@ func (m *Manager) LocateMany(ctx context.Context, uuids []string) (map[string]*F
 	if len(uuids) == 0 {
 		return map[string]*FileRef{}, nil // 空入空出：零依赖语义，接口轮即钉死
 	}
-	// TODO 实现批次：Store.GetMetaByUUIDs。
-	return nil, errNoFetch
+	refs, err := m.store.GetMetaByUUIDs(ctx, uuids)
+	if err != nil {
+		return nil, fmt.Errorf("locate many: %w", err)
+	}
+	if refs == nil {
+		refs = map[string]*FileRef{}
+	}
+	return refs, nil
 }
 
 // Open 凭 uuid 取整个文件（流式）。Content 由调用方负责 Close。
 // 哨兵语义：查无 → ErrNotFound；软删 → ErrDeleted；盘上消失 → ErrGhost。
-// buffer 命中直出（快照），未命中盘读（≤ maxEntry 入缓，超限旁路直流）。
-// TODO 实现批次：Locate → 软删拒取 → buffer.get / resolve+盘读 →
-// stat 新鲜度校验 → buffer.put → OpenedFile。
+// 定位：本口服务 agent 反复读（read_file / 检索取件）；HTTP 下载端点走
+// StreamByLogic 直流（下载大流量一次性，入缓只添污染——buffer.go 立场 2026-09-08）。
 func (m *Manager) Open(ctx context.Context, uuid string) (*OpenedFile, error) {
-	return nil, errNoFetch
+	ref, err := m.Locate(ctx, uuid)
+	if err != nil {
+		return nil, err
+	}
+	return m.openRef(ref)
 }
 
-// Read 凭 uuid 取内容字节（Open 的便捷包装：LimitReader + ReadAll）。
-// limit <= 0 = 全量；>0 = 截到 limit 字节。哨兵语义与 Open 一致。
-// TODO 实现批次：Open → 限读聚合 → ReadFile。
+// OpenByLogic 凭逻辑路径取整个文件（read_file 工具的入口；uuid 口的姊妹）。
+// 哨兵语义与 Open 一致。
+func (m *Manager) OpenByLogic(ctx context.Context, logicPath string) (*OpenedFile, error) {
+	ref, err := m.locateByLogic(ctx, logicPath)
+	if err != nil {
+		return nil, err
+	}
+	return m.openRef(ref)
+}
+
+// ReadByLogic 凭逻辑路径取内容字节（OpenByLogic 的限读包装；limit <= 0 全量）。
+func (m *Manager) ReadByLogic(ctx context.Context, logicPath string, limit int64) (*ReadFile, error) {
+	of, err := m.OpenByLogic(ctx, logicPath)
+	if err != nil {
+		return nil, err
+	}
+	defer of.Content.Close()
+	var r io.Reader = of.Content
+	if limit > 0 {
+		r = io.LimitReader(of.Content, limit)
+	}
+	content, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("read: %w", err)
+	}
+	return &ReadFile{FileRef: of.FileRef, Content: content}, nil
+}
+
+// StreamByLogic 下载专用口：物理直流，不查缓存不入缓存（buffer 立场：
+// 下载是大流量一次性，入缓只添磁盘读写与 LRU 污染）。哨兵语义与
+// OpenByLogic 一致；Content 为 *os.File，调用方负责 Close。
+func (m *Manager) StreamByLogic(ctx context.Context, logicPath string) (*OpenedFile, error) {
+	ref, err := m.locateByLogic(ctx, logicPath)
+	if err != nil {
+		return nil, err
+	}
+	if ref.IsDeleted {
+		return nil, ErrDeleted
+	}
+	abs, err := m.storageAbs(ref.UUID, ref.Path)
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.Open(abs)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, ErrGhost
+		}
+		return nil, err
+	}
+	return &OpenedFile{FileRef: *ref, Content: f}, nil
+}
+
+// locateByLogic 逻辑键 → FileRef（GetMeta 行视图组回执；无行 → ErrNotFound）。
+func (m *Manager) locateByLogic(ctx context.Context, logicPath string) (*FileRef, error) {
+	row, err := m.store.GetMeta(ctx, logicPath)
+	if err != nil {
+		return nil, fmt.Errorf("locate %s: %w", logicPath, err)
+	}
+	if row == nil {
+		return nil, ErrNotFound
+	}
+	return &FileRef{
+		UUID:      row.UUID,
+		Path:      row.Path,
+		IsDeleted: row.IsDeleted,
+	}, nil
+}
+
+// openRef 取内容本体（uuid 口与逻辑口共用）：软删拒取 → buffer 快路径 →
+// 物理路径（uuid 派生，intake 域口径）stat → 大文件旁路直流 / 盘读入缓。
+func (m *Manager) openRef(ref *FileRef) (*OpenedFile, error) {
+	if ref.IsDeleted {
+		return nil, ErrDeleted // 回收站文件不供取内容（Locate 仍照报位置）
+	}
+
+	// 快路径：buffer 命中直出（stat 对拍已在 buffer.get 内完成）
+	if content, ok := m.buf.get(ref.UUID); ok {
+		return &OpenedFile{FileRef: *ref, Content: io.NopCloser(bytes.NewReader(content))}, nil
+	}
+
+	abs, err := m.storageAbs(ref.UUID, ref.Path)
+	if err != nil {
+		return nil, err
+	}
+	info, err := os.Stat(abs)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, ErrGhost // 行在、盘上无（T2 对账 3 轮软删收编中）
+		}
+		return nil, fmt.Errorf("stat: %w", err)
+	}
+	if info.IsDir() {
+		return nil, fmt.Errorf("'%s' is a directory", ref.Path)
+	}
+	ref.SizeBytes = info.Size() // 回执补盘上实际大小（逻辑口组装时无此列）
+
+	// 大文件旁路：超单条目上限直流不入缓（防挤占整个容量）
+	if info.Size() > m.buf.maxEntry {
+		f, err := os.Open(abs)
+		if err != nil {
+			return nil, err
+		}
+		return &OpenedFile{FileRef: *ref, Content: f}, nil
+	}
+
+	// ≤ maxEntry：盘读 → 入缓（put 复制为快照）→ 从快照出流
+	content, err := os.ReadFile(abs)
+	if err != nil {
+		return nil, fmt.Errorf("read file: %w", err)
+	}
+	m.buf.put(ref.UUID, bufEntry{path: abs, size: info.Size(), modTime: info.ModTime(), content: content})
+	return &OpenedFile{FileRef: *ref, Content: io.NopCloser(bytes.NewReader(content))}, nil
+}
+
+// Read 凭 uuid 取内容字节（Open 的便捷包装：限读聚合）。limit <= 0 =
+// 全量；>0 = 截到 limit 字节。哨兵语义与 Open 一致。
 func (m *Manager) Read(ctx context.Context, uuid string, limit int64) (*ReadFile, error) {
-	return nil, errNoFetch
+	of, err := m.Open(ctx, uuid)
+	if err != nil {
+		return nil, err
+	}
+	defer of.Content.Close()
+
+	var r io.Reader = of.Content
+	if limit > 0 {
+		r = io.LimitReader(of.Content, limit)
+	}
+	content, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("read: %w", err)
+	}
+	return &ReadFile{FileRef: of.FileRef, Content: content}, nil
 }

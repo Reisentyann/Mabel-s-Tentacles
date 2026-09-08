@@ -1,5 +1,5 @@
 // 文件：manager-go/updater_test.go —— updater 域 L1：T3 执行器（路由/合并/穿越/喂食）+ T2 陈旧四条件 + 幽灵软删 + batch 上限
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 package manager_test
 
@@ -20,13 +20,16 @@ import (
 )
 
 // fakeStore updater 域最小面的内存实现（path 键；软删行退出扫描，对齐
-// repo 的 is_deleted=FALSE 过滤口径）。
+// repo 的 is_deleted=FALSE 过滤口径）。refs 为取件域的独立事实源
+// （uuid → FileRef，fetch 测试直接塞入；与 rows 解耦——updater 写路径
+// 不维护它，避免测试双簿记漂移）。
 type fakeStore struct {
 	rows        map[string]*manager.MetaRow
 	ups         map[string]manager.MetaRecord
 	uuids       map[string]string
 	missing     map[string]int
 	softDeleted map[string]bool
+	refs        map[string]*manager.FileRef
 }
 
 func newFakeStore() *fakeStore {
@@ -36,6 +39,7 @@ func newFakeStore() *fakeStore {
 		uuids:       map[string]string{},
 		missing:     map[string]int{},
 		softDeleted: map[string]bool{},
+		refs:        map[string]*manager.FileRef{},
 	}
 }
 
@@ -68,7 +72,9 @@ func (s *fakeStore) GetMeta(ctx context.Context, path string) (*manager.MetaRow,
 func (s *fakeStore) UpsertMeta(ctx context.Context, rec manager.MetaRecord) (string, error) {
 	uuid, ok := s.uuids[rec.Path]
 	if !ok {
-		uuid = "u-" + rec.Path
+		// 无斜杠 uuid（StoragePathOf 把 uuid 当单段——斜杠会被 path.Join
+		// 拆成子目录）；真 uuid 由 DB 生成，天然无斜杠
+		uuid = "u-" + strings.ReplaceAll(rec.Path, "/", "-")
 		s.uuids[rec.Path] = uuid
 	}
 	s.ups[rec.Path] = rec
@@ -76,9 +82,43 @@ func (s *fakeStore) UpsertMeta(ctx context.Context, rec manager.MetaRecord) (str
 		r.Checksum = rec.Checksum
 		r.Attributes = rec.Attributes
 	} else {
-		s.rows[rec.Path] = &manager.MetaRow{Path: rec.Path, Checksum: rec.Checksum, Attributes: rec.Attributes}
+		s.rows[rec.Path] = &manager.MetaRow{Path: rec.Path, UUID: uuid, Checksum: rec.Checksum, Attributes: rec.Attributes}
 	}
 	s.missing[rec.Path] = 0 // Upsert 即文件存在证据（与 repo 清零语义一致）
+	return uuid, nil
+}
+
+// ReserveMeta 占位行（intake 域）：幂等拿 uuid，与 UpsertMeta 共用 uuid 池。
+func (s *fakeStore) ReserveMeta(ctx context.Context, logicPath string) (string, error) {
+	if uuid, ok := s.uuids[logicPath]; ok {
+		s.missing[logicPath] = 0
+		return uuid, nil
+	}
+	if _, err := s.UpsertMeta(ctx, manager.MetaRecord{Path: logicPath}); err != nil {
+		return "", err
+	}
+	return s.uuids[logicPath], nil
+}
+
+// MoveMeta 键改（intake 域 Move 的支撑）：谱系 moved_from + 行键迁移；
+// 目标占用 → manager.ErrKeyExists；无行/软删 → manager.ErrNotFound/ErrDeleted
+// 由 manager.Move 前置判定（这里零行上抛 ErrNotFound 口径即可）。
+func (s *fakeStore) MoveMeta(ctx context.Context, from, to string) (string, error) {
+	r, ok := s.rows[from]
+	if !ok || r.IsDeleted {
+		return "", manager.ErrNotFound
+	}
+	if _, occupied := s.rows[to]; occupied {
+		return "", manager.ErrKeyExists
+	}
+	uuid := r.UUID
+	delete(s.rows, from)
+	delete(s.uuids, from)
+	delete(s.missing, from)
+	r.Path = to
+	r.MovedFrom = from
+	s.rows[to] = r
+	s.uuids[to] = uuid
 	return uuid, nil
 }
 
@@ -93,14 +133,25 @@ func (s *fakeStore) SoftDeleteMeta(ctx context.Context, path string) error {
 	return nil
 }
 
-// 取件域钉面补齐（fetch.go 接口轮，2026-09-05）：updater 用例不触达，
-// 零值占位保证 fakeStore 满足 Store 面。
+// 取件域面（fetch 实现批次 2026-09-06）：refs 直查——软删行照报
+// （IsDeleted 由测试塞入时自带；DB 口径 = 按 uuid 查询不过滤 is_deleted）。
 func (s *fakeStore) GetMetaByUUID(ctx context.Context, uuid string) (*manager.FileRef, error) {
+	if r, ok := s.refs[uuid]; ok {
+		cp := *r
+		return &cp, nil
+	}
 	return nil, nil
 }
 
 func (s *fakeStore) GetMetaByUUIDs(ctx context.Context, uuids []string) (map[string]*manager.FileRef, error) {
-	return nil, nil
+	out := make(map[string]*manager.FileRef, len(uuids))
+	for _, u := range uuids {
+		if r, ok := s.refs[u]; ok {
+			cp := *r
+			out[u] = &cp
+		}
+	}
+	return out, nil
 }
 
 // fakeSink 索引喂食钩子的录音机。
@@ -133,15 +184,23 @@ func newTestManager(t *testing.T) (*manager.Manager, *fakeStore, *fakeSink, stri
 	return m, st, sink, dir
 }
 
-func writeFile(t *testing.T, dir, rel, content string) {
+// intakeFile 模拟入库全链（走真 manager.Write：占位行 + uuid 派生物理
+// 随机路径落盘）——物理随机化后盘面只有派生路径，明文直写不再存在。
+func intakeFile(t *testing.T, m *manager.Manager, rel, content string) {
 	t.Helper()
-	abs := filepath.Join(dir, filepath.FromSlash(rel))
-	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+	if _, err := m.Write(context.Background(), rel, content); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+}
+
+// storedAbs 逻辑路径的物理存储位（uuid 派生）——测试侧改盘内容用。
+func storedAbs(t *testing.T, st *fakeStore, dir, logic string) string {
+	t.Helper()
+	rel, err := manager.StoragePathOf(st.uuids[logic], logic)
+	if err != nil {
 		t.Fatal(err)
 	}
+	return filepath.Join(dir, filepath.FromSlash(rel))
 }
 
 func upsertedAttrs(t *testing.T, st *fakeStore, path string) map[string]any {
@@ -156,8 +215,8 @@ func upsertedAttrs(t *testing.T, st *fakeStore, path string) map[string]any {
 const novelSample = "# 第一章 深夜来电\n\n梅贝尔放下了手中的茶杯。\n\n「铃仙，文件整理好了吗？」她问道。\n\n「马上就好。」\n"
 
 func TestAnalyzeFileFresh(t *testing.T) {
-	m, st, sink, dir := newTestManager(t)
-	writeFile(t, dir, "小说/第一章.txt", novelSample)
+	m, st, sink, _ := newTestManager(t)
+	intakeFile(t, m, "小说/第一章.txt", novelSample)
 
 	report, err := m.AnalyzeFile(context.Background(), "小说/第一章.txt")
 	if err != nil {
@@ -213,15 +272,13 @@ func TestAnalyzeFileFresh(t *testing.T) {
 }
 
 func TestAnalyzeFilePreservesLLMFields(t *testing.T) {
-	m, st, _, dir := newTestManager(t)
+	m, st, _, _ := newTestManager(t)
 	path := "note.txt"
-	writeFile(t, dir, path, "hello")
+	intakeFile(t, m, path, "hello")
 
 	// 预置 llm 轨字段与一个过期的 cod 旧值：重分析后 llm 保留、cod 刷新
-	st.rows[path] = &manager.MetaRow{
-		Path:       path,
-		Attributes: describer.JSONFromAttrs(map[string]any{"llm-tone": "暖橙", "cod-text-lines": 999}),
-	}
+	//（行已由 intake 造好，改属性不动 UUID/物理位）
+	st.rows[path].Attributes = describer.JSONFromAttrs(map[string]any{"llm-tone": "暖橙", "cod-text-lines": 999})
 	if _, err := m.AnalyzeFile(context.Background(), path); err != nil {
 		t.Fatal(err)
 	}
@@ -242,17 +299,20 @@ func TestAnalyzeFileMissing(t *testing.T) {
 }
 
 func TestAnalyzeFileTraversalBlocked(t *testing.T) {
-	m, _, _, dir := newTestManager(t)
-	writeFile(t, dir, "inside.txt", "x")
-	// dataDir 外的文件：.. 穿越——resolve 必须拒绝（内化 placement 域）
-	if _, err := m.AnalyzeFile(context.Background(), "../outside.txt"); err == nil {
-		t.Fatal("directory traversal must be blocked")
+	m, _, _, _ := newTestManager(t)
+	// 逻辑键穿越（.. 段）：intake 域 validLogicPath 拒绝——盘面词法穿越
+	// 的口径由 common/fsutil_test.go 承担，这里钉管理机入口的拒绝
+	if _, err := m.Write(context.Background(), "../outside.txt", "x"); err == nil {
+		t.Fatal("directory traversal must be blocked at intake")
+	}
+	if _, err := m.Write(context.Background(), "a/../../b.txt", "x"); err == nil {
+		t.Fatal("nested traversal must be blocked at intake")
 	}
 }
 
 func TestBackfillFreshNotStale(t *testing.T) {
-	m, _, sink, dir := newTestManager(t)
-	writeFile(t, dir, "a.txt", novelSample)
+	m, _, sink, _ := newTestManager(t)
+	intakeFile(t, m, "a.txt", novelSample)
 	if _, err := m.AnalyzeFile(context.Background(), "a.txt"); err != nil {
 		t.Fatal(err)
 	}
@@ -270,8 +330,8 @@ func TestBackfillFreshNotStale(t *testing.T) {
 }
 
 func TestBackfillVerBump(t *testing.T) {
-	m, st, _, dir := newTestManager(t)
-	writeFile(t, dir, "a.txt", novelSample)
+	m, st, _, _ := newTestManager(t)
+	intakeFile(t, m, "a.txt", novelSample)
 	if _, err := m.AnalyzeFile(context.Background(), "a.txt"); err != nil {
 		t.Fatal(err)
 	}
@@ -292,15 +352,15 @@ func TestBackfillVerBump(t *testing.T) {
 }
 
 func TestBackfillChecksumDrift(t *testing.T) {
-	m, _, _, dir := newTestManager(t)
-	writeFile(t, dir, "a.txt", novelSample)
+	m, st, _, dir := newTestManager(t)
+	intakeFile(t, m, "a.txt", novelSample)
 	if _, err := m.AnalyzeFile(context.Background(), "a.txt"); err != nil {
 		t.Fatal(err)
 	}
 
 	// 模拟 execute_command 绕口直改：内容变 + mtime 改回原值——
 	// 快路径（条件 4）不命中，只留给 checksum 漂移（条件 3）兜底
-	abs := filepath.Join(dir, "a.txt")
+	abs := storedAbs(t, st, dir, "a.txt")
 	before, err := os.Stat(abs)
 	if err != nil {
 		t.Fatal(err)
@@ -330,13 +390,13 @@ func TestBackfillChecksumDrift(t *testing.T) {
 }
 
 func TestBackfillMtimeNew(t *testing.T) {
-	m, _, _, dir := newTestManager(t)
-	writeFile(t, dir, "a.txt", novelSample)
+	m, st, _, dir := newTestManager(t)
+	intakeFile(t, m, "a.txt", novelSample)
 	if _, err := m.AnalyzeFile(context.Background(), "a.txt"); err != nil {
 		t.Fatal(err)
 	}
 	// 内容不变、mtime 推到未来（条件 4 快路径）
-	abs := filepath.Join(dir, "a.txt")
+	abs := storedAbs(t, st, dir, "a.txt")
 	future := time.Now().Add(time.Hour)
 	if err := os.Chtimes(abs, future, future); err != nil {
 		t.Fatal(err)
@@ -352,9 +412,10 @@ func TestBackfillMtimeNew(t *testing.T) {
 
 func TestBackfillGhostSoftDelete(t *testing.T) {
 	m, st, _, _ := newTestManager(t)
-	// DB 有行、盘上无文件：连续 3 轮 → 软删除（字典 10.4）
+	// DB 有行、盘上无文件（uuid 派生位不存在 = 天然幽灵）：连续 3 轮 → 软删除
 	st.rows["ghost.txt"] = &manager.MetaRow{
 		Path:       "ghost.txt",
+		UUID:       "u-ghost-1",
 		Attributes: describer.JSONFromAttrs(map[string]any{"cod-basic-ver": 3, "cod-basic-at": time.Now().Unix()}),
 	}
 	ctx := context.Background()
@@ -378,14 +439,11 @@ func TestBackfillGhostSoftDelete(t *testing.T) {
 }
 
 func TestBackfillBatchLimit(t *testing.T) {
-	m, st, _, dir := newTestManager(t)
+	m, st, _, _ := newTestManager(t)
 	// 两条同为版本落后的行：batch=1 只重分析一个，其余仅做缺失检查
 	for _, p := range []string{"b.txt", "a.txt"} {
-		writeFile(t, dir, p, novelSample)
-		st.rows[p] = &manager.MetaRow{
-			Path:       p,
-			Attributes: describer.JSONFromAttrs(map[string]any{"cod-basic-ver": 1, "cod-basic-at": time.Now().Unix()}),
-		}
+		intakeFile(t, m, p, novelSample)
+		st.rows[p].Attributes = describer.JSONFromAttrs(map[string]any{"cod-basic-ver": 1, "cod-basic-at": time.Now().Unix()})
 	}
 	n, err := m.Backfill(context.Background(), 1)
 	if err != nil {
@@ -399,17 +457,14 @@ func TestBackfillBatchLimit(t *testing.T) {
 func TestBackfillNeverAppliedFamilyIgnored(t *testing.T) {
 	m, st, _, dir := newTestManager(t)
 	// 老数据只有 basic 家族（text 从未适用）：basic 新鲜时不得误判 text 陈旧
-	writeFile(t, dir, "a.txt", novelSample)
-	st.rows["a.txt"] = &manager.MetaRow{
-		Path:     "a.txt",
-		Checksum: mustChecksum(t, dir, "a.txt"),
-		Attributes: describer.JSONFromAttrs(map[string]any{
-			"cod-basic-ver": 999, // 远超当前版本：永不落后
-			"cod-basic-at":  time.Now().Unix(),
-		}),
-	}
+	intakeFile(t, m, "a.txt", novelSample)
+	st.rows["a.txt"].Checksum = mustChecksum(t, storedAbs(t, st, dir, "a.txt"))
+	st.rows["a.txt"].Attributes = describer.JSONFromAttrs(map[string]any{
+		"cod-basic-ver": 999, // 远超当前版本：永不落后
+		"cod-basic-at":  time.Now().Unix(),
+	})
 	// mtime 归零到过去：快路径不命中（at 在未来即可）
-	abs := filepath.Join(dir, "a.txt")
+	abs := storedAbs(t, st, dir, "a.txt")
 	past := time.Now().Add(-time.Hour)
 	if err := os.Chtimes(abs, past, past); err != nil {
 		t.Fatal(err)
@@ -423,9 +478,9 @@ func TestBackfillNeverAppliedFamilyIgnored(t *testing.T) {
 	}
 }
 
-func mustChecksum(t *testing.T, dir, rel string) string {
+func mustChecksum(t *testing.T, abs string) string {
 	t.Helper()
-	b, err := os.ReadFile(filepath.Join(dir, rel))
+	b, err := os.ReadFile(abs)
 	if err != nil {
 		t.Fatal(err)
 	}

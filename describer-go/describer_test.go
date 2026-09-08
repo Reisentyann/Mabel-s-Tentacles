@@ -1,5 +1,5 @@
 // 文件：describer-go/describer_test.go —— 引擎端到端测试：basic+路由+sp 前缀拼装 / 文本路由不串味 / 惰性加载只调一次 / 预算截断
-// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 // 端到端：引擎把 basic + 路由 + sp 前缀拼起来。
 package describer_test

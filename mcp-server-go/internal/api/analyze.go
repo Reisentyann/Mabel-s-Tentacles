@@ -1,15 +1,15 @@
 // 文件：mcp-server-go/internal/api/analyze.go —— T2/T3 端点：POST analyze（单文件重分析）/ POST backfill（一轮批量回填）
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 package api
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
-	"os"
 	"time"
 
-	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
+	"github.com/jackc/pgx/v5"
 )
 
 type analyzeRequest struct {
@@ -33,14 +33,18 @@ func (s *Server) analyzeFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// 与 describeFile 同款前置：路径校验 + 存在性（404 语义先于 manager 执行）
-	target, err := service.ResolvePath(s.cfg.DataDir, req.Path)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+	// 与 describeFile 同款前置：存在性判据 = DB 行（物理随机化后盘面只有
+	// uuid 派生位，明文路径永不在盘上；404 语义先于授权与 manager 执行）
+	if s.repo == nil {
+		writeError(w, http.StatusInternalServerError, "database unavailable")
 		return
 	}
-	if info, err := os.Stat(target); err != nil || info.IsDir() {
-		writeError(w, http.StatusNotFound, "file not found")
+	if _, err := s.repo.GetMetadata(r.Context(), req.Path); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "file not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	// 写授权：重分析是改元数据的动手操作，owner/admin 之外拒绝

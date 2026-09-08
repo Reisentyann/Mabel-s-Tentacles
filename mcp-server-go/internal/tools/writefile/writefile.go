@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/writefile/writefile.go —— MCP 工具 write_file：写文件 + 内联描述字段随编排机事件异步落库
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 package writefile
 
@@ -14,7 +14,6 @@ import (
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/common"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
-	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
 )
 
@@ -76,19 +75,34 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		start := time.Now()
 		params := map[string]any{"file_path": filePath, "content_size": len(content), "has_description": description != "" || len(tags) > 0}
 
+		// 键空间（owner 隔离批次）：无前缀 = 自己空间自动拼接；~A/ 跨用户写
+		// 一律拒绝。覆写授权按行内 owner 判（新路径 = 创建，放行）。
+		sc, serr := tools.ScopeWrite(ctx, filePath)
+		if serr != nil {
+			tools.RecordOperation(ctx, deps.Store, sessionID, "write_file", filePath, "denied", serr.Error(), params)
+			return tools.Deny(ctx, "write_file", filePath, serr.Error()), nil
+		}
+		key := sc.Key
+
 		// 覆写授权：目标已有元数据行时按写矩阵判（新路径 = 创建，放行）
-		if denied, reason := tools.CanFile(ctx, deps.Store, filePath, true); denied {
-			tools.RecordOperation(ctx, deps.Store, sessionID, "write_file", filePath, "denied", reason, params)
-			return tools.Deny(ctx, "write_file", filePath, reason), nil
+		if denied, reason := tools.CanFile(ctx, deps.Store, key, true); denied {
+			tools.RecordOperation(ctx, deps.Store, sessionID, "write_file", key, "denied", reason, params)
+			return tools.Deny(ctx, "write_file", key, reason), nil
 		}
 
-		if err := service.SafeWrite(deps.Cfg.DataDir, filePath, content); err != nil {
-			slog.Error("write_file failed", "path", filePath, "session", sessionID, "error", err, "duration", time.Since(start).String())
-			tools.RecordOperation(ctx, deps.Store, sessionID, "write_file", filePath, "failed", err.Error(), params)
+		// 入库唯一口（intake 域 2026-09-08）：逻辑键 + uuid 派生物理随机路径
+		// ——agent 不接触物理布局，盘面不可猜；描述落库归编排机事件（下方 Submit）
+		if deps.Manager == nil {
+			return tools.ResultError("manager not wired"), nil
+		}
+		receipt, err := deps.Manager.Write(ctx, key, content)
+		if err != nil {
+			slog.Error("write_file failed", "path", key, "session", sessionID, "error", err, "duration", time.Since(start).String())
+			tools.RecordOperation(ctx, deps.Store, sessionID, "write_file", key, "failed", err.Error(), params)
 			return tools.ResultError(err.Error()), nil
 		}
 
-		slog.Info("write_file ok", "path", filePath, "bytes", len(content), "session", sessionID, "duration", time.Since(start).String())
+		slog.Info("write_file ok", "path", key, "bytes", len(content), "uuid", receipt.UUID, "session", sessionID, "duration", time.Since(start).String())
 
 		// 编排机异步接管 T1（盘写成功即回，agent 不等描述）：agent 顺带
 		// 描述字段随事件走，执行器单次 Upsert 落库并喂索引——旧的双 upsert 已灭。
@@ -97,7 +111,7 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		if deps.Orch != nil {
 			deps.Orch.Submit(core.Event{
 				Kind:       core.KindWrite,
-				Path:       filePath,
+				Path:       key,
 				SessionID:  sessionID,
 				Actor:      tools.Actor(ctx),
 				Visibility: req.GetString("visibility", ""),
@@ -110,9 +124,9 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			})
 		}
 
-		tools.RecordOperation(ctx, deps.Store, sessionID, "write_file", filePath, "success", "", params)
-		result := map[string]any{"success": true, "message": "Successfully wrote to " + filePath}
-		if u := tools.DownloadURL(deps.Cfg, filePath); u != "" {
+		tools.RecordOperation(ctx, deps.Store, sessionID, "write_file", key, "success", "", params)
+		result := map[string]any{"success": true, "uuid": receipt.UUID, "message": "Successfully wrote to " + key}
+		if u := tools.DownloadURL(deps.Cfg, key); u != "" {
 			result["download_url"] = u
 		}
 		return tools.Result(result), nil

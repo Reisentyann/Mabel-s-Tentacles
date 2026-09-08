@@ -12,9 +12,11 @@
 
 **四条铁律**：
 
-1. **零业务依赖**：common 只 import 标准库，永不 import 业务模块——
+1. **零业务依赖**：common 不 import 业务模块（describer / indexer / manager / mcp-server-go）——
    它是最底层叶子，依赖方向永远朝它汇聚，不可能成环。
    （谁想反向让 common 调 repo/manager，就说明这个函数不该进 common。）
+   允许成熟的纯工具三方库（如 filepath-securejoin——runc/containerd 同款路径安全库，
+   "零业务依赖"指的是不绑业务，不是拒绝轮子）。
 2. **只收纯函数**：无状态、无 IO 副作用（盘读/哈希这类"读而不改"的 IO 除外）、
    无配置、无初始化顺序要求。slog / config / DB 连接这类设施**永远不进**。
 3. **不持有业务口径**：预算常量的正主在业务模块（如 `describer.MaxHeadBytes` /
@@ -29,7 +31,7 @@
 
 | 函数 | 签名 | 用途 | 收编前重复 |
 |---|---|---|---|
-| `ResolveWithin` | `(baseDir, rel) → (abs, error)` | 防目录穿越 / 拒盘符的路径解析 | manager-go/placement.go `resolve` 内化副本 + service/files.go `resolveWithin`（archive.go 同用） |
+| `ResolveWithin` | `(baseDir, rel) → (abs, error)` | 防目录穿越 / 拒盘符 / **拒 symlink 逃逸与改写**（securejoin 逐段解析 + fail-closed 双检，2026-09-08） | manager-go/placement.go `resolve` 内化副本 + service/files.go `resolveWithin`（archive.go 同用） |
 | `WithinDir` | `(dir, target) → bool` | target 是否仍在 dir 内（`..` 前缀 = 越界） | 两份同款 `withinDir` |
 | `ReadHead` | `(abs, headBytes) → ([]byte, error)` | 读文件前 N 字节（短文件按实际长度） | updater.go / executor.go 两份 `readHead` |
 | `ReadLimited` | `(abs, limit) → ([]byte, error)` | LimitReader 限读（防超大文件内存峰值） | 两份 `readLimited` + verify 的 `readUpTo` 变体 |

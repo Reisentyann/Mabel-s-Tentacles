@@ -1,10 +1,11 @@
 // 文件：mcp-server-go/internal/tools/copyfile/copyfile.go —— MCP 工具 copy_file：内容 + 元数据一起复制（KindCopy 事件喂索引）
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 package copyfile
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"time"
 
@@ -12,7 +13,6 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
-	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
 )
 
@@ -49,17 +49,39 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		sessionID := tools.SessionID(ctx)
 		start := time.Now()
 
+		// 键空间（owner 隔离批次）：源可跨用户只读寻址；目标仅自己空间
+		// （副本归操作者——拿走即拥有，不许替他人写入）
+		scS, serrS := tools.ScopePath(ctx, source)
+		if serrS != nil {
+			return tools.Deny(ctx, "copy_file", source, serrS.Error()), nil
+		}
+		scT, serrT := tools.ScopeWrite(ctx, target)
+		if serrT != nil {
+			tools.RecordOperation(ctx, deps.Store, sessionID, "copy_file", target, "denied", serrT.Error(), map[string]any{"source": source})
+			return tools.Deny(ctx, "copy_file", target, serrT.Error()), nil
+		}
+		src, dst := scS.Key, scT.Key
+
 		// 源读授权：看不到的文件不允许复制（含无元数据的归属不明文件）
-		if denied, reason := tools.CanFile(ctx, deps.Store, source, false); denied {
-			tools.RecordOperation(ctx, deps.Store, sessionID, "copy_file", source, "denied", reason, map[string]any{"source": source})
-			return tools.Deny(ctx, "copy_file", source, reason), nil
+		if denied, reason := tools.CanFile(ctx, deps.Store, src, false); denied {
+			tools.RecordOperation(ctx, deps.Store, sessionID, "copy_file", src, "denied", reason, map[string]any{"source": source})
+			return tools.Deny(ctx, "copy_file", src, reason), nil
 		}
 
-		content, err := service.SafeRead(deps.Cfg.DataDir, source)
+		// 物理复制走管理机（读源 + 入库目标：逻辑键 → uuid 派生随机物理路径）
+		if deps.Manager == nil {
+			return tools.ResultError("manager not wired"), nil
+		}
+		of, err := deps.Manager.OpenByLogic(ctx, src)
 		if err != nil {
 			return tools.ResultError(err.Error()), nil
 		}
-		if err := service.SafeWrite(deps.Cfg.DataDir, target, string(content)); err != nil {
+		content, rerr := io.ReadAll(of.Content)
+		of.Content.Close()
+		if rerr != nil {
+			return tools.ResultError(rerr.Error()), nil
+		}
+		if _, err := deps.Manager.Write(ctx, dst, string(content)); err != nil {
 			return tools.ResultError(err.Error()), nil
 		}
 
@@ -69,21 +91,21 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		}
 		if deps.Store != nil {
 			// 副本归操作者（拿走即拥有，copied_from 保留谱系）
-			if err := deps.Store.CopyMetadata(ctx, source, target, owner, sessionID); err != nil {
+			if err := deps.Store.CopyMetadata(ctx, src, dst, owner, sessionID); err != nil {
 				// 源文件可能没有元数据，复制失败不致命：KindCopy 事件的执行器
 				// 会从盘上重建目标元数据并喂索引（COALESCE 保留 copied_from 谱系列）
 				slog.Warn("copy metadata failed, orchestrator will rebuild target meta",
-					"source", source, "target", target, "session", sessionID, "error", err)
+					"source", src, "target", dst, "session", sessionID, "error", err)
 			}
 		}
 		// 复制主路径原本的喂食洞（目标 uuid 从不挂索引）由此堵上：
 		// 执行器重分析目标 + Upsert + Sink.Update，CopyMetadata 成败与否都覆盖
 		if deps.Orch != nil {
-			deps.Orch.Submit(core.Event{Kind: core.KindCopy, Path: target, SessionID: sessionID, Actor: core.Actor{Name: owner}})
+			deps.Orch.Submit(core.Event{Kind: core.KindCopy, Path: dst, SessionID: sessionID, Actor: core.Actor{Name: owner}})
 		}
 
-		slog.Info("copy_file ok", "source", source, "target", target, "bytes", len(content), "session", sessionID, "duration", time.Since(start).String())
-		tools.RecordOperation(ctx, deps.Store, sessionID, "copy_file", target, "success", "", map[string]any{"source": source})
-		return tools.Result(map[string]any{"success": true, "message": "Successfully copied " + source + " to " + target}), nil
+		slog.Info("copy_file ok", "source", src, "target", dst, "bytes", len(content), "session", sessionID, "duration", time.Since(start).String())
+		tools.RecordOperation(ctx, deps.Store, sessionID, "copy_file", dst, "success", "", map[string]any{"source": source})
+		return tools.Result(map[string]any{"success": true, "message": "Successfully copied " + src + " to " + dst}), nil
 	})
 }

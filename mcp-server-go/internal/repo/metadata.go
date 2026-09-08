@@ -1,14 +1,16 @@
 // 文件：mcp-server-go/internal/repo/metadata.go —— file_metadata 表存取：模型 / Upsert(COALESCE 返回 uuid) / 搜索 / 分页扫描 / 缺失计数 / 软删
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 package repo
 
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // FileMetadata 文件的描述/标签/属性等元数据。指针字段为 NULL 时表示「未提供」。
@@ -32,6 +34,7 @@ type FileMetadata struct {
 	UserID         *string         `json:"user_id"`
 	Attributes     json.RawMessage `json:"attributes"`
 	CopiedFrom     *string         `json:"copied_from"`
+	MovedFrom      *string         `json:"moved_from"` // 谱系：最近一次移动的原键（文件管理域）
 	DownloadCount  int64           `json:"download_count"`
 	LastAccessedAt *time.Time      `json:"last_accessed_at"`
 	ExpiresAt      *time.Time      `json:"expires_at"`
@@ -59,7 +62,7 @@ type FileSearch struct {
 	ViewerGroups []int64 // 观察者所在组
 }
 
-const metaColumns = `id, uuid, file_path, scope, owner_id, visibility, group_id, title, description, tags, file_type, mime_type, extension, size_bytes, checksum, session_id, user_id, attributes, copied_from, download_count, last_accessed_at, expires_at, is_deleted, deleted_at, missing_rounds, created_at, updated_at`
+const metaColumns = `id, uuid, file_path, scope, owner_id, visibility, group_id, title, description, tags, file_type, mime_type, extension, size_bytes, checksum, session_id, user_id, attributes, copied_from, moved_from, download_count, last_accessed_at, expires_at, is_deleted, deleted_at, missing_rounds, created_at, updated_at`
 
 const metaWhere = `is_deleted = $1
  AND ($2::text   IS NULL OR description ILIKE '%'||$2||'%' OR file_path ILIKE '%'||$2||'%')
@@ -75,7 +78,7 @@ func scanMeta(row pgx.Row) (*FileMetadata, error) {
 	if err := row.Scan(&m.ID, &m.UUID, &m.FilePath, &m.Scope, &m.OwnerID, &m.Visibility, &m.GroupID,
 		&m.Title, &m.Description, &m.Tags,
 		&m.FileType, &m.MimeType, &m.Extension, &m.SizeBytes, &m.Checksum, &m.SessionID, &m.UserID,
-		&m.Attributes, &m.CopiedFrom, &m.DownloadCount, &m.LastAccessedAt, &m.ExpiresAt,
+		&m.Attributes, &m.CopiedFrom, &m.MovedFrom, &m.DownloadCount, &m.LastAccessedAt, &m.ExpiresAt,
 		&m.IsDeleted, &m.DeletedAt, &m.MissingRounds, &m.CreatedAt, &m.UpdatedAt); err != nil {
 		return nil, err
 	}
@@ -160,6 +163,37 @@ func (s *pgxStore) GetMetadataByPaths(ctx context.Context, paths []string) (map[
 			return nil, err
 		}
 		out[m.FilePath] = m
+	}
+	return out, rows.Err()
+}
+
+// GetMetadataByUUID 凭 uuid 读单行（含软删行——manager fetch 的 Locate
+// 语义"软删照报"；无行返回 pgx.ErrNoRows，由调用方映射）。
+func (s *pgxStore) GetMetadataByUUID(ctx context.Context, uuid string) (*FileMetadata, error) {
+	return scanMeta(s.pool.QueryRow(ctx,
+		`SELECT `+metaColumns+` FROM file_metadata WHERE uuid=$1`, uuid))
+}
+
+// GetMetadataByUUIDs 批量凭 uuid 取行（含软删行）：uuid → 行映射，
+// 缺失的 uuid 不入 map（调用方对照入参找缺）。搜索索引路径一次取齐
+// （Index.Query → uuids → 本方法，免 N+1）。
+func (s *pgxStore) GetMetadataByUUIDs(ctx context.Context, uuids []string) (map[string]*FileMetadata, error) {
+	out := make(map[string]*FileMetadata, len(uuids))
+	if len(uuids) == 0 {
+		return out, nil
+	}
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+metaColumns+` FROM file_metadata WHERE uuid = ANY($1)`, uuids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		m, err := scanMeta(rows)
+		if err != nil {
+			return nil, err
+		}
+		out[m.UUID] = m
 	}
 	return out, rows.Err()
 }
@@ -274,6 +308,42 @@ func (s *pgxStore) SoftDeleteMetadata(ctx context.Context, filePath string) erro
 	return err
 }
 
+// ErrKeyExists 目标逻辑键已被占用（Move 拒绝覆盖；file_path UNIQUE 兜底
+// 并发竞态——两个 Move 同时抢同一目标键时后者在 UNIQUE 上撞出本哨兵）。
+var ErrKeyExists = errors.New("repo: logic key already exists")
+
+// MoveMetadata 逻辑键改（文件管理域 2026-09-08；manager.Move 的支撑）：
+// from 行键改 to + moved_from 记谱系，返回行 uuid。无行 / 软删行 →
+// pgx.ErrNoRows（调用方翻译哨兵）；to 已占用 → ErrKeyExists。
+// uuid / 归属 / 描述 / 索引键全不动——键改即完成"移动"。
+func (s *pgxStore) MoveMetadata(ctx context.Context, from, to string) (string, error) {
+	// 预查目标占用（人话错误）；并发竞态由 UNIQUE 约束兜底（下方 23505 捕获）
+	var exists bool
+	if err := s.pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM file_metadata WHERE file_path=$1)`, to).Scan(&exists); err != nil {
+		return "", err
+	}
+	if exists {
+		return "", ErrKeyExists
+	}
+	var uuid string
+	err := s.pool.QueryRow(ctx,
+		`UPDATE file_metadata SET file_path=$2, moved_from=$1, updated_at=NOW()
+		 WHERE file_path=$1 AND is_deleted=FALSE
+		 RETURNING uuid`, from, to).Scan(&uuid)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", pgx.ErrNoRows // 无行 / 软删行
+		}
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return "", ErrKeyExists // UNIQUE 兜底：并发抢键的后到者
+		}
+		return "", err
+	}
+	return uuid, nil
+}
+
 // IncrementDownloadCount 递增下载计数并刷新最后访问时间。
 // 已软删除的文件不计入，便于通过下载入口阻断被回收的文件。
 func (s *pgxStore) IncrementDownloadCount(ctx context.Context, filePath string) error {
@@ -308,6 +378,19 @@ func (s *pgxStore) ListMetadataPage(ctx context.Context, sincePath string, limit
 		items = append(items, *m)
 	}
 	return items, rows.Err()
+}
+
+// ReserveMeta 入库占位行：按逻辑键幂等拿 uuid（manager intake 域——
+// uuid 先于盘写存在，物理路径由它派生）。最小 INSERT（scope/attributes/
+// visibility 等走 DDL 默认值），冲突即复用既有 uuid；写入即存在证据，
+// missing_rounds 清零。
+func (s *pgxStore) ReserveMeta(ctx context.Context, logicPath string) (string, error) {
+	var uuid string
+	err := s.pool.QueryRow(ctx,
+		`INSERT INTO file_metadata (file_path) VALUES ($1)
+		 ON CONFLICT (file_path) DO UPDATE SET missing_rounds = 0, updated_at = NOW()
+		 RETURNING uuid`, logicPath).Scan(&uuid)
+	return uuid, err
 }
 
 // MarkMissingRound 盘上缺失计数 +1，返回累计轮次（manager updater 的幽灵存续：

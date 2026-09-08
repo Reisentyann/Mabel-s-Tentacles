@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/listdatafiles/listdatafiles.go —— MCP 工具 list_data_files：分页列表 + 路径过滤 + 简略元数据
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 package listdatafiles
 
@@ -15,7 +15,6 @@ import (
 	"github.com/Reisentyann/Mabel-s-Tentacles/common"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/authz"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
-	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
 )
 
@@ -51,7 +50,11 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		sessionID := tools.SessionID(ctx)
 		begin := time.Now()
 
-		all, err := service.SafeList(deps.Cfg.DataDir)
+		// 树源 = 管理机逻辑视图（物理盘枚举退役——盘上只有随机名）
+		if deps.Manager == nil {
+			return tools.ResultError("manager not wired"), nil
+		}
+		all, err := deps.Manager.LogicPaths(ctx)
 		if err != nil {
 			slog.Error("list_data_files failed", "q", q, "session", sessionID, "error", err, "duration", time.Since(begin).String())
 			tools.RecordOperation(ctx, deps.Store, sessionID, "list_data_files", "", "failed", err.Error(), nil)

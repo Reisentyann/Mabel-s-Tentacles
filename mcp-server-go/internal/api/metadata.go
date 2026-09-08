@@ -1,21 +1,20 @@
 // 文件：mcp-server-go/internal/api/metadata.go —— 元数据端点：搜索 / 查看元数据 / 描述（编排机同步入口）/ 复制（KindCopy 事件）
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 package api
 
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"log/slog"
 	"net/http"
-	"os"
 	"strconv"
 
 	"github.com/jackc/pgx/v5"
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/search"
-	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 )
 
 // searchFiles 检索文件元数据：?q=&tag=&type=&creator=&scope=&color=&deleted=&page=&size=
@@ -111,13 +110,18 @@ func (s *Server) describeFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	target, err := service.ResolvePath(s.cfg.DataDir, req.Path)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+	if s.repo == nil {
+		writeError(w, http.StatusInternalServerError, "database unavailable")
 		return
 	}
-	if info, err := os.Stat(target); err != nil || info.IsDir() {
-		writeError(w, http.StatusNotFound, "file not found")
+	// 物理随机化后行是存在性的事实源（盘面只有 uuid 派生位，明文路径
+	// 永不在盘上）：无行 = 未入库，404
+	if _, err := s.repo.GetMetadata(r.Context(), req.Path); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "file not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if s.orch == nil {
@@ -189,12 +193,23 @@ func (s *Server) copyFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	content, err := service.SafeRead(s.cfg.DataDir, req.Source)
+	// 物理复制走管理机（读源 + 入库目标：逻辑键 → uuid 派生随机物理路径）
+	if s.manager == nil {
+		writeError(w, http.StatusInternalServerError, "manager not wired")
+		return
+	}
+	of, err := s.manager.OpenByLogic(r.Context(), req.Source)
 	if err != nil {
 		writeError(w, http.StatusNotFound, err.Error())
 		return
 	}
-	if err := service.SafeWrite(s.cfg.DataDir, req.Target, string(content)); err != nil {
+	content, rerr := io.ReadAll(of.Content)
+	of.Content.Close()
+	if rerr != nil {
+		writeError(w, http.StatusInternalServerError, rerr.Error())
+		return
+	}
+	if _, err := s.manager.Write(r.Context(), req.Target, string(content)); err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}

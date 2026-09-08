@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/core/orchestrator.go —— 编排机门面：生命周期事件 + 异步队列 + worker 池（三机之上的统一编排层骨架）
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 // Package core 是编排机：把描述机（describer-go，字节进事实出）/ 索引机
 // （indexer-go，条件→uuid）/ 管理机（manager-go，位置与谱系）的编排，
@@ -27,10 +27,11 @@
 //     CopyMetadata 成败皆覆盖）；describe_file / HTTP describe 切 Describe
 //     （复制粘贴已灭，llm 喂食洞已堵）；启动 RebuildIndex + indexer 实例
 //     注入 Sink/Index（manager 的 T2/T3 喂食随之点亮）；HTTP 检索注入本包
-//     Searcher（索引优先 → SQL 降级链就位）；关停排空（Stop 优雅收尾）
-//   - 待后续批次：检索索引化（q.Attributes → Index.Query → uuid 批量取件，
-//     依赖 repo GetMetadataByUUIDs 与 manager fetch 域实现）；
-//     T2/T3 与 manager-go 共享执行器核心（manager 另线维护，本包不动它）
+//     Searcher（索引优先 → SQL 降级链就位）；关停排空（Stop 优雅收尾）；
+//     检索索引化点亮（2026-09-06 取件批次：q.Attributes → Index.Query →
+//     uuid 批量取件，空集合法不降级）+ manager fetch 域实现贯通
+//   - 待后续批次：T2/T3 与 manager-go 共享执行器核心（manager 另线维护，
+//     本包不动它）；HTTP / MCP 工具层的 uuid 取件入口（fetch 已就绪待消费方）
 package core
 
 import (
@@ -66,6 +67,9 @@ type Store interface {
 	GetMetadata(ctx context.Context, filePath string) (*repo.FileMetadata, error)
 	UpsertMetadata(ctx context.Context, m *repo.FileMetadata) (uuid string, err error)
 	ListMetadataPage(ctx context.Context, sincePath string, limit int) ([]repo.FileMetadata, error)
+	// GetMetadataByUUIDs 批量凭 uuid 取件（检索索引路径：Index.Query →
+	// uuids → 一次取齐，免 N+1；含软删行，由检索侧过滤）。
+	GetMetadataByUUIDs(ctx context.Context, uuids []string) (map[string]*repo.FileMetadata, error)
 }
 
 // Kind 生命周期事件种类。提交即表示盘上内容已是终态（调用方先完成盘写）。
@@ -76,6 +80,7 @@ const (
 	KindModify  Kind = "modify"  // 追加/覆写修改
 	KindCopy    Kind = "copy"    // 复制完成（目标路径视角）
 	KindAnalyze Kind = "analyze" // 显式重分析（预留：T3 接线批次）
+	KindMove    Kind = "move"    // 逻辑键改完成（文件管理域：键已在管理机改好，事件仅记账）
 )
 
 // Event 生命周期事件。不携带文件内容——worker 处理时盘上重读（后写胜出，
