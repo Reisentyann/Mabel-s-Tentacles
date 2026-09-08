@@ -91,28 +91,24 @@ func collectPaths(nodes []*manager.LogicNode, acc []string) []string {
 	return acc
 }
 
-// downloadFile 单文件下载（公共路由自证）：优先静态 access_token
-// （配置后供 agent 直发链接的过渡口径），否则要求 JWT 并做 CanRead。
+// downloadFile 单文件下载（公共路由自证）：三种口径按序判——
+//  1. 限时票据（exp+ticket query）：单文件绑定 + 半小时自动过期（agent
+//     分享链接的正口，2026-09-08——取代 ACCESS_TOKEN 静态万能钥匙：静态
+//     token 随链接扩散等于全站任意文件永久可下载，含私密）
+//  2. JWT（管理页下载）：selfAuth + CanRead
+//  3. require_auth=false（本地开发显式关闭）：匿名放行
 func (s *Server) downloadFile(w http.ResponseWriter, r *http.Request) {
-	if !s.checkAccessToken(r) {
-		if s.cfg.API.RequireAuth {
-			p := s.selfAuth(w, r)
-			if p == nil {
-				return // 响应已写（401/403/404）
-			}
-			path := r.URL.Query().Get("path")
-			if !s.canActFile(w, r, path, "download", false) {
-				return
-			}
-		}
-		// require_auth=false（本地开发显式关闭）：匿名放行，与全局面口径一致
+	q := r.URL.Query()
+	path := q.Get("path")
+	ticket, expStr := q.Get("ticket"), q.Get("exp")
+
+	if s.repo == nil {
+		writeError(w, http.StatusInternalServerError, "database unavailable")
+		return
 	}
 
-	p := r.URL.Query().Get("path")
-
-	// 物理路径 uuid 派生（intake 域口径）：对外 API 只认逻辑键，
-	// 物理布局不出现在请求/响应面
-	m, err := s.repo.GetMetadata(r.Context(), p)
+	// 授权段：任一口径通过即可（票据口径顺带把行也查了）
+	m, err := s.repo.GetMetadata(r.Context(), path)
 	if err != nil || m == nil {
 		writeError(w, http.StatusNotFound, "file not found")
 		return
@@ -121,7 +117,28 @@ func (s *Server) downloadFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "file not found")
 		return
 	}
-	rel, serr := manager.StoragePathOf(m.UUID, p)
+
+	switch {
+	case ticket != "":
+		// 票据对 path+uuid 绑定：换文件、过期、篡改一概拒
+		if verr := service.VerifyDownloadTicket(s.cfg.Security.SecretKey, path, m.UUID, expStr, ticket); verr != nil {
+			writeError(w, http.StatusForbidden, "download link expired or invalid")
+			return
+		}
+	case s.cfg.API.RequireAuth:
+		if s.selfAuth(w, r) == nil {
+			return // 响应已写（401/403/404）
+		}
+		if !s.canActFile(w, r, path, "download", false) {
+			return
+		}
+	default:
+		// require_auth=false（本地开发显式关闭）：匿名放行
+	}
+
+	// 物理路径 uuid 派生（intake 域口径）：对外 API 只认逻辑键，
+	// 物理布局不出现在请求/响应面
+	rel, serr := manager.StoragePathOf(m.UUID, path)
 	if serr != nil {
 		writeError(w, http.StatusNotFound, "file not found")
 		return
@@ -140,10 +157,10 @@ func (s *Server) downloadFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// 下载计数（best-effort）
-	_ = s.repo.IncrementDownloadCount(r.Context(), p)
+	_ = s.repo.IncrementDownloadCount(r.Context(), path)
 
 	// 归档名用逻辑路径（物理随机名对用户无意义）
-	w.Header().Set("Content-Disposition", `attachment; filename="`+filepath.Base(p)+`"`)
+	w.Header().Set("Content-Disposition", `attachment; filename="`+filepath.Base(path)+`"`)
 	http.ServeFile(w, r, target)
 }
 

@@ -9,6 +9,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -18,6 +19,7 @@ import (
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/authz"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/config"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 )
 
 func Result(v map[string]any) *mcp.CallToolResult {
@@ -112,12 +114,12 @@ func CanFile(ctx context.Context, st repo.Store, path string, write bool) (denie
 // StrPtr 空串→nil 的指针语义转换已收敛 common.StrPtr（core 侧 strPtr、
 // repo 侧 derefStr 同步退役），本包不再持有副本。
 
-// DownloadURL 构造文件的对外下载地址。base 优先 download_base_url（专门
-// 的对外前缀），空则回退 server.base_url（同源部署——SSE/API/下载同一
-// 入口，部署批次 2026-09-08：服务器只配 base_url 也能出链接）；两者皆空
-// 返回空串（调用方走降级提示，不卡工具回执）。access_token 非空时附带
-// （download 自证端点的静态 token 口径，agent 分享的链接可直下）。
-func DownloadURL(cfg *config.Config, filePath string) string {
+// DownloadURL 构造文件的对外下载地址（限时票据口径，2026-09-08）：
+// base 优先 download_base_url（专门前缀），空则回退 server.base_url（同源
+// 部署）；票据按 path+uuid 无状态签发、半小时自动过期、单文件绑定——
+// 取代旧的 ACCESS_TOKEN 静态口径（静态 token 随链接扩散等于全站任意
+// 文件永久可下载，含私密）。入口全未配置返回空串（调用方走降级提示）。
+func DownloadURL(cfg *config.Config, filePath, uuid string) string {
 	base := strings.TrimRight(cfg.API.DownloadBaseURL, "/")
 	if base == "" {
 		base = strings.TrimRight(cfg.Server.BaseURL, "/")
@@ -125,11 +127,10 @@ func DownloadURL(cfg *config.Config, filePath string) string {
 	if base == "" {
 		return ""
 	}
-	u := base + "/api/files/download?path=" + url.QueryEscape(filePath)
-	if cfg.API.AccessToken != "" {
-		u += "&token=" + url.QueryEscape(cfg.API.AccessToken)
-	}
-	return u
+	exp := service.DownloadTicketExpiry()
+	return base + "/api/files/download?path=" + url.QueryEscape(filePath) +
+		"&exp=" + strconv.FormatInt(exp.Unix(), 10) +
+		"&ticket=" + url.QueryEscape(service.SignDownloadTicket(cfg.Security.SecretKey, filePath, uuid, exp))
 }
 
 // ===== owner 键空间（多用户隔离批次 2026-09-08）=====
