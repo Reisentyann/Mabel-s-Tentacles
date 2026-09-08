@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/config/config.go —— 配置加载：config.yml + 环境变量覆盖（服务器/日志/DB/JWT/API/管理员/T2 回填）
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 package config
 
@@ -14,6 +14,9 @@ import (
 type ServerConfig struct {
 	Port    string `yaml:"port"`
 	BaseURL string `yaml:"base_url"`
+	// WebDir 管理页前端静态目录（部署批次 2026-09-08）：非空时托管
+	// SPA（文件命中直出，未命中回 index.html——前端路由自管）；空 = 不托管
+	WebDir string `yaml:"web_dir"`
 }
 
 type LogConfig struct {
@@ -149,6 +152,9 @@ func (c *Config) loadEnv() {
 	}
 	if v := os.Getenv("MCP_BASE_URL"); v != "" {
 		c.Server.BaseURL = v
+	}
+	if v := os.Getenv("WEB_DIR"); v != "" {
+		c.Server.WebDir = v
 	}
 	if v := os.Getenv("DATA_DIR"); v != "" {
 		c.DataDir = v
