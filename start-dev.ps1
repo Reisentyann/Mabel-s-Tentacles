@@ -19,9 +19,17 @@ foreach ($d in @($BackendDir, $FrontendDir)) {
 }
 
 # =====================================================================
-# 读取项目根 .env（数据库 / 管理员 / JWT 配置的唯一来源）
+# 读取项目根环境变量（数据库 / 管理员 / JWT 配置的唯一来源）
+# 优先级：.env（本机个人真实值，gitignored）→ .env.development（入库的开发默认值）
 # =====================================================================
 $envFile = Join-Path $Root ".env"
+if (-not (Test-Path -LiteralPath $envFile)) {
+    $devEnvFile = Join-Path $Root ".env.development"
+    if (Test-Path -LiteralPath $devEnvFile) {
+        $envFile = $devEnvFile
+        Write-Host "[env] 未找到 .env，使用入库的开发默认值 .env.development" -ForegroundColor DarkGray
+    }
+}
 if (Test-Path -LiteralPath $envFile) {
     Get-Content -LiteralPath $envFile | ForEach-Object {
         $line = $_.Trim()
