@@ -8,6 +8,7 @@ require (
 )
 
 require (
+	github.com/cyphar/filepath-securejoin v0.7.0 // indirect
 	github.com/rwcarlsen/goexif v0.0.0-20190401172101-9e8deecbddbd // indirect
 	golang.org/x/image v0.45.0 // indirect
 	golang.org/x/text v0.41.0 // indirect

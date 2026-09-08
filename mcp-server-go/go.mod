@@ -24,6 +24,7 @@ replace github.com/Reisentyann/Mabel-s-Tentacles/indexer-go => ../indexer-go
 replace github.com/Reisentyann/Mabel-s-Tentacles/manager-go => ../manager-go
 
 require (
+	github.com/cyphar/filepath-securejoin v0.7.0 // indirect
 	github.com/google/jsonschema-go v0.4.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect

@@ -13,6 +13,9 @@
 //     大不了盘上重读——容灾铁律 2 的口径，不做持久化
 //   - 大文件旁路：size > maxEntry 的文件不入缓（Open 直流），防单条目
 //     挤占整个容量；maxEntry 与引擎全量分析预算同口径（describer.MaxFullBytes）
+//   - 不服务下载（2026-09-08 立场钉死）：HTTP 下载是大流量一次性直流，
+//     入缓只添磁盘读写与 LRU 污染——下载端点不经 buffer/fetch，本缓存
+//     只服务 agent 反复读小文件（read_file / 检索取件）的快速路径
 //
 // 并发：RWMutex——get 的 map 查走读锁、stat 对拍在锁外（IO 不占锁），
 // put/drop 走写锁；get 返回共享底层数组的只读切片，调用方约定不改写。

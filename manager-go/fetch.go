@@ -102,6 +102,8 @@ func (m *Manager) LocateMany(ctx context.Context, uuids []string) (map[string]*F
 // 哨兵语义：查无 → ErrNotFound；软删 → ErrDeleted；盘上消失 → ErrGhost。
 // buffer 命中直出（快照，新鲜度由 buffer 内 stat 对拍兜底）；未命中盘读
 // （≤ maxEntry 入缓，超限旁路直流）。
+// 定位：本口服务 agent 反复读（read_file / 检索取件）；HTTP 下载端点
+// 直流不经此（下载大流量一次性，入缓只添污染——buffer.go 立场 2026-09-08）。
 func (m *Manager) Open(ctx context.Context, uuid string) (*OpenedFile, error) {
 	ref, err := m.Locate(ctx, uuid)
 	if err != nil {

@@ -8,6 +8,8 @@ require (
 	golang.org/x/text v0.41.0
 )
 
+require github.com/cyphar/filepath-securejoin v0.7.0 // indirect
+
 // cmd/verify 用共享盘读助手（common 为零业务依赖的叶子模块，不破坏引擎纯库立场）
 require github.com/Reisentyann/Mabel-s-Tentacles/common v0.0.0
 
