@@ -1,14 +1,15 @@
 <template>
   <div class="app-layout">
     <header class="navbar">
-      <router-link to="/files" class="brand">Mabel's Tentacles</router-link>
-      <nav class="links">
-        <router-link to="/files" class="link">Files</router-link>
-        <router-link to="/dashboard" class="link">Activity</router-link>
-      </nav>
+      <router-link to="/manage" class="brand">
+        <span class="brand-mark">🐙</span>
+        <span>Mabel's Tentacles</span>
+        <span class="brand-sub">触手书房 · 管理台</span>
+      </router-link>
+      <div class="flex-fill"></div>
       <div v-if="auth.username" class="user-box">
-        <span class="username">{{ auth.username }}</span>
-        <button class="btn-ghost logout" @click="handleLogout">登出</button>
+        <el-tag size="small" type="info" effect="plain">{{ auth.username }}</el-tag>
+        <el-button size="small" text @click="handleLogout">登出</el-button>
       </div>
     </header>
     <main class="content">
@@ -35,59 +36,47 @@ const handleLogout = async () => {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  background-color: var(--mabel-bg);
 }
 .navbar {
   display: flex;
   align-items: center;
-  gap: 2rem;
-  padding: 0 2rem;
+  gap: 1rem;
+  padding: 0 16px;
   height: 56px;
-  background-color: var(--color-surface);
-  border-bottom: 1px solid var(--color-border);
+  flex: none;
+  background-color: var(--mabel-surface);
+  border-bottom: 1px solid var(--mabel-border);
 }
 .brand {
-  font-weight: 700;
-  font-size: 1.05rem;
-  color: var(--color-text);
-  text-decoration: none;
-}
-.links {
   display: flex;
-  gap: 1.25rem;
-  flex: 1;
-}
-.link {
-  color: var(--color-text-muted);
+  align-items: center;
+  gap: 10px;
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--mabel-text);
   text-decoration: none;
-  padding: 0.25rem 0.5rem;
-  border-radius: 6px;
+}
+.brand-mark {
+  font-size: 1.2rem;
+}
+.brand-sub {
+  font-size: 0.78rem;
   font-weight: 500;
+  color: var(--mabel-text-muted);
 }
-.link:hover {
-  color: var(--color-text);
-  background-color: var(--color-bg);
-}
-.link.router-link-active {
-  color: var(--color-primary);
+.flex-fill {
+  flex: 1;
 }
 .user-box {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
-}
-.username {
-  font-size: 0.9rem;
-  color: var(--color-text-muted);
-}
-.logout {
-  font-size: 0.85rem;
-  padding: 0.25rem 0.75rem;
+  gap: 8px;
 }
 .content {
   flex: 1;
-  padding: 2rem;
-  max-width: 1100px;
-  width: 100%;
-  margin: 0 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 </style>

@@ -12,6 +12,7 @@ import (
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/common"
 	"github.com/Reisentyann/Mabel-s-Tentacles/manager-go"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/authz"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
@@ -233,4 +234,57 @@ func (s *Server) downloadZip(w http.ResponseWriter, r *http.Request) {
 	if _, err := service.ZipFiles(entries, w); err != nil {
 		slog.Error("download zip failed", "error", err)
 	}
+}
+
+// moveFile 逻辑键改（文件管理域的 HTTP 面，前端管理页用；与 MCP move_file
+// 工具同一份 manager.Move 正主）。键透传（前端树显示的就是全键 ~owner/…），
+// 写授权按源行 owner 矩阵判；KindMove 事件仅记账（执行器早退零重分析）。
+func (s *Server) moveFile(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		From string `json:"from"`
+		To   string `json:"to"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.From == "" || body.To == "" {
+		writeError(w, http.StatusBadRequest, "from and to are required")
+		return
+	}
+	if body.From == body.To {
+		writeError(w, http.StatusBadRequest, "from and to must differ")
+		return
+	}
+	if s.manager == nil {
+		writeError(w, http.StatusServiceUnavailable, "manager not wired")
+		return
+	}
+	if s.repo == nil {
+		writeError(w, http.StatusInternalServerError, "database unavailable")
+		return
+	}
+	// 源写授权（移动是对源动手；行内 owner 矩阵）
+	if !s.canActFile(w, r, body.From, "move", true) {
+		return
+	}
+
+	receipt, err := s.manager.Move(r.Context(), body.From, body.To)
+	if err != nil {
+		slog.Error("move file failed", "from", body.From, "to", body.To, "error", err)
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if s.orch != nil {
+		s.orch.Submit(core.Event{
+			Kind:     core.KindMove,
+			Path:     receipt.To,
+			SessionID: "",
+			Actor:    core.Actor{Name: principalOf(r).Name},
+		})
+	}
+	slog.Info("move file ok", "from", body.From, "to", body.To, "uuid", receipt.UUID, "user", principalOf(r).Subject())
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success":      true,
+		"uuid":         receipt.UUID,
+		"from":         receipt.From,
+		"to":           receipt.To,
+		"storage_move": receipt.StorageMove,
+	})
 }
