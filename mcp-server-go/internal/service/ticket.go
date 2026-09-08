@@ -3,13 +3,13 @@
 
 // 下载票据（2026-09-08 设计，替代 ACCESS_TOKEN 静态口径）：
 //
-//	ticket = HMAC-SHA256(SECRET_KEY, path + "|" + uuid + "|" + exp)
+//		ticket = HMAC-SHA256(SECRET_KEY, path + "|" + uuid + "|" + exp)
 //
-//   - 单文件绑定：票据按 path+uuid 签发，换一个文件即失效
-//   - 自动过期：exp（unix 秒）随 URL 明文携带，过期即拒
-//   - 无状态：验证时重算比对，零存储、零撤销面——过期就是撤销
-//   - 动机：静态 ACCESS_TOKEN 随链接扩散等于全站任意文件（含私密）
-//     永久可下载；票据把暴露面缩到"这一个文件这一天"
+//	  - 单文件绑定：票据按 path+uuid 签发，换一个文件即失效
+//	  - 自动过期：exp（unix 秒）随 URL 明文携带，过期即拒
+//	  - 无状态：验证时重算比对，零存储、零撤销面——过期就是撤销
+//	  - 动机：静态 ACCESS_TOKEN 随链接扩散等于全站任意文件（含私密）
+//	    永久可下载；票据把暴露面缩到"这一个文件这一天"
 package service
 
 import (

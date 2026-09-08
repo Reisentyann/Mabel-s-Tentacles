@@ -128,8 +128,14 @@ func (s *Server) downloadFile(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case s.cfg.API.RequireAuth:
-		if s.selfAuth(w, r) == nil {
+		if p := s.selfAuth(w, r); p == nil {
 			return // 响应已写（401/403/404）
+		} else {
+			// selfAuth 只返回主体不注入 context——这里补上（票据批次
+			// 重排时踩的洞：canActFile 里 principalOf 取 nil →
+			// authorization unavailable；旧代码空静态 token 时全放行，
+			// 授权分支从没真正走过，洞被掩盖到今天）
+			r = r.WithContext(authz.WithPrincipal(r.Context(), p))
 		}
 		if !s.canActFile(w, r, path, "download", false) {
 			return
