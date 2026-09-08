@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/writefile/writefile.go —— MCP 工具 write_file：写文件 + 内联描述字段随编排机事件异步落库
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 package writefile
 
@@ -14,7 +14,6 @@ import (
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/common"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
-	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
 )
 
@@ -82,13 +81,19 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			return tools.Deny(ctx, "write_file", filePath, reason), nil
 		}
 
-		if err := service.SafeWrite(deps.Cfg.DataDir, filePath, content); err != nil {
+		// 入库唯一口（intake 域 2026-09-08）：逻辑键 + uuid 派生物理随机路径
+		// ——agent 不接触物理布局，盘面不可猜；描述落库归编排机事件（下方 Submit）
+		if deps.Manager == nil {
+			return tools.ResultError("manager not wired"), nil
+		}
+		receipt, err := deps.Manager.Write(ctx, filePath, content)
+		if err != nil {
 			slog.Error("write_file failed", "path", filePath, "session", sessionID, "error", err, "duration", time.Since(start).String())
 			tools.RecordOperation(ctx, deps.Store, sessionID, "write_file", filePath, "failed", err.Error(), params)
 			return tools.ResultError(err.Error()), nil
 		}
 
-		slog.Info("write_file ok", "path", filePath, "bytes", len(content), "session", sessionID, "duration", time.Since(start).String())
+		slog.Info("write_file ok", "path", filePath, "bytes", len(content), "uuid", receipt.UUID, "session", sessionID, "duration", time.Since(start).String())
 
 		// 编排机异步接管 T1（盘写成功即回，agent 不等描述）：agent 顺带
 		// 描述字段随事件走，执行器单次 Upsert 落库并喂索引——旧的双 upsert 已灭。
@@ -111,7 +116,7 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		}
 
 		tools.RecordOperation(ctx, deps.Store, sessionID, "write_file", filePath, "success", "", params)
-		result := map[string]any{"success": true, "message": "Successfully wrote to " + filePath}
+		result := map[string]any{"success": true, "uuid": receipt.UUID, "message": "Successfully wrote to " + filePath}
 		if u := tools.DownloadURL(deps.Cfg, filePath); u != "" {
 			result["download_url"] = u
 		}

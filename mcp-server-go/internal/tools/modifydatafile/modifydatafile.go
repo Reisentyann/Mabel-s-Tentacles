@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/modifydatafile/modifydatafile.go —— MCP 工具 modify_data_file：append/overwrite + 编排机事件异步刷新元数据
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 package modifydatafile
 
@@ -12,7 +12,6 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
-	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
 )
 
@@ -57,7 +56,11 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			return tools.Deny(ctx, "modify_data_file", filePath, reason), nil
 		}
 
-		if err := service.SafeModify(deps.Cfg.DataDir, filePath, content, mode); err != nil {
+		// 修改走管理机（intake 域 Modify：逻辑键 → uuid 派生物理路径）
+		if deps.Manager == nil {
+			return tools.ResultError("manager not wired"), nil
+		}
+		if err := deps.Manager.Modify(ctx, filePath, content, mode); err != nil {
 			slog.Error("modify_data_file failed", "path", filePath, "mode", mode, "session", sessionID, "error", err, "duration", time.Since(start).String())
 			tools.RecordOperation(ctx, deps.Store, sessionID, "modify_data_file", filePath, "failed", err.Error(), params)
 			return tools.ResultError(err.Error()), nil

@@ -1,5 +1,5 @@
 // 文件：manager-go/updater.go —— 更新回填域：T2 启动后台回填 + T3 手动重分析（字典第 10 节三触发器）
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 // updater 域职责：让存量元数据跟上引擎演进。
 // 执行器唯一路径：读文件 → describer.Analyze → MergeResults → Upsert → 喂食索引机。
@@ -39,12 +39,21 @@ type AnalyzeReport struct {
 }
 
 // AnalyzeFile T3 手动入口：单文件重分析并落库，返回本次事实产出。
-// 执行：resolve → stat（真实 mtime——IsStale 条件 4 口径）→ 读 head +
-// 惰性全量 + 流式 checksum → Analyze → 读旧 attrs → MergeResults →
-// Upsert → 喂索引。幂等：重复执行结果恒等。
+// 执行：行定位（逻辑键 → uuid → 物理路径派生）→ stat（真实 mtime——
+// IsStale 条件 4 口径）→ 读 head + 惰性全量 + 流式 checksum → Analyze →
+// 读旧 attrs → MergeResults → Upsert → 喂索引。幂等：重复执行结果恒等。
+// 新模型（2026-09-08）：物理文件只存在于 uuid 派生路径——无行即无文件，
+// T3 不是入库口（入库归 intake 域 Write）。
 func (m *Manager) AnalyzeFile(ctx context.Context, path string) (*AnalyzeReport, error) {
 	start := time.Now()
-	report, err := m.analyze(ctx, path)
+	row, err := m.store.GetMeta(ctx, path)
+	if err != nil {
+		return nil, fmt.Errorf("get meta: %w", err)
+	}
+	if row == nil {
+		return nil, fmt.Errorf("error: file '%s' does not exist (intake first)", path)
+	}
+	report, err := m.analyze(ctx, *row)
 	if err != nil {
 		slog.Error("analyze file failed", "path", path, "error", err, "duration", time.Since(start).String())
 		return nil, err
@@ -83,7 +92,7 @@ func (m *Manager) Backfill(ctx context.Context, batch int) (int, error) {
 			}
 
 			// 盘上缺失：计数（3 轮 → 软删除）；存在：清零由 UpsertMeta 语义承担
-			abs, serr := m.resolve(row.Path)
+			abs, serr := m.storageAbs(row.UUID, row.Path)
 			var info os.FileInfo
 			if serr == nil {
 				info, serr = os.Stat(abs)
@@ -117,7 +126,7 @@ func (m *Manager) Backfill(ctx context.Context, batch int) (int, error) {
 			if !m.stale(attrs, row.Checksum, abs, info) {
 				continue
 			}
-			if _, aerr := m.analyze(ctx, row.Path); aerr != nil {
+			if _, aerr := m.analyze(ctx, row); aerr != nil {
 				slog.Warn("backfill analyze failed", "path", row.Path, "error", aerr)
 				continue
 			}
@@ -131,11 +140,13 @@ func (m *Manager) Backfill(ctx context.Context, batch int) (int, error) {
 }
 
 // analyze 执行器本体（AnalyzeFile 与 Backfill 逐文件复用）：
-// resolve → stat → head 512B + 惰性全量（5MB 限读，引擎内部仍会再截——
-// 双保险）+ 全文件流式 checksum → Analyze → 读旧 attrs → MergeResults →
-// Upsert → 喂索引。T1 写路径（RecordFileMeta）内容在手不走这里。
-func (m *Manager) analyze(ctx context.Context, path string) (*AnalyzeReport, error) {
-	abs, err := m.resolve(path)
+// 行定位（uuid → 物理路径派生）→ stat → head 512B + 惰性全量（5MB 限读，
+// 引擎内部仍会再截——双保险）+ 全文件流式 checksum → Analyze → 读旧
+// attrs → MergeResults → Upsert → 喂索引。T1 写路径（RecordFileMeta）
+// 内容在手不走这里。
+func (m *Manager) analyze(ctx context.Context, row MetaRow) (*AnalyzeReport, error) {
+	path := row.Path
+	abs, err := m.storageAbs(row.UUID, path)
 	if err != nil {
 		return nil, err
 	}
@@ -168,12 +179,12 @@ func (m *Manager) analyze(ctx context.Context, path string) (*AnalyzeReport, err
 
 	// 读-改-写：整族合并 cod-*，保留 llm-* / sp-llm-*（无行 = 空开始）
 	old := map[string]any{}
-	row, gerr := m.store.GetMeta(ctx, path)
+	oldRow, gerr := m.store.GetMeta(ctx, path)
 	if gerr != nil {
 		return nil, fmt.Errorf("get meta: %w", gerr)
 	}
-	if row != nil {
-		old = describer.AttrsFromJSON(row.Attributes)
+	if oldRow != nil {
+		old = describer.AttrsFromJSON(oldRow.Attributes)
 	}
 	merged := describer.MergeResults(old, results, time.Now())
 

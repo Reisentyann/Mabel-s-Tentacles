@@ -77,6 +77,11 @@ func (a *ManagerStore) MarkMissing(ctx context.Context, path string) (int, error
 	return a.st.MarkMissingRound(ctx, path)
 }
 
+// ReserveMeta 占位行直通（uuid 生成权归 DB）。
+func (a *ManagerStore) ReserveMeta(ctx context.Context, logicPath string) (string, error) {
+	return a.st.ReserveMeta(ctx, logicPath)
+}
+
 func (a *ManagerStore) SoftDeleteMeta(ctx context.Context, path string) error {
 	return a.st.SoftDeleteMetadata(ctx, path)
 }
@@ -126,7 +131,11 @@ func toFileRef(m *FileMetadata) *manager.FileRef {
 func toMetaRow(m *FileMetadata) manager.MetaRow {
 	return manager.MetaRow{
 		Path:       m.FilePath,
+		UUID:       m.UUID,
 		Checksum:   common.DerefStr(m.Checksum),
 		Attributes: m.Attributes,
+		IsDeleted:  m.IsDeleted,
+		SizeBytes:  common.DerefInt64(m.SizeBytes),
+		UpdatedAt:  m.UpdatedAt,
 	}
 }

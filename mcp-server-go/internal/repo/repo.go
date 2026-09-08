@@ -69,6 +69,10 @@ type Store interface {
 	// MarkMissingRound 盘上缺失计数 +1 并返回累计轮次（连续 3 轮触发软删除，
 	// manager updater 的幽灵存续状态；Upsert 即文件存在证据，会清零）。
 	MarkMissingRound(ctx context.Context, filePath string) (rounds int, err error)
+	// ReserveMeta 入库占位行（manager intake 域 Write 的支撑）：按逻辑键
+	// 幂等拿 uuid——存在即复用（missing_rounds 清零），不存在则落最小占位行
+	// （其余列走 DDL 默认值）。uuid 生成权归 DB（gen_random_uuid）。
+	ReserveMeta(ctx context.Context, logicPath string) (string, error)
 
 	Close()
 }

@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/core/executor.go —— 统一执行器：盘上读 → describer.Analyze → 读旧合并 → 顶层列推导 → 单次 Upsert → 喂索引
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 package core
 
@@ -15,6 +15,7 @@ import (
 	"github.com/Reisentyann/Mabel-s-Tentacles/common"
 	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go"
 	_ "github.com/Reisentyann/Mabel-s-Tentacles/describer-go/all" // 插件聚合注册（编排机自带；与 tools 侧重复 blank import 幂等无害）
+	"github.com/Reisentyann/Mabel-s-Tentacles/manager-go"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 )
@@ -44,7 +45,23 @@ type Report struct {
 // 文件已删除等竞态：stat 失败返回错误，调用方按容灾立场丢弃
 // （管理机 T2 幽灵计数轮次兜底）。
 func (o *Orchestrator) execute(ctx context.Context, ev Event) (*Report, error) {
-	abs, err := service.ResolvePath(o.opts.DataDir, ev.Path)
+	// 占位行先行（write/copy 工具层经管理机 Reserve）：行必有 uuid——
+	// 物理路径由 uuid 派生（intake 域口径，agent 只见逻辑键）。
+	// 旧 attrs 一并前置读取（读-改-写的旧值侧）。
+	meta, gerr := o.opts.Store.GetMetadata(ctx, ev.Path)
+	if gerr != nil && !errors.Is(gerr, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("get metadata: %w", gerr)
+	}
+	if meta == nil {
+		return nil, fmt.Errorf("no meta row for %q (intake first)", ev.Path)
+	}
+	old := describer.AttrsFromJSON(meta.Attributes)
+
+	storageRel, err := manager.StoragePathOf(meta.UUID, ev.Path)
+	if err != nil {
+		return nil, err
+	}
+	abs, err := service.ResolvePath(o.opts.DataDir, storageRel)
 	if err != nil {
 		return nil, err
 	}
@@ -75,13 +92,7 @@ func (o *Orchestrator) execute(ctx context.Context, ev Event) (*Report, error) {
 		return common.ReadLimited(abs, describer.MaxFullBytes)
 	})
 
-	// 读-改-写：整族合并 cod-*，保留 llm-* / sp-llm-*（无行 = 空开始）
-	var old map[string]any
-	if m, gerr := o.opts.Store.GetMetadata(ctx, ev.Path); gerr == nil && m != nil {
-		old = describer.AttrsFromJSON(m.Attributes)
-	} else if gerr != nil && !errors.Is(gerr, pgx.ErrNoRows) {
-		return nil, fmt.Errorf("get metadata: %w", gerr)
-	}
+	// 读-改-写：整族合并 cod-*，保留 llm-* / sp-llm-*（旧值已前置读取）
 	merged := describer.MergeResults(old, results, time.Now())
 
 	// 顶层列 + agent 顺带字段 → 单次 Upsert（消灭 write_file 的双 upsert）。
@@ -93,7 +104,7 @@ func (o *Orchestrator) execute(ctx context.Context, ev Event) (*Report, error) {
 	if visibility == "" && ev.Kind == KindWrite {
 		visibility = "private"
 	}
-	meta := &repo.FileMetadata{
+	upsert := &repo.FileMetadata{
 		FilePath:   ev.Path,
 		Scope:      service.InferScope(ev.Path),
 		FileType:   &fileType,
@@ -107,23 +118,23 @@ func (o *Orchestrator) execute(ctx context.Context, ev Event) (*Report, error) {
 	}
 	if ev.Kind == KindWrite && ev.Actor.Name != "" {
 		owner := ev.Actor.Name
-		meta.OwnerID = &owner
+		upsert.OwnerID = &owner
 	}
 	if ev.Agent != nil {
 		if ev.Agent.Title != nil {
-			meta.Title = ev.Agent.Title
+			upsert.Title = ev.Agent.Title
 		}
 		if ev.Agent.Description != nil {
-			meta.Description = ev.Agent.Description
+			upsert.Description = ev.Agent.Description
 		}
 		if ev.Agent.Tags != nil {
-			meta.Tags = ev.Agent.Tags
+			upsert.Tags = ev.Agent.Tags
 		}
 		if ev.Agent.FileType != nil {
-			meta.FileType = ev.Agent.FileType
+			upsert.FileType = ev.Agent.FileType
 		}
 	}
-	uuid, err := o.opts.Store.UpsertMetadata(ctx, meta)
+	uuid, err := o.opts.Store.UpsertMetadata(ctx, upsert)
 	if err != nil {
 		return nil, fmt.Errorf("upsert metadata: %w", err)
 	}

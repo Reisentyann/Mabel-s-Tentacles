@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/api/files.go —— 文件端点：可见性裁剪的目录树 / 单文件下载（自证：静态 token 或 JWT）/ zip 打包
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 package api
 
@@ -11,21 +11,27 @@ import (
 	"path/filepath"
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/common"
+	"github.com/Reisentyann/Mabel-s-Tentacles/manager-go"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/authz"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 )
 
-// listFiles 目录树（权限批次：非 admin 按可见性裁剪——看不到的文件
-// 连文件名都不出现，空目录随之剪枝）。
+// listFiles 逻辑树（权限批次：非 admin 按可见性裁剪——看不到的文件
+// 连文件名都不出现，空目录随之剪枝）。树源 = 管理机逻辑视图
+// （物理随机化后盘上无树可看，"文件在哪"的树状答案归管理机）。
 func (s *Server) listFiles(w http.ResponseWriter, r *http.Request) {
-	tree, err := service.ListTree(s.cfg.DataDir)
+	if s.manager == nil {
+		writeError(w, http.StatusInternalServerError, "manager not wired")
+		return
+	}
+	tree, err := s.manager.LogicTree(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	if tree == nil {
-		tree = []*service.FileNode{}
+		tree = []*manager.LogicNode{}
 	}
 	if p := principalOf(r); p != nil && !p.IsAdmin() && s.repo != nil {
 		tree = s.filterTree(r, tree, p)
@@ -35,14 +41,14 @@ func (s *Server) listFiles(w http.ResponseWriter, r *http.Request) {
 
 // filterTree 按 CanRead 裁剪树：无元数据的文件对非 admin 隐藏
 // （归属不明不让看），目录无幸存子节点则整枝剪掉。
-func (s *Server) filterTree(r *http.Request, nodes []*service.FileNode, p *authz.Principal) []*service.FileNode {
+func (s *Server) filterTree(r *http.Request, nodes []*manager.LogicNode, p *authz.Principal) []*manager.LogicNode {
 	paths := collectPaths(nodes, nil)
 	metas, err := s.repo.GetMetadataByPaths(r.Context(), paths)
 	if err != nil {
 		slog.Warn("list files fetch metadata failed, tree unfiltered", "error", err)
 		return nodes
 	}
-	out := make([]*service.FileNode, 0, len(nodes))
+	out := make([]*manager.LogicNode, 0, len(nodes))
 	for _, n := range nodes {
 		if keepTree(r, s, n, p, metas) {
 			out = append(out, n)
@@ -52,11 +58,10 @@ func (s *Server) filterTree(r *http.Request, nodes []*service.FileNode, p *authz
 }
 
 // keepTree 节点保留判定（目录递归改写 Children，文件按可见性）。
-// 无元数据文件按存量口径对待（authz：空 ACL = public 可读）——与
-// read_file/download 的 CanFile 判定同口径，不另立规矩。
-func keepTree(r *http.Request, s *Server, n *service.FileNode, p *authz.Principal, metas map[string]*repo.FileMetadata) bool {
+// 逻辑树的每个文件必有元数据行（行是树的来源）；无行分支为防御保留。
+func keepTree(r *http.Request, s *Server, n *manager.LogicNode, p *authz.Principal, metas map[string]*repo.FileMetadata) bool {
 	if n.Type == "dir" {
-		kids := make([]*service.FileNode, 0, len(n.Children))
+		kids := make([]*manager.LogicNode, 0, len(n.Children))
 		for _, c := range n.Children {
 			if keepTree(r, s, c, p, metas) {
 				kids = append(kids, c)
@@ -67,14 +72,14 @@ func keepTree(r *http.Request, s *Server, n *service.FileNode, p *authz.Principa
 	}
 	m := metas[n.Path]
 	if m == nil {
-		return true // 无行 = 存量口径 public（与 CanRead 空 ACL 一致）
+		return true // 防御（逻辑树行必在）
 	}
 	ok, _ := authz.CanRead(p, authz.ACLOf(m.OwnerID, m.Visibility, m.GroupID))
 	return ok
 }
 
 // collectPaths 收集树里全部文件路径（批量联表用）。
-func collectPaths(nodes []*service.FileNode, acc []string) []string {
+func collectPaths(nodes []*manager.LogicNode, acc []string) []string {
 	for _, n := range nodes {
 		if n.Type == "dir" {
 			acc = collectPaths(n.Children, acc)
@@ -103,28 +108,41 @@ func (s *Server) downloadFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	p := r.URL.Query().Get("path")
-	target, err := service.ResolvePath(s.cfg.DataDir, p)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
+
+	// 物理路径 uuid 派生（intake 域口径）：对外 API 只认逻辑键，
+	// 物理布局不出现在请求/响应面
+	m, err := s.repo.GetMetadata(r.Context(), p)
+	if err != nil || m == nil {
+		writeError(w, http.StatusNotFound, "file not found")
+		return
+	}
+	if m.IsDeleted {
+		writeError(w, http.StatusNotFound, "file not found")
+		return
+	}
+	rel, serr := manager.StoragePathOf(m.UUID, p)
+	if serr != nil {
+		writeError(w, http.StatusNotFound, "file not found")
+		return
+	}
+	target, rerr := service.ResolvePath(s.cfg.DataDir, rel)
+	if rerr != nil {
+		writeError(w, http.StatusBadRequest, rerr.Error())
 		return
 	}
 
 	info, err := os.Stat(target)
 	if err != nil || info.IsDir() {
+		// 盘上缺失 = 幽灵（T2 对账 3 轮软删收编中）
 		writeError(w, http.StatusNotFound, "file not found")
 		return
 	}
 
-	// 软删除拦截 + 下载计数（best-effort，元数据缺失则放行）
-	if s.repo != nil {
-		if m, err := s.repo.GetMetadata(r.Context(), p); err == nil && m.IsDeleted {
-			writeError(w, http.StatusNotFound, "file not found")
-			return
-		}
-		_ = s.repo.IncrementDownloadCount(r.Context(), p)
-	}
+	// 下载计数（best-effort）
+	_ = s.repo.IncrementDownloadCount(r.Context(), p)
 
-	w.Header().Set("Content-Disposition", `attachment; filename="`+filepath.Base(target)+`"`)
+	// 归档名用逻辑路径（物理随机名对用户无意义）
+	w.Header().Set("Content-Disposition", `attachment; filename="`+filepath.Base(p)+`"`)
 	http.ServeFile(w, r, target)
 }
 
@@ -188,7 +206,31 @@ func (s *Server) downloadZip(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/zip")
 	w.Header().Set("Content-Disposition", `attachment; filename="files.zip"`)
-	if _, err := service.ZipFiles(s.cfg.DataDir, body.Paths, w); err != nil {
+
+	// 逻辑键 → 行 → uuid 派生物理路径（归档名保留逻辑路径——用户可读）
+	metas, err := s.repo.GetMetadataByPaths(r.Context(), body.Paths)
+	if err != nil {
+		slog.Error("download zip fetch metadata failed", "error", err)
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	entries := make([]service.ZipEntry, 0, len(body.Paths))
+	for _, p := range body.Paths {
+		m := metas[p]
+		if m == nil || m.IsDeleted {
+			continue // 无行/软删：跳过（对齐 CanRead 无行放行的宽口径，但无物理文件可打包）
+		}
+		rel, serr := manager.StoragePathOf(m.UUID, p)
+		if serr != nil {
+			continue
+		}
+		abs, rerr := service.ResolvePath(s.cfg.DataDir, rel)
+		if rerr != nil {
+			continue
+		}
+		entries = append(entries, service.ZipEntry{AbsPath: abs, ArchiveName: p})
+	}
+	if _, err := service.ZipFiles(entries, w); err != nil {
 		slog.Error("download zip failed", "error", err)
 	}
 }

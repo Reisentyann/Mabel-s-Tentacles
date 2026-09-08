@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/readfile/readfile.go —— MCP 工具 read_file：读文件（1MB 截断防上下文撑爆）
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 package readfile
 
@@ -11,7 +11,6 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
 )
 
@@ -50,17 +49,19 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			return tools.Deny(ctx, "read_file", path, reason), nil
 		}
 
-		content, err := service.SafeRead(deps.Cfg.DataDir, path)
+		// 取件走管理机（fetch 域逻辑口）：uuid 派生物理路径 + buffer 快路径
+		if deps.Manager == nil {
+			return tools.ResultError("manager not wired"), nil
+		}
+		rf, err := deps.Manager.ReadByLogic(ctx, path, maxReadSize)
 		if err != nil {
 			slog.Error("read_file failed", "path", path, "session", sessionID, "error", err, "duration", time.Since(start).String())
 			tools.RecordOperation(ctx, deps.Store, sessionID, "read_file", path, "failed", err.Error(), map[string]any{"path": path})
 			return tools.ResultError(err.Error()), nil
 		}
 
-		truncated := len(content) > maxReadSize
-		if truncated {
-			content = content[:maxReadSize]
-		}
+		content := rf.Content
+		truncated := rf.FileRef.SizeBytes > maxReadSize
 
 		slog.Info("read_file ok", "path", path, "size", len(content), "truncated", truncated, "session", sessionID, "duration", time.Since(start).String())
 		tools.RecordOperation(ctx, deps.Store, sessionID, "read_file", path, "success", "", map[string]any{"path": path, "truncated": truncated})

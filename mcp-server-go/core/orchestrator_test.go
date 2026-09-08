@@ -17,6 +17,7 @@ import (
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go"
 	"github.com/Reisentyann/Mabel-s-Tentacles/indexer-go"
+	"github.com/Reisentyann/Mabel-s-Tentacles/manager-go"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/search"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
@@ -237,6 +238,26 @@ func mustWrite(t *testing.T, dir, name, content string) {
 	}
 }
 
+// intakeSeed 模拟入库时序（2026-09-08 物理随机化）：占位行先行拿 uuid
+// → uuid 派生物理路径落盘——工具层经管理机 Reserve+Write 保证的形态。
+func intakeSeed(t *testing.T, ms *memStore, dir, logic, content string) string {
+	t.Helper()
+	uuid, err := ms.UpsertMetadata(context.Background(), &repo.FileMetadata{FilePath: logic})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel, serr := manager.StoragePathOf(uuid, logic)
+	if serr != nil {
+		t.Fatal(serr)
+	}
+	abs := filepath.Join(dir, filepath.FromSlash(rel))
+	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	mustWrite(t, dir, filepath.FromSlash(rel), content)
+	return uuid
+}
+
 // —— 用例 ——
 
 func TestNewValidation(t *testing.T) {
@@ -251,9 +272,9 @@ func TestNewValidation(t *testing.T) {
 func TestExecutePipeline(t *testing.T) {
 	dir := t.TempDir()
 	content := "# 深夜书架\n\n第一章 来电\n\n梅贝尔整理着书架上的旧书。\n"
-	mustWrite(t, dir, "note.txt", content)
 
 	ms := newMemStore()
+	intakeSeed(t, ms, dir, "note.txt", content)
 	sn := &fakeSink{}
 	o, err := New(Options{DataDir: dir, Store: ms, Sink: sn})
 	if err != nil {
@@ -306,21 +327,31 @@ func TestExecutePipeline(t *testing.T) {
 }
 
 func TestExecuteMissingFile(t *testing.T) {
-	o, err := New(Options{DataDir: t.TempDir(), Store: newMemStore()})
+	dir := t.TempDir()
+	ms := newMemStore()
+	o, err := New(Options{DataDir: dir, Store: ms})
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 容灾路径：盘上竞态消失 → 返回错误（调用方丢弃，T2 兜底），不 panic
+	// 容灾路径：占位行在、盘上竞态消失 → stat 失败返回错误（调用方丢弃，
+	// T2 兜底），不 panic
+	if _, err := ms.UpsertMetadata(context.Background(), &repo.FileMetadata{FilePath: "ghost.txt"}); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := o.execute(context.Background(), Event{Kind: KindWrite, Path: "ghost.txt"}); err == nil {
 		t.Fatal("expected error for missing file")
+	}
+	// 无占位行（未入库）：同样失败（intake first）
+	if _, err := o.execute(context.Background(), Event{Kind: KindWrite, Path: "no-row.txt"}); err == nil {
+		t.Fatal("expected error for missing reserve row")
 	}
 }
 
 func TestQueueLifecycle(t *testing.T) {
 	dir := t.TempDir()
-	mustWrite(t, dir, "q.txt", "hello world\n")
 
 	ms := newMemStore()
+	intakeSeed(t, ms, dir, "q.txt", "hello world\n")
 	sn := &fakeSink{}
 	o, err := New(Options{DataDir: dir, Store: ms, Sink: sn})
 	if err != nil {

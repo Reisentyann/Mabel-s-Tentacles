@@ -100,25 +100,98 @@ func (m *Manager) LocateMany(ctx context.Context, uuids []string) (map[string]*F
 
 // Open 凭 uuid 取整个文件（流式）。Content 由调用方负责 Close。
 // 哨兵语义：查无 → ErrNotFound；软删 → ErrDeleted；盘上消失 → ErrGhost。
-// buffer 命中直出（快照，新鲜度由 buffer 内 stat 对拍兜底）；未命中盘读
-// （≤ maxEntry 入缓，超限旁路直流）。
-// 定位：本口服务 agent 反复读（read_file / 检索取件）；HTTP 下载端点
-// 直流不经此（下载大流量一次性，入缓只添污染——buffer.go 立场 2026-09-08）。
+// 定位：本口服务 agent 反复读（read_file / 检索取件）；HTTP 下载端点走
+// StreamByLogic 直流（下载大流量一次性，入缓只添污染——buffer.go 立场 2026-09-08）。
 func (m *Manager) Open(ctx context.Context, uuid string) (*OpenedFile, error) {
 	ref, err := m.Locate(ctx, uuid)
 	if err != nil {
 		return nil, err
 	}
+	return m.openRef(ref)
+}
+
+// OpenByLogic 凭逻辑路径取整个文件（read_file 工具的入口；uuid 口的姊妹）。
+// 哨兵语义与 Open 一致。
+func (m *Manager) OpenByLogic(ctx context.Context, logicPath string) (*OpenedFile, error) {
+	ref, err := m.locateByLogic(ctx, logicPath)
+	if err != nil {
+		return nil, err
+	}
+	return m.openRef(ref)
+}
+
+// ReadByLogic 凭逻辑路径取内容字节（OpenByLogic 的限读包装；limit <= 0 全量）。
+func (m *Manager) ReadByLogic(ctx context.Context, logicPath string, limit int64) (*ReadFile, error) {
+	of, err := m.OpenByLogic(ctx, logicPath)
+	if err != nil {
+		return nil, err
+	}
+	defer of.Content.Close()
+	var r io.Reader = of.Content
+	if limit > 0 {
+		r = io.LimitReader(of.Content, limit)
+	}
+	content, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("read: %w", err)
+	}
+	return &ReadFile{FileRef: of.FileRef, Content: content}, nil
+}
+
+// StreamByLogic 下载专用口：物理直流，不查缓存不入缓存（buffer 立场：
+// 下载是大流量一次性，入缓只添磁盘读写与 LRU 污染）。哨兵语义与
+// OpenByLogic 一致；Content 为 *os.File，调用方负责 Close。
+func (m *Manager) StreamByLogic(ctx context.Context, logicPath string) (*OpenedFile, error) {
+	ref, err := m.locateByLogic(ctx, logicPath)
+	if err != nil {
+		return nil, err
+	}
+	if ref.IsDeleted {
+		return nil, ErrDeleted
+	}
+	abs, err := m.storageAbs(ref.UUID, ref.Path)
+	if err != nil {
+		return nil, err
+	}
+	f, err := os.Open(abs)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, ErrGhost
+		}
+		return nil, err
+	}
+	return &OpenedFile{FileRef: *ref, Content: f}, nil
+}
+
+// locateByLogic 逻辑键 → FileRef（GetMeta 行视图组回执；无行 → ErrNotFound）。
+func (m *Manager) locateByLogic(ctx context.Context, logicPath string) (*FileRef, error) {
+	row, err := m.store.GetMeta(ctx, logicPath)
+	if err != nil {
+		return nil, fmt.Errorf("locate %s: %w", logicPath, err)
+	}
+	if row == nil {
+		return nil, ErrNotFound
+	}
+	return &FileRef{
+		UUID:      row.UUID,
+		Path:      row.Path,
+		IsDeleted: row.IsDeleted,
+	}, nil
+}
+
+// openRef 取内容本体（uuid 口与逻辑口共用）：软删拒取 → buffer 快路径 →
+// 物理路径（uuid 派生，intake 域口径）stat → 大文件旁路直流 / 盘读入缓。
+func (m *Manager) openRef(ref *FileRef) (*OpenedFile, error) {
 	if ref.IsDeleted {
 		return nil, ErrDeleted // 回收站文件不供取内容（Locate 仍照报位置）
 	}
 
 	// 快路径：buffer 命中直出（stat 对拍已在 buffer.get 内完成）
-	if content, ok := m.buf.get(uuid); ok {
+	if content, ok := m.buf.get(ref.UUID); ok {
 		return &OpenedFile{FileRef: *ref, Content: io.NopCloser(bytes.NewReader(content))}, nil
 	}
 
-	abs, err := m.resolve(ref.Path)
+	abs, err := m.storageAbs(ref.UUID, ref.Path)
 	if err != nil {
 		return nil, err
 	}
@@ -132,6 +205,7 @@ func (m *Manager) Open(ctx context.Context, uuid string) (*OpenedFile, error) {
 	if info.IsDir() {
 		return nil, fmt.Errorf("'%s' is a directory", ref.Path)
 	}
+	ref.SizeBytes = info.Size() // 回执补盘上实际大小（逻辑口组装时无此列）
 
 	// 大文件旁路：超单条目上限直流不入缓（防挤占整个容量）
 	if info.Size() > m.buf.maxEntry {
@@ -147,7 +221,7 @@ func (m *Manager) Open(ctx context.Context, uuid string) (*OpenedFile, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read file: %w", err)
 	}
-	m.buf.put(uuid, bufEntry{path: abs, size: info.Size(), modTime: info.ModTime(), content: content})
+	m.buf.put(ref.UUID, bufEntry{path: abs, size: info.Size(), modTime: info.ModTime(), content: content})
 	return &OpenedFile{FileRef: *ref, Content: io.NopCloser(bytes.NewReader(content))}, nil
 }
 

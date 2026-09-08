@@ -1,10 +1,11 @@
 // 文件：mcp-server-go/internal/tools/copyfile/copyfile.go —— MCP 工具 copy_file：内容 + 元数据一起复制（KindCopy 事件喂索引）
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
 package copyfile
 
 import (
 	"context"
+	"io"
 	"log/slog"
 	"time"
 
@@ -12,7 +13,6 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
-	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
 )
 
@@ -55,11 +55,20 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			return tools.Deny(ctx, "copy_file", source, reason), nil
 		}
 
-		content, err := service.SafeRead(deps.Cfg.DataDir, source)
+		// 物理复制走管理机（读源 + 入库目标：逻辑键 → uuid 派生随机物理路径）
+		if deps.Manager == nil {
+			return tools.ResultError("manager not wired"), nil
+		}
+		of, err := deps.Manager.OpenByLogic(ctx, source)
 		if err != nil {
 			return tools.ResultError(err.Error()), nil
 		}
-		if err := service.SafeWrite(deps.Cfg.DataDir, target, string(content)); err != nil {
+		content, rerr := io.ReadAll(of.Content)
+		of.Content.Close()
+		if rerr != nil {
+			return tools.ResultError(rerr.Error()), nil
+		}
+		if _, err := deps.Manager.Write(ctx, target, string(content)); err != nil {
 			return tools.ResultError(err.Error()), nil
 		}
 

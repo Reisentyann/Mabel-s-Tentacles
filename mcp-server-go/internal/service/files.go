@@ -1,178 +1,25 @@
-// 文件：mcp-server-go/internal/service/files.go —— 文件安全操作：SafeWrite/SafeRead/SafeModify/SafeList + 防目录穿越 + 5MB 上限
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 文件：mcp-server-go/internal/service/files.go —— 路径归一薄层（ResolvePath）；盘 IO 已全部收归管理机（intake/fetch 域，2026-09-08）
+// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
 
+// 历史注记（2026-09-08 文件 IO 主权收归管理机）：本文件原承载
+// SafeWrite / SafeModify / SafeRead / SafeList / ListTree 等盘操作——
+// 架构第 1 节"组件不越过管理机摸文件系统"自此彻底贯彻：
+//   - 写入/修改 → manager.Write / manager.Modify（intake 域：逻辑键 +
+//     uuid 派生随机物理路径，agent 不接触物理布局）
+//   - 读取 → manager.ReadByLogic / OpenByLogic（fetch 域 + buffer）
+//   - 下载 → manager.StreamByLogic / StoragePathOf 派生（直流，不经缓存）
+//   - 枚举/树 → manager.LogicPaths / LogicTree（逻辑视图，盘上无树可看）
+//
+// 退役实现可在 git 历史（本提交的父提交）找到。
 package service
 
 import (
-	"fmt"
-	"io/fs"
-	"os"
-	"path/filepath"
-
 	"github.com/Reisentyann/Mabel-s-Tentacles/common"
-	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go"
 )
 
-// maxFileSize 写入内容上限（= describer.MaxFullBytes 单一来源，5MB）。
-const maxFileSize = describer.MaxFullBytes
-
-func SafeWrite(baseDir, filePath, content string) error {
-	if len(content) > maxFileSize {
-		return fmt.Errorf("security error: file content exceeds 5MB limit")
-	}
-
-	target, err := common.ResolveWithin(baseDir, filePath)
-	if err != nil {
-		return err
-	}
-
-	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
-		return fmt.Errorf("create directory: %w", err)
-	}
-	if err := os.WriteFile(target, []byte(content), 0o644); err != nil {
-		return fmt.Errorf("write file: %w", err)
-	}
-	return nil
-}
-
-func SafeModify(baseDir, filePath, content, mode string) error {
-	if len(content) > maxFileSize {
-		return fmt.Errorf("security error: file content exceeds 5MB limit")
-	}
-
-	target, err := common.ResolveWithin(baseDir, filePath)
-	if err != nil {
-		return err
-	}
-
-	info, err := os.Stat(target)
-	if err != nil {
-		return fmt.Errorf("error: file '%s' does not exist", filePath)
-	}
-	if info.IsDir() {
-		return fmt.Errorf("error: path '%s' is not a file", filePath)
-	}
-
-	switch mode {
-	case "append":
-		f, err := os.OpenFile(target, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
-		if err != nil {
-			return fmt.Errorf("open file: %w", err)
-		}
-		defer f.Close()
-		if _, err := f.WriteString(content); err != nil {
-			return fmt.Errorf("append file: %w", err)
-		}
-	case "overwrite":
-		if err := os.WriteFile(target, []byte(content), 0o644); err != nil {
-			return fmt.Errorf("overwrite file: %w", err)
-		}
-	default:
-		return fmt.Errorf("error: invalid mode '%s', must be 'append' or 'overwrite'", mode)
-	}
-	return nil
-}
-
-func SafeList(baseDir string) ([]string, error) {
-	absBase, err := filepath.Abs(baseDir)
-	if err != nil {
-		return nil, fmt.Errorf("resolve base dir: %w", err)
-	}
-	if err := os.MkdirAll(absBase, 0o755); err != nil {
-		return nil, fmt.Errorf("create base dir: %w", err)
-	}
-
-	var files []string
-	err = filepath.WalkDir(absBase, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		if d.IsDir() {
-			return nil
-		}
-		rel, rerr := filepath.Rel(absBase, path)
-		if rerr != nil {
-			return rerr
-		}
-		files = append(files, filepath.ToSlash(rel))
-		return nil
-	})
-	if err != nil {
-		return nil, fmt.Errorf("walk dir: %w", err)
-	}
-	return files, nil
-}
-
-// ResolvePath 校验并解析 baseDir 内的相对路径为绝对路径，防目录穿越。
+// ResolvePath 校验并解析 baseDir 内的相对路径为绝对路径（防穿越 /
+// symlink 逃逸，common.ResolveWithin 承担）。现状唯一调用方：编排机
+// 执行器把 uuid 派生的存储相对路径归一为绝对路径。
 func ResolvePath(baseDir, filePath string) (string, error) {
 	return common.ResolveWithin(baseDir, filePath)
-}
-
-// SafeRead 读取 baseDir 内的文件内容，防目录穿越。
-func SafeRead(baseDir, filePath string) ([]byte, error) {
-	target, err := common.ResolveWithin(baseDir, filePath)
-	if err != nil {
-		return nil, err
-	}
-	info, err := os.Stat(target)
-	if err != nil {
-		return nil, fmt.Errorf("error: file '%s' does not exist", filePath)
-	}
-	if info.IsDir() {
-		return nil, fmt.Errorf("error: path '%s' is not a file", filePath)
-	}
-	return os.ReadFile(target)
-}
-
-type FileNode struct {
-	Name       string      `json:"name"`
-	Path       string      `json:"path"`
-	Type       string      `json:"type"`
-	Size       int64       `json:"size,omitempty"`
-	ModifiedAt float64     `json:"modified_at,omitempty"`
-	Children   []*FileNode `json:"children,omitempty"`
-}
-
-// ListTree 返回 dataDir 的递归目录树。
-func ListTree(baseDir string) ([]*FileNode, error) {
-	absBase, err := filepath.Abs(baseDir)
-	if err != nil {
-		return nil, fmt.Errorf("resolve base dir: %w", err)
-	}
-	return buildTree(absBase, ""), nil
-}
-
-func buildTree(base, rel string) []*FileNode {
-	dir := base
-	if rel != "" {
-		dir = filepath.Join(base, rel)
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil
-	}
-
-	var nodes []*FileNode
-	for _, e := range entries {
-		name := e.Name()
-		relPath := name
-		if rel != "" {
-			relPath = filepath.ToSlash(filepath.Join(rel, name))
-		}
-
-		if e.IsDir() {
-			nodes = append(nodes, &FileNode{Name: name, Path: relPath, Type: "dir", Children: buildTree(base, relPath)})
-			continue
-		}
-
-		info, err := e.Info()
-		var size int64
-		var mod float64
-		if err == nil {
-			size = info.Size()
-			mod = float64(info.ModTime().UnixNano()) / 1e9
-		}
-		nodes = append(nodes, &FileNode{Name: name, Path: relPath, Type: "file", Size: size, ModifiedAt: mod})
-	}
-	return nodes
 }

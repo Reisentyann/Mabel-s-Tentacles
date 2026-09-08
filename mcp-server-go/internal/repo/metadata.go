@@ -341,6 +341,19 @@ func (s *pgxStore) ListMetadataPage(ctx context.Context, sincePath string, limit
 	return items, rows.Err()
 }
 
+// ReserveMeta 入库占位行：按逻辑键幂等拿 uuid（manager intake 域——
+// uuid 先于盘写存在，物理路径由它派生）。最小 INSERT（scope/attributes/
+// visibility 等走 DDL 默认值），冲突即复用既有 uuid；写入即存在证据，
+// missing_rounds 清零。
+func (s *pgxStore) ReserveMeta(ctx context.Context, logicPath string) (string, error) {
+	var uuid string
+	err := s.pool.QueryRow(ctx,
+		`INSERT INTO file_metadata (file_path) VALUES ($1)
+		 ON CONFLICT (file_path) DO UPDATE SET missing_rounds = 0, updated_at = NOW()
+		 RETURNING uuid`, logicPath).Scan(&uuid)
+	return uuid, err
+}
+
 // MarkMissingRound 盘上缺失计数 +1，返回累计轮次（manager updater 的幽灵存续：
 // 连续 3 轮缺失触发软删除）。文件重新出现走 UpsertMetadata 时清零。
 func (s *pgxStore) MarkMissingRound(ctx context.Context, filePath string) (int, error) {
