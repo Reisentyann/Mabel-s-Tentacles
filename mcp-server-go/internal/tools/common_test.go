@@ -40,9 +40,9 @@ func TestDownloadURL(t *testing.T) {
 	}
 	TicketMatches(t, cfg, u, "jokes.txt", "u-1")
 
-	// 子目录/特殊字符需 URL 编码
+	// 子目录：斜杠保持裸形（QQ 转义靶子治理），空格仍编码
 	u = DownloadURL(cfg, "sub/a b.txt", "u-2")
-	if !strings.HasPrefix(u, "http://localhost:8080/api/files/download?path=sub%2Fa+b.txt&") {
+	if !strings.HasPrefix(u, "http://localhost:8080/api/files/download?path=sub/a+b.txt&") {
 		t.Errorf("escape: got %q", u)
 	}
 	TicketMatches(t, cfg, u, "sub/a b.txt", "u-2")
