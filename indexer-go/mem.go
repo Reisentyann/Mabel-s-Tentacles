@@ -25,7 +25,7 @@ import (
 //     Update/Rebuild 与桶同步维护，个人库量级内存翻倍可接受
 type memIndexer struct {
 	mu      sync.RWMutex
-	buckets map[string]bucket        // field → 桶
+	buckets map[string]bucket         // field → 桶
 	attrs   map[string]map[string]any // uuid → 原始 attributes（扫描型 op 的支撑）
 }
 
@@ -34,44 +34,90 @@ func New() Indexer {
 	return &memIndexer{buckets: map[string]bucket{}, attrs: map[string]map[string]any{}}
 }
 
-// Query 按条件求 uuid 集合：逐条件求桶内命中，And 交集 / Or 并集，
-// 结果升序（map 迭代序随机，排序保证确定）。
-// 空条件返回空集不报错；从未挂过值的字段视为无命中（空集）；
+// Query 按布尔表达式求 uuid 集合（And/Or/Not 任意嵌套，见 expr.go）：
+// 递归求值后升序返回（map 迭代序随机，排序保证确定）。
+// 空表达式返回空集不报错；从未挂过值的字段视为无命中（空集）；
 // 桶型与 Op 不符（如枚举桶收 range）报错，由上层降级 SQL。
-func (m *memIndexer) Query(conds []Condition, mode Combine) ([]string, error) {
-	if len(conds) == 0 {
+func (m *memIndexer) Query(expr Expr) ([]string, error) {
+	if expr.IsEmpty() {
 		return []string{}, nil
 	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	sets := make([]map[string]struct{}, len(conds))
-	for i, c := range conds {
-		// 扫描型 op（ne/exists/contains）走 attrs 镜像，不进桶
-		switch c.Op {
-		case OpNe, OpExists, OpContains:
-			sets[i] = m.scanSet(c)
-			continue
-		}
-		b, ok := m.buckets[c.Field]
-		if !ok {
-			sets[i] = map[string]struct{}{} // 该字段从未出现可索引值：无命中
-			continue
-		}
-		set, err := b.query(c)
-		if err != nil {
-			return nil, err
-		}
-		sets[i] = set
+	set, err := m.eval(expr)
+	if err != nil {
+		return nil, err
 	}
-
-	out := combine(sets, mode)
-	res := make([]string, 0, len(out))
-	for uuid := range out {
+	res := make([]string, 0, len(set))
+	for uuid := range set {
 		res = append(res, uuid)
 	}
 	sort.Strings(res)
 	return res, nil
+}
+
+// eval 递归求值布尔表达式树（调用方已持读锁）。集合均为桶内只读集或
+// 求值新建集，调用方可安全持有。
+func (m *memIndexer) eval(e Expr) (map[string]struct{}, error) {
+	switch {
+	case e.Cond != nil:
+		return m.evalLeaf(*e.Cond)
+	case e.Not != nil:
+		child, err := m.eval(*e.Not)
+		if err != nil {
+			return nil, err
+		}
+		return m.complement(child), nil
+	case len(e.And) > 0:
+		sets := make([]map[string]struct{}, 0, len(e.And))
+		for _, c := range e.And {
+			s, err := m.eval(c)
+			if err != nil {
+				return nil, err
+			}
+			sets = append(sets, s)
+		}
+		return intersect(sets), nil
+	case len(e.Or) > 0:
+		sets := make([]map[string]struct{}, 0, len(e.Or))
+		for _, c := range e.Or {
+			s, err := m.eval(c)
+			if err != nil {
+				return nil, err
+			}
+			sets = append(sets, s)
+		}
+		return union(sets), nil
+	default:
+		return map[string]struct{}{}, nil // 空表达式（顶层已短路，防御）
+	}
+}
+
+// evalLeaf 叶子求值：扫描型 op（ne/exists/contains）走 attrs 镜像，
+// 其余走字段桶；从未出现可索引值的字段 = 无命中（空集，不报错）。
+func (m *memIndexer) evalLeaf(c Condition) (map[string]struct{}, error) {
+	switch c.Op {
+	case OpNe, OpExists, OpContains:
+		return m.scanSet(c), nil
+	}
+	b, ok := m.buckets[c.Field]
+	if !ok {
+		return map[string]struct{}{}, nil
+	}
+	return b.query(c)
+}
+
+// complement 索引全集对 child 取补（Not 的求值）：全集 = attrs 镜像里
+// 全部 uuid——Not 的语义是"在库内文件里找不命中的"，软删行本就不入索引。
+func (m *memIndexer) complement(child map[string]struct{}) map[string]struct{} {
+	out := make(map[string]struct{}, len(m.attrs))
+	for uuid := range m.attrs {
+		if _, ok := child[uuid]; !ok {
+			out[uuid] = struct{}{}
+		}
+	}
+	return out
 }
 
 // scanSet 扫描型 op 的镜像求集（调用方已持读锁）：
@@ -127,24 +173,18 @@ func containsValue(v any, sub string) bool {
 	return false
 }
 
-// combine 交/并：And 从最小集起步逐集过滤（一旦空集即早退），
-// Or 全并。入参集合为桶内部只读集合，不改写。
-func combine(sets []map[string]struct{}, mode Combine) map[string]struct{} {
+// intersect 交集：从最小集起步逐集过滤（一旦空集即早退）。
+// 入参集合为桶内只读集或求值新建集，不改写。
+func intersect(sets []map[string]struct{}) map[string]struct{} {
+	if len(sets) == 0 {
+		return map[string]struct{}{}
+	}
 	order := make([]int, len(sets))
 	for i := range order {
 		order[i] = i
 	}
 	sort.Slice(order, func(a, b int) bool { return len(sets[order[a]]) < len(sets[order[b]]) })
 
-	if mode == Or {
-		out := map[string]struct{}{}
-		for _, i := range order {
-			for uuid := range sets[i] {
-				out[uuid] = struct{}{}
-			}
-		}
-		return out
-	}
 	first := sets[order[0]]
 	out := make(map[string]struct{}, len(first))
 	for uuid := range first {
@@ -159,6 +199,17 @@ func combine(sets []map[string]struct{}, mode Combine) map[string]struct{} {
 			if _, ok := set[uuid]; !ok {
 				delete(out, uuid)
 			}
+		}
+	}
+	return out
+}
+
+// union 并集：全部集合并入。
+func union(sets []map[string]struct{}) map[string]struct{} {
+	out := map[string]struct{}{}
+	for _, set := range sets {
+		for uuid := range set {
+			out[uuid] = struct{}{}
 		}
 	}
 	return out

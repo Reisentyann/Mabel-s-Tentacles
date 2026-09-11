@@ -107,7 +107,7 @@ func register(s *server.MCPServer, deps tools.Deps) {
 				"keys":   keys,
 				"mounts": mounts,
 			},
-			"hint": "用 search_files 按 field+op+value 查询；kind=enum/multi 可 eq/in，kind=num 可 eq/in/gt/lt/range（value=[lo,hi]）；desc=字段含义，bench=分档基准（多长算长/多高算高）",
+			"hint": "用 search_files 按 field+op+value 查询；kind=enum/multi 可 eq/in，kind=num 可 eq/in/gt/lt/range（value=[lo,hi]）；多个条件默认 And，要 or/not 用 {and/or/not} 组合树嵌套；desc=字段含义，bench=分档基准（多长算长/多高算高）",
 		}), nil
 	})
 }
@@ -119,18 +119,22 @@ func register(s *server.MCPServer, deps tools.Deps) {
 func registerSearch(s *server.MCPServer, deps tools.Deps) {
 	tool := mcp.NewTool("search_files",
 		mcp.WithDescription("Search files by indexed attribute conditions (the indexer's query entry). "+
-			"conditions is a JSON array like [{\"field\":\"cod-text-language\",\"op\":\"eq\",\"value\":\"zh\"},{\"field\":\"cod-text-lines\",\"op\":\"gt\",\"value\":50}]. "+
+			"conditions is EITHER a flat JSON array (all items AND-ed) like "+
+			"[{\"field\":\"cod-text-language\",\"op\":\"eq\",\"value\":\"zh\"},{\"field\":\"cod-text-lines\",\"op\":\"gt\",\"value\":50}], "+
+			"OR a boolean tree {\"and\":[...]} / {\"or\":[...]} / {\"not\":{...}} that nests arbitrarily — e.g. (Chinese OR English) AND long: "+
+			"{\"and\":[{\"or\":[{\"field\":\"cod-text-cjk-ratio\",\"op\":\"gt\",\"value\":0.5},{\"field\":\"cod-text-language\",\"op\":\"eq\",\"value\":\"en\"}]},{\"field\":\"cod-text-lines\",\"op\":\"gt\",\"value\":200}]}. "+
+			"Use or/not for alternatives and exclusions. "+
 			"ops: eq (equals), in (value is an array, any match), gt / lt (numeric compare), range (value is [lo,hi]), "+
 			"ne (not equals — only rows having the key; for rows missing the key use exists), "+
 			"exists (value true/false — key presence; fields that are absent when a denominator is zero, like EXIF on generated images, are queried this way), "+
 			"contains (substring on string fields; on array fields any element containing it matches). "+
-			"All conditions are AND-ed. Field names come from the describer (prefix pattern cod-<family>-<fact>, e.g. cod-text-language, cod-code-lang, cod-image-megapixels; llm-* for model-supplied tags). "+
+			"Field names come from the describer (prefix pattern cod-<family>-<fact>, e.g. cod-text-language, cod-code-lang, cod-image-megapixels; llm-* for model-supplied tags). "+
 			"Ordering: pass order_by=<field> and order=asc|desc (default desc) to sort hits by that value — with size=1 you get THE max/min file directly, no binary searching. "+
 			"Best practice: before your first search, call list_index_fields once to learn usable fields, their meanings (desc), value calibrations (bench) and current values/ranges, then cache that catalog for the session — skip the discovery call if you already have it; refresh only when a search misses unexpectedly. "+
 			"Returns paginated brief metadata (path/title/description/tags); read_file to fetch content."),
 		mcp.WithString("conditions",
 			mcp.Required(),
-			mcp.Description(`JSON array of conditions, e.g. [{"field":"cod-text-language","op":"eq","value":"zh"}]. Each item: {field, op, value}.`),
+			mcp.Description(`Conditions: a flat JSON array (all AND-ed), e.g. [{"field":"cod-text-language","op":"eq","value":"zh"}], OR a boolean tree {"and":[...]} / {"or":[...]} / {"not":{...}} (nestable). Each leaf: {field, op, value}.`),
 		),
 		mcp.WithString("file_type",
 			mcp.Description("Optional filter by file type, e.g. text / image / code."),
@@ -173,12 +177,12 @@ func registerSearch(s *server.MCPServer, deps tools.Deps) {
 			return tools.ResultError("orchestrator not wired"), nil
 		}
 
-		conds, cerr := search.ParseConditions(rawOf(req))
+		expr, cerr := search.ParseConditions(rawOf(req))
 		if cerr != nil {
 			tools.RecordOperation(ctx, deps.Store, sessionID, "search_files", "", "failed", cerr.Error(), params)
 			return tools.ResultError(cerr.Error()), nil
 		}
-		params["conditions"] = len(conds)
+		params["conditions"] = expr.Count()
 
 		q := search.Query{
 			FileType: req.GetString("file_type", ""),
@@ -198,9 +202,9 @@ func registerSearch(s *server.MCPServer, deps tools.Deps) {
 			q.ViewerGroups = p.GroupIDs
 		}
 
-		items, total, err := deps.Orch.SearchByConditions(ctx, conds, q)
+		items, total, err := deps.Orch.SearchByConditions(ctx, expr, q)
 		if err != nil {
-			slog.Error("search_files failed", "conds", len(conds), "session", sessionID, "error", err, "duration", time.Since(begin).String())
+			slog.Error("search_files failed", "conds", expr.Count(), "session", sessionID, "error", err, "duration", time.Since(begin).String())
 			tools.RecordOperation(ctx, deps.Store, sessionID, "search_files", "", "failed", err.Error(), params)
 			return tools.ResultError(err.Error()), nil
 		}
@@ -214,7 +218,7 @@ func registerSearch(s *server.MCPServer, deps tools.Deps) {
 			files = append(files, briefOf(&items[i], viewer, q.OrderBy))
 		}
 
-		slog.Info("search_files ok", "conds", len(conds), "returned", len(files), "total", total,
+		slog.Info("search_files ok", "conds", expr.Count(), "returned", len(files), "total", total,
 			"page", page, "size", size, "viewer", viewer, "session", sessionID, "duration", time.Since(begin).String())
 		tools.RecordOperation(ctx, deps.Store, sessionID, "search_files", "", "success", "", params)
 		return tools.Result(map[string]any{

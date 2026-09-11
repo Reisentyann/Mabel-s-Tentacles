@@ -25,6 +25,7 @@ type Guide struct {
 // guideData 单例数据（静态契约，进程内共享一份）。
 var guideData = Guide{
 	Rules: []string{
+		"组合：conditions 既可以是扁平数组（= 全部 And），也可以是 {\"and\":[...]} / {\"or\":[...]} / {\"not\":{...}} 的嵌套组合，可任意嵌套——'(中文或英文) 且 (长文)' 这类意图直接表达；含 or/not 的条件依赖索引机，不可降级 SQL",
 		"op 与桶型适配：enum 可 eq/in；num 可 eq/in/gt/lt/range（range 的 value=[lo,hi]）；multi（数组字段）eq/in 任一元素命中即中（并集语义，不是全含）",
 		"比率类字段值域 0-1，不是百分数：gt 0.5 = 超过一半",
 		"纯计数字段 0 也产键：eq 0 是常用的'找没有 X 的文件'（如 checkboxes eq 0 = 干净文件）",
@@ -45,6 +46,8 @@ var guideData = Guide{
 		{Want: "暗色调图", Cond: `[{"field":"cod-image-dark","op":"eq","value":true}]`},
 		{Want: "扁平插画（排除照片）", Cond: `[{"field":"cod-image-flat-ratio","op":"gt","value":0.9}]`},
 		{Want: "没有待办的干净文件", Cond: `[{"field":"cod-text-checkboxes","op":"eq","value":0}]`},
+		{Want: "中文正文或纯英文文档", Cond: `{"or":[{"field":"cod-text-cjk-ratio","op":"gt","value":0.5},{"field":"cod-text-language","op":"eq","value":"en"}]}`},
+		{Want: "对话体或带表格，但排除日志", Cond: `{"and":[{"or":[{"field":"cod-text-dialog-ratio","op":"gt","value":0.15},{"field":"cod-text-structure","op":"eq","value":"tables"}]},{"field":"cod-text-timestamp-line-ratio","op":"lt","value":0.1}]}`},
 	},
 }
 

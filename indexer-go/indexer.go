@@ -35,14 +35,6 @@ type Condition struct {
 	Value any
 }
 
-// Combine 多条件的组合方式。
-type Combine int
-
-const (
-	And Combine = iota // 全部命中（交集）
-	Or                 // 任一命中（并集）
-)
-
 // Stats 索引机运行计量（自省接口）：排查"索引与 DB 不一致"时的抓手。
 type Stats struct {
 	Fields int `json:"fields"` // 桶数（被索引的字段数）
@@ -80,8 +72,9 @@ type FieldInfo struct {
 // Indexer 索引机接口。进程内内存实现见 mem.go；
 // 将来若需多实例外部化，换实现不动调用方。
 type Indexer interface {
-	// Query 按条件求 uuid 集合。空条件返回空集（不报错）。
-	Query(conds []Condition, mode Combine) ([]string, error)
+	// Query 按布尔表达式求 uuid 集合（And/Or/Not 任意嵌套，见 expr.go）。
+	// 空表达式返回空集（不报错）。
+	Query(expr Expr) ([]string, error)
 	// Update 写路径喂食：old/new 为该文件变更前后的 attributes，
 	// 实现负责逐字段 diff（旧桶移除、新桶挂入）。幂等：重复喂食结果恒等。
 	// new 为 nil/空 = 整体移除（文件删除路径）。

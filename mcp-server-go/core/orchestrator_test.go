@@ -216,15 +216,15 @@ type memIndex struct {
 	rebuilt  map[string]map[string]any
 	rebuilds int
 	hits     []string // Query 的预设返回（nil = 空集）
-	conds    []indexer.Condition
+	expr     indexer.Expr
 	queries  int
 	catalog  []indexer.FieldInfo // Catalog 的预设返回
 }
 
-func (m *memIndex) Query(conds []indexer.Condition, _ indexer.Combine) ([]string, error) {
+func (m *memIndex) Query(expr indexer.Expr) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.conds = conds
+	m.expr = expr
 	m.queries++
 	return m.hits, nil
 }
@@ -612,8 +612,9 @@ func TestSearchIndexed(t *testing.T) {
 		t.Fatalf("fallback calls = %d, want 0（索引路径不降级）", fb.count())
 	}
 	// 条件映射：标量 → eq
-	if len(idx.conds) != 1 || idx.conds[0].Field != "cod-text-lines" || idx.conds[0].Op != indexer.OpEq {
-		t.Fatalf("conds = %+v, want eq cod-text-lines", idx.conds)
+	leaves, ok := idx.expr.Leaves()
+	if !ok || len(leaves) != 1 || leaves[0].Field != "cod-text-lines" || leaves[0].Op != indexer.OpEq {
+		t.Fatalf("expr = %+v, want eq cod-text-lines", leaves)
 	}
 
 	// 分页：page=2 size=1（同观察者口径）→ 只剩 hit-old
@@ -698,19 +699,20 @@ func TestSearchByConditions(t *testing.T) {
 	}
 
 	// 显式条件（eq + range，And 交集）原样进索引
-	conds := []indexer.Condition{
-		{Field: "cod-text-language", Op: indexer.OpEq, Value: "zh"},
-		{Field: "cod-text-lines", Op: indexer.OpRange, Value: [2]any{1, 99}},
-	}
-	items, total, err := o.SearchByConditions(ctx, conds, search.Query{ViewerName: "bob"})
+	expr := indexer.And(
+		indexer.Leaf("cod-text-language", indexer.OpEq, "zh"),
+		indexer.Leaf("cod-text-lines", indexer.OpRange, [2]any{1, 99}),
+	)
+	items, total, err := o.SearchByConditions(ctx, expr, search.Query{ViewerName: "bob"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if total != 2 || len(items) != 2 || items[0].FilePath != "hit-new.txt" {
 		t.Fatalf("by-conditions = %d items, total %d（priv 应被复判剔除）", len(items), total)
 	}
-	if len(idx.conds) != 2 || idx.conds[1].Op != indexer.OpRange {
-		t.Fatalf("conds 原样传递失败: %+v", idx.conds)
+	leaves, _ := idx.expr.Leaves()
+	if len(leaves) != 2 || leaves[1].Op != indexer.OpRange {
+		t.Fatalf("expr 原样传递失败: %+v", leaves)
 	}
 	if fb.count() != 0 {
 		t.Fatalf("fallback calls = %d, want 0", fb.count())
@@ -718,8 +720,8 @@ func TestSearchByConditions(t *testing.T) {
 
 	// 空条件：空集直返，不问索引不降级
 	idx.queries = 0
-	if items, total, err = o.SearchByConditions(ctx, nil, search.Query{}); err != nil || total != 0 || len(items) != 0 {
-		t.Fatalf("empty conds = (%d items, %d, err %v), want 0/0/nil", len(items), total, err)
+	if items, total, err = o.SearchByConditions(ctx, indexer.Expr{}, search.Query{}); err != nil || total != 0 || len(items) != 0 {
+		t.Fatalf("empty expr = (%d items, %d, err %v), want 0/0/nil", len(items), total, err)
 	}
 	if idx.queries != 0 || fb.count() != 0 {
 		t.Fatal("空条件不该问索引/兜底")
@@ -727,20 +729,20 @@ func TestSearchByConditions(t *testing.T) {
 
 	// 索引空集：合法答案，不降级
 	idx.hits = nil
-	if _, total, err = o.SearchByConditions(ctx, conds, search.Query{}); err != nil || total != 0 {
+	if _, total, err = o.SearchByConditions(ctx, expr, search.Query{}); err != nil || total != 0 {
 		t.Fatalf("index empty = (total %d, err %v), want 0/nil", total, err)
 	}
 	if fb.count() != 0 {
 		t.Fatal("索引空集不该降级")
 	}
 
-	// 降级：索引未装配 + eq/in → 折回 Attributes 走 SQL
+	// 降级：索引未装配 + 纯 And eq/in → 折回 Attributes 走 SQL
 	oNoIdx, err := New(Options{DataDir: "x", Store: newMemStore(), Fallback: fb})
 	if err != nil {
 		t.Fatal(err)
 	}
-	eqConds := []indexer.Condition{{Field: "k", Op: indexer.OpEq, Value: "v"}}
-	if _, _, err = oNoIdx.SearchByConditions(ctx, eqConds, search.Query{}); err != nil {
+	eqExpr := indexer.Leaf("k", indexer.OpEq, "v")
+	if _, _, err = oNoIdx.SearchByConditions(ctx, eqExpr, search.Query{}); err != nil {
 		t.Fatal(err)
 	}
 	if fb.count() != 1 {
@@ -748,9 +750,19 @@ func TestSearchByConditions(t *testing.T) {
 	}
 
 	// 降级折不动：索引未装配 + range → 报错（宁缺毋滥不静默错答）
-	rngConds := []indexer.Condition{{Field: "k", Op: indexer.OpRange, Value: [2]any{1, 2}}}
-	if _, _, err = oNoIdx.SearchByConditions(ctx, rngConds, search.Query{}); err == nil {
+	rngExpr := indexer.Leaf("k", indexer.OpRange, [2]any{1, 2})
+	if _, _, err = oNoIdx.SearchByConditions(ctx, rngExpr, search.Query{}); err == nil {
 		t.Fatal("range + 无索引应报错")
+	}
+
+	// 降级折不动：索引未装配 + or/not → 报错（布尔组合是索引专长，@> 装不下）
+	orExpr := indexer.Or(indexer.Leaf("k", indexer.OpEq, "v"), indexer.Leaf("k2", indexer.OpEq, "v2"))
+	if _, _, err = oNoIdx.SearchByConditions(ctx, orExpr, search.Query{}); err == nil {
+		t.Fatal("or + 无索引应报错")
+	}
+	notExpr := indexer.Not(indexer.Leaf("k", indexer.OpEq, "v"))
+	if _, _, err = oNoIdx.SearchByConditions(ctx, notExpr, search.Query{}); err == nil {
+		t.Fatal("not + 无索引应报错")
 	}
 }
 
@@ -786,10 +798,10 @@ func TestSearchByConditionsOrderBy(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	conds := []indexer.Condition{{Field: "cod-text-language", Op: indexer.OpEq, Value: "zh"}}
+	expr := indexer.Leaf("cod-text-language", indexer.OpEq, "zh")
 
 	// desc：420 → 88 → 10 → 缺键垫底
-	items, _, err := o.SearchByConditions(ctx, conds, search.Query{OrderBy: "cod-text-lines"})
+	items, _, err := o.SearchByConditions(ctx, expr, search.Query{OrderBy: "cod-text-lines"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -798,7 +810,7 @@ func TestSearchByConditionsOrderBy(t *testing.T) {
 	}
 
 	// asc：10 → 88 → 420 → 缺键垫底
-	items, _, err = o.SearchByConditions(ctx, conds, search.Query{OrderBy: "cod-text-lines", Order: "asc"})
+	items, _, err = o.SearchByConditions(ctx, expr, search.Query{OrderBy: "cod-text-lines", Order: "asc"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -807,13 +819,13 @@ func TestSearchByConditionsOrderBy(t *testing.T) {
 	}
 
 	// size=1 + desc = 最大文件（二分法退役）
-	items, total, err := o.SearchByConditions(ctx, conds, search.Query{OrderBy: "cod-text-lines", Size: 1})
+	items, total, err := o.SearchByConditions(ctx, expr, search.Query{OrderBy: "cod-text-lines", Size: 1})
 	if err != nil || total != 4 || len(items) != 1 || items[0].FilePath != "b.txt" {
 		t.Fatalf("max-file = (%d items, total %d, err %v), want b.txt/4", len(items), total, err)
 	}
 
 	// 无 OrderBy：默认 updated_at 倒序口径不变（回归护栏）
-	if _, _, err := o.SearchByConditions(ctx, conds, search.Query{}); err != nil {
+	if _, _, err := o.SearchByConditions(ctx, expr, search.Query{}); err != nil {
 		t.Fatal(err)
 	}
 }

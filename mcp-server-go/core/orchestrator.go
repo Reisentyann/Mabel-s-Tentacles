@@ -59,7 +59,7 @@ type Sink interface {
 // Catalog 为字段目录（search_files / list_index_fields 工具的发现接口，
 // 索引机 2026-09-09 目录批次）。
 type IndexSource interface {
-	Query(conds []indexer.Condition, mode indexer.Combine) ([]string, error)
+	Query(expr indexer.Expr) ([]string, error)
 	Rebuild(all map[string]map[string]any) error
 	Catalog() []indexer.FieldInfo
 }

@@ -18,11 +18,11 @@ import (
 )
 
 // searchFiles 检索文件元数据：?cond=&q=&tag=&type=&creator=&scope=&color=&deleted=&order_by=&order=&page=&size=
-// cond 为索引机条件语法（URL 编码的 JSON 数组 [{field,op,value}]，与
-// MCP search_files 工具同一份解析——目录批次 2026-09-09）：有 cond 走
-// 编排机 SearchByConditions（索引优先，8 种 op 全量）；其余参数走原
-// Search 路径（关键词/标签是 SQL 专长）。color 旧参数保留兼容（前端
-// 存量），新调用一律用 cond。
+// cond 为索引机条件语法（URL 编码的 JSON：扁平数组 = 全部 And，或
+// {and/or/not} 布尔组合树；与 MCP search_files 工具同一份解析——目录批次
+// 2026-09-09，布尔组合 2026-09-11）：有 cond 走编排机 SearchByConditions
+// （索引优先，8 种 op + 布尔组合）；其余参数走原 Search 路径（关键词/
+// 标签是 SQL 专长）。color 旧参数保留兼容（前端存量），新调用一律用 cond。
 // order_by/order（检索语言扩展 2026-09-10）：按属性值排序（极值/Top-N，
 // 仅 cond 路径生效）；order 只认 asc/desc，缺省 desc。
 func (s *Server) searchFiles(w http.ResponseWriter, r *http.Request) {
@@ -67,7 +67,7 @@ func (s *Server) searchFiles(w http.ResponseWriter, r *http.Request) {
 	// 400 人话（前端/调用方可自纠错），不静默降级旧路径（语法给了却
 	// 被忽略会让调用方误以为条件生效）
 	if condRaw := q.Get("cond"); condRaw != "" {
-		conds, cerr := search.ParseConditions(condRaw)
+		expr, cerr := search.ParseConditions(condRaw)
 		if cerr != nil {
 			writeError(w, http.StatusBadRequest, cerr.Error())
 			return
@@ -76,7 +76,7 @@ func (s *Server) searchFiles(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusInternalServerError, "orchestrator unavailable")
 			return
 		}
-		items, total, err := s.orch.SearchByConditions(r.Context(), conds, sq)
+		items, total, err := s.orch.SearchByConditions(r.Context(), expr, sq)
 		if err != nil {
 			slog.Error("search files by cond failed", "error", err)
 			writeError(w, http.StatusInternalServerError, err.Error())
