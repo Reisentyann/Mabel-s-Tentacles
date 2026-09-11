@@ -1,5 +1,5 @@
 // 文件：manager-go/updater_test.go —— updater 域 L1：T3 执行器（路由/合并/穿越/喂食）+ T2 陈旧四条件 + 幽灵软删 + batch 上限
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
 
 package manager_test
 
@@ -411,7 +411,7 @@ func TestBackfillMtimeNew(t *testing.T) {
 }
 
 func TestBackfillGhostSoftDelete(t *testing.T) {
-	m, st, _, _ := newTestManager(t)
+	m, st, sink, _ := newTestManager(t)
 	// DB 有行、盘上无文件（uuid 派生位不存在 = 天然幽灵）：连续 3 轮 → 软删除
 	st.rows["ghost.txt"] = &manager.MetaRow{
 		Path:       "ghost.txt",
@@ -435,6 +435,24 @@ func TestBackfillGhostSoftDelete(t *testing.T) {
 	}
 	if st.missing["ghost.txt"] != 3 {
 		t.Fatalf("missing rounds = %d, want 3", st.missing["ghost.txt"])
+	}
+
+	// 软删联动：sink 收到卸载喂食——uuid 对上、new=nil（整体移除语义）、
+	// old 携行上原属性（桶级 diff 的旧值侧）。前两轮不软删 → 不得提前喂
+	var unmount *sinkFeed
+	for i := range sink.feeds {
+		if sink.feeds[i].uuid == "u-ghost-1" {
+			unmount = &sink.feeds[i]
+		}
+	}
+	if unmount == nil {
+		t.Fatal("soft delete must feed sink an unmount (uuid=u-ghost-1, new=nil)")
+	}
+	if unmount.new != nil {
+		t.Fatalf("unmount feed new = %v, want nil (整体移除)", unmount.new)
+	}
+	if _, ok := unmount.old["cod-basic-ver"]; !ok {
+		t.Fatalf("unmount feed old = %v, want carry cod-basic-ver", unmount.old)
 	}
 }
 

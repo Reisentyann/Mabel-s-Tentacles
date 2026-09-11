@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/api/metadata.go —— 元数据端点：搜索 / 查看元数据 / 描述（编排机同步入口）/ 复制（KindCopy 事件）
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
 
 package api
 
@@ -17,7 +17,14 @@ import (
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/search"
 )
 
-// searchFiles 检索文件元数据：?q=&tag=&type=&creator=&scope=&color=&deleted=&page=&size=
+// searchFiles 检索文件元数据：?cond=&q=&tag=&type=&creator=&scope=&color=&deleted=&order_by=&order=&page=&size=
+// cond 为索引机条件语法（URL 编码的 JSON 数组 [{field,op,value}]，与
+// MCP search_files 工具同一份解析——目录批次 2026-09-09）：有 cond 走
+// 编排机 SearchByConditions（索引优先，8 种 op 全量）；其余参数走原
+// Search 路径（关键词/标签是 SQL 专长）。color 旧参数保留兼容（前端
+// 存量），新调用一律用 cond。
+// order_by/order（检索语言扩展 2026-09-10）：按属性值排序（极值/Top-N，
+// 仅 cond 路径生效）；order 只认 asc/desc，缺省 desc。
 func (s *Server) searchFiles(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	sq := search.Query{
@@ -27,11 +34,17 @@ func (s *Server) searchFiles(w http.ResponseWriter, r *http.Request) {
 		Creator:        q.Get("creator"),
 		Scope:          q.Get("scope"),
 		IncludeDeleted: q.Get("deleted") == "true",
+		OrderBy:        q.Get("order_by"),
+		Order:          q.Get("order"),
 		Page:           1,
 		Size:           20,
 	}
 	if color := q.Get("color"); color != "" {
 		sq.Attributes = map[string]any{"color": color}
+	}
+	if sq.Order != "" && sq.Order != "asc" && sq.Order != "desc" {
+		writeError(w, http.StatusBadRequest, "order 只认 asc / desc")
+		return
 	}
 	if p, err := strconv.Atoi(q.Get("page")); err == nil && p >= 1 {
 		sq.Page = p
@@ -47,6 +60,29 @@ func (s *Server) searchFiles(w http.ResponseWriter, r *http.Request) {
 
 	if s.searcher == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"items": []any{}, "total": 0, "page": sq.Page, "size": sq.Size})
+		return
+	}
+
+	// cond 分流：条件语法 → 编排机条件直查（索引优先）；解析失败 →
+	// 400 人话（前端/调用方可自纠错），不静默降级旧路径（语法给了却
+	// 被忽略会让调用方误以为条件生效）
+	if condRaw := q.Get("cond"); condRaw != "" {
+		conds, cerr := search.ParseConditions(condRaw)
+		if cerr != nil {
+			writeError(w, http.StatusBadRequest, cerr.Error())
+			return
+		}
+		if s.orch == nil {
+			writeError(w, http.StatusInternalServerError, "orchestrator unavailable")
+			return
+		}
+		items, total, err := s.orch.SearchByConditions(r.Context(), conds, sq)
+		if err != nil {
+			slog.Error("search files by cond failed", "error", err)
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": total, "page": sq.Page, "size": sq.Size})
 		return
 	}
 

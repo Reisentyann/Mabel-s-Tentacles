@@ -1,5 +1,5 @@
 // 文件：indexer-go/bucket.go —— 三型桶数据结构：每字段独立索引，加字段=加桶（架构设计.md 第 3 节）
-// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
 
 // Package indexer 的 bucket.go 实现三型索引桶与归一化原语。
 //
@@ -33,6 +33,9 @@ type bucket interface {
 	query(cond Condition) (map[string]struct{}, error)
 	// stats 键数与挂载数（Stats 自省用；num 桶 keys 按条目计）。
 	stats() (keys, mounts int)
+	// catalog 桶自述（字段目录用）：填 Kind 与取值/值域；Field·Keys·Mounts
+	// 由外层（mem.Catalog）补齐，截断（CatalogValueLimit）也归外层。
+	catalog() FieldInfo
 }
 
 // enumBucket 枚举 / bool / 单值字符串桶：map[值]→uuid 集合，等值 O(1)。
@@ -75,6 +78,10 @@ func (b *enumBucket) stats() (int, int) {
 	return keyedStats(b.m)
 }
 
+func (b *enumBucket) catalog() FieldInfo {
+	return FieldInfo{Kind: KindEnum, Values: keyedValues(b.m)}
+}
+
 // multiBucket 数组多值桶：值→uuid 集合，一个文件可挂多个值。
 // 适用：tags、llm-characters、cod-text-structure、cod-text-top-keywords
 // 等一切 array 字段（OpEq/OpIn 命中任一元素即整文件命中）。
@@ -104,6 +111,20 @@ func (b *multiBucket) query(cond Condition) (map[string]struct{}, error) {
 
 func (b *multiBucket) stats() (int, int) {
 	return keyedStats(b.m)
+}
+
+func (b *multiBucket) catalog() FieldInfo {
+	return FieldInfo{Kind: KindMulti, Values: keyedValues(b.m)}
+}
+
+// keyedValues 键值桶（enum/multi 同构）的取值列表（升序，确定性）。
+func keyedValues(m map[string]map[string]struct{}) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // keyedStats 键值桶（enum/multi 同构）的计量：键数 + 挂载总数。
@@ -253,6 +274,15 @@ func (b *numBucket) query(cond Condition) (map[string]struct{}, error) {
 // stats 数值桶计量：keys 与 mounts 都按条目计（一个条目即一次挂载）。
 func (b *numBucket) stats() (int, int) {
 	return len(b.sorted), len(b.sorted)
+}
+
+// catalog 数值桶自述：Kind=num + 值域 [min, max]（首尾条目；空桶无界）。
+func (b *numBucket) catalog() FieldInfo {
+	if len(b.sorted) == 0 {
+		return FieldInfo{Kind: KindNum}
+	}
+	lo, hi := b.sorted[0].val, b.sorted[len(b.sorted)-1].val
+	return FieldInfo{Kind: KindNum, Min: &lo, Max: &hi}
 }
 
 // lowerBound 首个 val >= f 的下标；upperBound 首个 val > f 的下标。

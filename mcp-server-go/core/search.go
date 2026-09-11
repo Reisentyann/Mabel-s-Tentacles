@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/core/search.go —— 检索门面：索引优先（属性过滤 → Index.Query → uuid 批量取件）→ SQL 降级 + 启动全量重建 RebuildIndex
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
 
 package core
 
@@ -43,6 +43,144 @@ func (o *Orchestrator) Search(ctx context.Context, q search.Query) ([]repo.FileM
 		slog.Warn("index query failed, degrade to SQL", "error", err)
 		return o.opts.Fallback.Search(ctx, q)
 	}
+	return o.collectByUUIDs(ctx, uuids, q)
+}
+
+// SearchByConditions 条件数组直查（search_files 工具入口，目录批次
+// 2026-09-09）：conds 为显式索引条件（eq/in/gt/lt/range/ne/exists/contains
+// 全量，And 交集，检索语言扩展 2026-09-10），绕过 search.Query.Attributes
+// 只有 eq/in 的窄口径；q 携带复判条件（FileType/Creator/Scope/观察者）
+// 与分页参数，其 Text/Tags/Attributes/IncludeDeleted 不参与（含软删走
+// Search 的 SQL 口径）。q.OrderBy 非空时命中集按该属性值排序（asc/desc）——
+// 极值/Top-N 由此表达（size=1 即最大/最小），两条路径（索引/降级）同口径。
+//
+// 降级链与 Search 同构：Index 未装配 / Query 出错 → eq/in 条件折回
+// Attributes 走 SQL 兜底；gt/lt/range/ne/exists/contains 是索引专长
+// （SQL 的 attributes @> 只有包含语义，装不下这些）→ 索引不可用时直接
+// 报错，宁缺毋滥不静默错答。
+// 空集 = 合法答案（无命中），不降级。
+func (o *Orchestrator) SearchByConditions(ctx context.Context, conds []indexer.Condition, q search.Query) ([]repo.FileMetadata, int, error) {
+	if len(conds) == 0 {
+		return []repo.FileMetadata{}, 0, nil
+	}
+	if o.opts.Fallback == nil {
+		return nil, 0, fmt.Errorf("core: 检索未装配（无 SQL 兜底）")
+	}
+	var (
+		items []repo.FileMetadata
+		total int
+		err   error
+	)
+	if o.opts.Index == nil {
+		items, total, err = o.degradeConds(ctx, conds, q)
+	} else {
+		var uuids []string
+		uuids, qerr := o.opts.Index.Query(conds, indexer.And)
+		if qerr != nil {
+			slog.Warn("index query by conditions failed", "conds", len(conds), "error", qerr)
+			items, total, err = o.degradeConds(ctx, conds, q)
+		} else {
+			items, total, err = o.collectByUUIDs(ctx, uuids, q)
+		}
+	}
+	if err != nil {
+		return nil, 0, err
+	}
+	sortByAttr(items, q)
+	return items, total, nil
+}
+
+// degradeConds 条件降级：eq/in 折回 Attributes 走 SQL；ne/exists/contains
+// 与范围条件一样折不动（@> 装不下）→ 报错（见 SearchByConditions 注释）。
+func (o *Orchestrator) degradeConds(ctx context.Context, conds []indexer.Condition, q search.Query) ([]repo.FileMetadata, int, error) {
+	attrs := map[string]any{}
+	for _, c := range conds {
+		switch c.Op {
+		case indexer.OpEq:
+			attrs[c.Field] = c.Value
+		case indexer.OpIn:
+			attrs[c.Field] = c.Value
+		default:
+			return nil, 0, fmt.Errorf("core: 条件（%s）依赖索引机，索引不可用无法降级", c.Op)
+		}
+	}
+	q.Attributes = attrs
+	return o.opts.Fallback.Search(ctx, q)
+}
+
+// sortByAttr 按属性值排序命中集（极值/Top-N 的支撑，检索语言扩展
+// 2026-09-10）：q.OrderBy 空 = 维持调用方次序（updated_at 倒序现状）。
+// 值取自行内 attributes JSONB；缺键行恒排末尾（desc 与 asc 皆是——
+// 「最大」不可能是缺值的行）；数值比较数值、字符串比字典序，跨型
+// 稳定但不建议（排序字段应选数值字段）。
+func sortByAttr(items []repo.FileMetadata, q search.Query) {
+	if q.OrderBy == "" || len(items) < 2 {
+		return
+	}
+	desc := q.Order != "asc"
+	// 行数与行值一次性提取（attributes 解析一次，比较零解析）
+	vals := make([]any, len(items))
+	for i := range items {
+		attrs := describer.AttrsFromJSON(items[i].Attributes)
+		vals[i] = attrs[q.OrderBy]
+	}
+	sort.SliceStable(items, func(a, b int) bool {
+		if desc {
+			// desc：严格大者在前；等值不动（稳定）；缺键恒最后
+			return vals[a] != nil && (vals[b] == nil || attrLess(vals[b], vals[a]))
+		}
+		// asc：严格小者在前；等值不动；缺键恒最后
+		return vals[a] != nil && (vals[b] == nil || attrLess(vals[a], vals[b]))
+	})
+}
+
+// attrLess 值比较：缺键(nil) 恒小于一切（配合 sortByAttr 的方向处理）；
+// 数值族比数值，字符串比字典序，bool false<true；跨型给稳定序
+// （数值 < 字符串 < 布尔——无业务含义，只为排序确定性）。
+func attrLess(a, b any) bool {
+	if a == nil || b == nil {
+		return a == nil && b != nil
+	}
+	fa, aok := numFloat(a)
+	fb, bok := numFloat(b)
+	if aok && bok {
+		return fa < fb
+	}
+	if aok != bok {
+		return aok // 数值 < 非数值
+	}
+	sa, aStr := a.(string)
+	sb, bStr := b.(string)
+	if aStr || bStr {
+		if aStr != bStr {
+			return aStr // 字符串 < 布尔
+		}
+		return sa < sb
+	}
+	ba, _ := a.(bool)
+	bb, _ := b.(bool)
+	return !ba && bb
+}
+
+// numFloat 数值族归一（JSON 解析出的 float64 直通；int 族兜底）。
+func numFloat(v any) (float64, bool) {
+	switch x := v.(type) {
+	case float64:
+		return x, true
+	case float32:
+		return float64(x), true
+	case int:
+		return float64(x), true
+	case int64:
+		return float64(x), true
+	}
+	return 0, false
+}
+
+// collectByUUIDs 索引命中后的取件复判分页（Search / SearchByConditions
+// 共享后半段）：uuid 批量取件 → 软删双保险过滤 → 内存复判（与 SQL
+// metaWhere 同口径）→ updated_at DESC 排序分页。
+func (o *Orchestrator) collectByUUIDs(ctx context.Context, uuids []string, q search.Query) ([]repo.FileMetadata, int, error) {
 	if len(uuids) == 0 {
 		return []repo.FileMetadata{}, 0, nil // 空集 = 合法答案（无命中），不降级
 	}
@@ -80,6 +218,15 @@ func (o *Orchestrator) Search(ctx context.Context, q search.Query) ([]repo.FileM
 		hi = total
 	}
 	return items[lo:hi], total, nil
+}
+
+// IndexCatalog 索引字段目录透传（list_index_fields 工具的发现入口）。
+// nil = 索引未装配（调用方按"检索降级"口径提示）。
+func (o *Orchestrator) IndexCatalog() []indexer.FieldInfo {
+	if o.opts.Index == nil {
+		return nil
+	}
+	return o.opts.Index.Catalog()
 }
 
 // indexable 索引路径适用判定：属性过滤非空（索引的价值场景）且其余条件

@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/api/router.go —— HTTP API 路由装配：公共路由 + JWT 保护路由 + Server 结构
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
 
 package api
 
@@ -44,6 +44,7 @@ func Register(mux *http.ServeMux, cfg *config.Config, st repo.Store, orch *core.
 	mux.Handle("GET /api/files", s.requireAuth(http.HandlerFunc(s.listFiles)))
 	mux.Handle("POST /api/files/download-zip", s.requireAuth(http.HandlerFunc(s.downloadZip)))
 	mux.Handle("GET /api/files/search", s.requireAuth(http.HandlerFunc(s.searchFiles)))
+	mux.Handle("GET /api/index/fields", s.requireAuth(http.HandlerFunc(s.indexFields))) // 索引机字段目录（目录批次 2026-09-09）
 	mux.Handle("GET /api/files/metadata", s.requireAuth(http.HandlerFunc(s.getFileMetadata)))
 	mux.Handle("PUT /api/files/metadata", s.requireAuth(http.HandlerFunc(s.describeFile)))
 	mux.Handle("POST /api/files/copy", s.requireAuth(http.HandlerFunc(s.copyFile)))

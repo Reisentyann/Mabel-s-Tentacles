@@ -3,6 +3,12 @@ import api from './index';
 export const getFiles = () => api.get('/files/');
 export const searchFiles = (params) => api.get('/files/search', { params });
 export const getFileMetadata = (path) => api.get('/files/metadata', { params: { path } });
+
+// 索引机字段目录（检索契约的机器面，2026-09-10）：fields 各带 kind/values/
+// min-max + desc（含义）+ bench（分档）；顶层 guide = 口径规则 + 速查表。
+// 条件构造器的数据源，会话内缓存即可（动态但基本稳定）。
+export const getIndexFields = (prefix) =>
+  api.get('/index/fields', { params: prefix ? { prefix } : {} });
 export const describeFile = (data) => api.put('/files/metadata', data);
 export const copyFile = (data) => api.post('/files/copy', data);
 

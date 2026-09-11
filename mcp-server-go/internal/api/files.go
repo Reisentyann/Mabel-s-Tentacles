@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/api/files.go —— 文件端点：可见性裁剪的目录树 / 单文件下载（自证：静态 token 或 JWT）/ zip 打包
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
 
 package api
 
@@ -176,7 +176,7 @@ func (s *Server) downloadFile(w http.ResponseWriter, r *http.Request) {
 // 里的百分号编码做二次转义——实测 %2F（斜杠）与 %7E（波浪号）都会中招，
 // 服务端按字面查键 → file not found。r.URL.Query() 已解一层，这里再解
 // 至多两层（覆盖任意 %XX 的二次/三次转义）；解码出错或解不动原样返回
-//（含 % 的真实文件名不受影响——非法 %XX 序列直接返回）。
+// （含 % 的真实文件名不受影响——非法 %XX 序列直接返回）。
 func normalizeDownloadPath(p string) string {
 	for i := 0; i < 2; i++ {
 		dec, err := url.QueryUnescape(p)

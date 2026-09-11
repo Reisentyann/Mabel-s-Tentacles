@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/core/orchestrator_test.go —— 编排机骨架测试：执行器管线 / 队列生命周期 / Describe 闸门 / 检索降级 / 索引重建
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
 
 package core
 
@@ -218,6 +218,7 @@ type memIndex struct {
 	hits     []string // Query 的预设返回（nil = 空集）
 	conds    []indexer.Condition
 	queries  int
+	catalog  []indexer.FieldInfo // Catalog 的预设返回
 }
 
 func (m *memIndex) Query(conds []indexer.Condition, _ indexer.Combine) ([]string, error) {
@@ -226,6 +227,12 @@ func (m *memIndex) Query(conds []indexer.Condition, _ indexer.Combine) ([]string
 	m.conds = conds
 	m.queries++
 	return m.hits, nil
+}
+
+func (m *memIndex) Catalog() []indexer.FieldInfo {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.catalog
 }
 
 func (m *memIndex) Rebuild(all map[string]map[string]any) error {
@@ -662,6 +669,183 @@ func TestSearchIndexedDegrade(t *testing.T) {
 	}
 	if idx.queries != 0 {
 		t.Fatalf("index queries = %d, want 0（全部降级，不该问索引）", idx.queries)
+	}
+}
+
+// TestSearchByConditions 条件数组直查（search_files 工具入口，目录批次
+// 2026-09-09）：显式条件原样进索引（And）→ 取件复判分页；空条件不问索引；
+// 降级口径：eq/in 折回 Attributes 走 SQL，gt/lt/range 索引不可用时报错。
+func TestSearchByConditions(t *testing.T) {
+	ctx := context.Background()
+	ms := newMemStore()
+	for _, p := range []string{"hit-new.txt", "hit-old.txt", "priv.txt"} {
+		if _, err := ms.UpsertMetadata(ctx, &repo.FileMetadata{
+			FilePath: p, Visibility: "public", FileType: ptr("text"),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ms.rows["priv.txt"].Visibility = "private"
+	ms.rows["priv.txt"].OwnerID = ptr("alice")
+	ms.rows["hit-old.txt"].UpdatedAt = time.Now().Add(-time.Hour)
+	ms.rows["hit-new.txt"].UpdatedAt = time.Now()
+
+	idx := &memIndex{hits: []string{"uuid-hit-new.txt", "uuid-hit-old.txt", "uuid-priv.txt"}}
+	fb := &stubSearcher{}
+	o, err := New(Options{DataDir: "x", Store: ms, Index: idx, Fallback: fb})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 显式条件（eq + range，And 交集）原样进索引
+	conds := []indexer.Condition{
+		{Field: "cod-text-language", Op: indexer.OpEq, Value: "zh"},
+		{Field: "cod-text-lines", Op: indexer.OpRange, Value: [2]any{1, 99}},
+	}
+	items, total, err := o.SearchByConditions(ctx, conds, search.Query{ViewerName: "bob"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 2 || len(items) != 2 || items[0].FilePath != "hit-new.txt" {
+		t.Fatalf("by-conditions = %d items, total %d（priv 应被复判剔除）", len(items), total)
+	}
+	if len(idx.conds) != 2 || idx.conds[1].Op != indexer.OpRange {
+		t.Fatalf("conds 原样传递失败: %+v", idx.conds)
+	}
+	if fb.count() != 0 {
+		t.Fatalf("fallback calls = %d, want 0", fb.count())
+	}
+
+	// 空条件：空集直返，不问索引不降级
+	idx.queries = 0
+	if items, total, err = o.SearchByConditions(ctx, nil, search.Query{}); err != nil || total != 0 || len(items) != 0 {
+		t.Fatalf("empty conds = (%d items, %d, err %v), want 0/0/nil", len(items), total, err)
+	}
+	if idx.queries != 0 || fb.count() != 0 {
+		t.Fatal("空条件不该问索引/兜底")
+	}
+
+	// 索引空集：合法答案，不降级
+	idx.hits = nil
+	if _, total, err = o.SearchByConditions(ctx, conds, search.Query{}); err != nil || total != 0 {
+		t.Fatalf("index empty = (total %d, err %v), want 0/nil", total, err)
+	}
+	if fb.count() != 0 {
+		t.Fatal("索引空集不该降级")
+	}
+
+	// 降级：索引未装配 + eq/in → 折回 Attributes 走 SQL
+	oNoIdx, err := New(Options{DataDir: "x", Store: newMemStore(), Fallback: fb})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eqConds := []indexer.Condition{{Field: "k", Op: indexer.OpEq, Value: "v"}}
+	if _, _, err = oNoIdx.SearchByConditions(ctx, eqConds, search.Query{}); err != nil {
+		t.Fatal(err)
+	}
+	if fb.count() != 1 {
+		t.Fatalf("eq 降级后 fallback calls = %d, want 1", fb.count())
+	}
+
+	// 降级折不动：索引未装配 + range → 报错（宁缺毋滥不静默错答）
+	rngConds := []indexer.Condition{{Field: "k", Op: indexer.OpRange, Value: [2]any{1, 2}}}
+	if _, _, err = oNoIdx.SearchByConditions(ctx, rngConds, search.Query{}); err == nil {
+		t.Fatal("range + 无索引应报错")
+	}
+}
+
+// TestSearchByConditionsOrderBy 属性排序（检索语言扩展 2026-09-10）：
+// OrderBy 命中集按该值排（desc 大者在前 / asc 小者在前），缺键行恒排
+// 末尾（「最大」不可能是缺值的行）；size=1 + desc = 取最大文件。
+func TestSearchByConditionsOrderBy(t *testing.T) {
+	ctx := context.Background()
+	ms := newMemStore()
+	rows := []struct {
+		path  string
+		lines any // nil = 缺键
+	}{
+		{"a.txt", 10},
+		{"b.txt", 420},
+		{"c.txt", 88},
+		{"d.txt", nil}, // 缺 cod-text-lines（该文件从未适用 text 家族）
+	}
+	for _, r := range rows {
+		attrs := map[string]any{"cod-text-language": "zh"}
+		if r.lines != nil {
+			attrs["cod-text-lines"] = r.lines
+		}
+		if _, err := ms.UpsertMetadata(ctx, &repo.FileMetadata{
+			FilePath: r.path, Visibility: "public",
+			Attributes: describer.JSONFromAttrs(attrs),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	idx := &memIndex{hits: []string{"uuid-a.txt", "uuid-b.txt", "uuid-c.txt", "uuid-d.txt"}}
+	o, err := New(Options{DataDir: "x", Store: ms, Index: idx, Fallback: &stubSearcher{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conds := []indexer.Condition{{Field: "cod-text-language", Op: indexer.OpEq, Value: "zh"}}
+
+	// desc：420 → 88 → 10 → 缺键垫底
+	items, _, err := o.SearchByConditions(ctx, conds, search.Query{OrderBy: "cod-text-lines"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := pathsOf(items); got != "b.txt,c.txt,a.txt,d.txt" {
+		t.Fatalf("desc order = %s, want b,c,a,d(缺键最后)", got)
+	}
+
+	// asc：10 → 88 → 420 → 缺键垫底
+	items, _, err = o.SearchByConditions(ctx, conds, search.Query{OrderBy: "cod-text-lines", Order: "asc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := pathsOf(items); got != "a.txt,c.txt,b.txt,d.txt" {
+		t.Fatalf("asc order = %s, want a,c,b,d(缺键最后)", got)
+	}
+
+	// size=1 + desc = 最大文件（二分法退役）
+	items, total, err := o.SearchByConditions(ctx, conds, search.Query{OrderBy: "cod-text-lines", Size: 1})
+	if err != nil || total != 4 || len(items) != 1 || items[0].FilePath != "b.txt" {
+		t.Fatalf("max-file = (%d items, total %d, err %v), want b.txt/4", len(items), total, err)
+	}
+
+	// 无 OrderBy：默认 updated_at 倒序口径不变（回归护栏）
+	if _, _, err := o.SearchByConditions(ctx, conds, search.Query{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// pathsOf 路径串（排序断言用）。
+func pathsOf(items []repo.FileMetadata) string {
+	ps := make([]string, len(items))
+	for i := range items {
+		ps[i] = items[i].FilePath
+	}
+	return strings.Join(ps, ",")
+}
+
+// TestIndexCatalog 目录透传：IndexCatalog = Index.Catalog 的门面
+// （list_index_fields 工具入口）；未装配返回 nil。
+func TestIndexCatalog(t *testing.T) {
+	cat := []indexer.FieldInfo{{Field: "f", Kind: indexer.KindEnum, Values: []string{"v"}}}
+	idx := &memIndex{catalog: cat}
+	o, err := New(Options{DataDir: "x", Store: newMemStore(), Index: idx})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := o.IndexCatalog(); len(got) != 1 || got[0].Field != "f" || got[0].Values[0] != "v" {
+		t.Fatalf("IndexCatalog = %+v, want stub 目录透传", got)
+	}
+
+	o2, err := New(Options{DataDir: "x", Store: newMemStore()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := o2.IndexCatalog(); got != nil {
+		t.Fatalf("未装配索引应返回 nil, got %+v", got)
 	}
 }
 

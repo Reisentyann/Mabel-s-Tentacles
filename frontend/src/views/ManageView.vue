@@ -36,6 +36,7 @@
           <el-button :icon="SearchIcon" @click="doSearch" />
         </template>
       </el-input>
+      <el-button :icon="FilterIcon" @click="openCond">条件</el-button>
     </div>
 
     <!-- 主区：树 + 表 -->
@@ -67,8 +68,13 @@
 
       <div class="pane pane-table">
         <div class="pane-head">
-          <span>{{ mode === 'search' ? `搜索结果 · ${query}` : currentDir || '全部文件' }}</span>
-          <el-button v-if="mode === 'search'" size="small" text @click="clearSearch">
+          <span>{{ headTitle }}</span>
+          <el-button
+            v-if="mode === 'search' || mode === 'cond'"
+            size="small"
+            text
+            @click="clearSearch"
+          >
             返回全部
           </el-button>
           <div class="flex-fill"></div>
@@ -211,17 +217,131 @@
         <el-button type="primary" :loading="copying" @click="doCopy">复制</el-button>
       </template>
     </el-dialog>
+
+    <!-- 条件检索对话框（索引机直查，2026-09-10）：字段目录下拉 + 按桶型适配的
+         op/值编辑器；字段带 desc/bench（契约机器面）；多行 = And 交集 -->
+    <el-dialog v-model="condVisible" title="条件检索（索引机直查）" width="760px">
+      <div v-if="catalogError" class="hint">{{ catalogError }}</div>
+      <template v-else>
+        <div v-for="(c, i) in condRows" :key="i" class="cond-item">
+          <div class="cond-row">
+            <el-select
+              v-model="c.field"
+              filterable
+              placeholder="字段（来自目录）"
+              class="cond-field"
+              @change="onFieldChange(c)"
+            >
+              <el-option
+                v-for="f in catalog"
+                :key="f.field"
+                :value="f.field"
+                :label="`${f.field} · ${f.kind}`"
+              />
+            </el-select>
+            <el-select v-model="c.op" class="cond-op" @change="onOpChange(c)">
+              <el-option v-for="o in opsFor(c)" :key="o" :value="o" :label="o" />
+            </el-select>
+
+            <!-- 值编辑器：按（桶型, op）适配 -->
+            <el-select
+              v-if="kindOf(c) !== 'num' && c.op === 'eq'"
+              v-model="c.value"
+              filterable
+              allow-create
+              placeholder="取值"
+              class="cond-value"
+            >
+              <el-option v-for="v in valuesOf(c)" :key="String(v)" :value="v" :label="String(v)" />
+            </el-select>
+            <el-select
+              v-if="kindOf(c) !== 'num' && c.op === 'in'"
+              v-model="c.inValues"
+              multiple
+              filterable
+              allow-create
+              placeholder="任一命中（可多选）"
+              class="cond-value"
+            >
+              <el-option v-for="v in valuesOf(c)" :key="String(v)" :value="v" :label="String(v)" />
+            </el-select>
+            <el-input-number
+              v-if="kindOf(c) === 'num' && ['eq', 'gt', 'lt'].includes(c.op)"
+              v-model="c.value"
+              :controls="false"
+              placeholder="数值"
+              class="cond-num"
+            />
+            <el-select
+              v-if="kindOf(c) === 'num' && c.op === 'in'"
+              v-model="c.inValues"
+              multiple
+              filterable
+              allow-create
+              placeholder="数值集合（回车添加）"
+              class="cond-value"
+            >
+              <el-option v-for="v in valuesOf(c)" :key="String(v)" :value="v" :label="String(v)" />
+            </el-select>
+            <div v-if="kindOf(c) === 'num' && c.op === 'range'" class="cond-range">
+              <el-input-number v-model="c.lo" :controls="false" placeholder="下界" class="cond-num" />
+              <span class="cond-tilde">~</span>
+              <el-input-number v-model="c.hi" :controls="false" placeholder="上界" class="cond-num" />
+            </div>
+
+            <el-button
+              text
+              type="danger"
+              :icon="DeleteIcon"
+              :disabled="condRows.length <= 1"
+              @click="removeRow(i)"
+            />
+          </div>
+          <div v-if="fieldInfo(c)" class="cond-bench">
+            {{ fieldInfo(c).desc }}<template v-if="fieldInfo(c).bench"> —— {{ fieldInfo(c).bench }}</template>
+          </div>
+        </div>
+
+        <el-button size="small" text type="primary" @click="addRow">+ 添加条件（多条件 = And 交集）</el-button>
+      </template>
+      <template #footer>
+        <div class="cond-footer">
+          <el-popover v-if="guideRules.length" placement="top-start" :width="460" trigger="hover">
+            <template #reference>
+              <el-link type="primary" :underline="false">口径规则与速查（{{ guideRules.length }} + {{ guideQuick.length }}）</el-link>
+            </template>
+            <div class="guide-pop">
+              <p v-for="(r, i) in guideRules" :key="'r' + i" class="guide-line">{{ i + 1 }}. {{ r }}</p>
+              <div v-for="(q, i) in guideQuick" :key="'q' + i" class="guide-q">
+                <b>{{ q.want }}</b> → {{ q.cond }}
+              </div>
+            </div>
+          </el-popover>
+          <div class="flex-fill"></div>
+          <el-button @click="condVisible = false">取消</el-button>
+          <el-button
+            type="primary"
+            :loading="condSearching"
+            :disabled="!condRows.some(rowReady)"
+            @click="doCondSearch"
+          >
+            检索
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { computed, onMounted, ref } from 'vue';
-import { Search as SearchIcon } from '@element-plus/icons-vue';
+import { Search as SearchIcon, Filter as FilterIcon, Delete as DeleteIcon } from '@element-plus/icons-vue';
 import { ElMessage } from 'element-plus';
 import {
   getFiles,
   searchFiles,
   getFileMetadata,
+  getIndexFields,
   moveFile,
   copyFile,
   analyzeFile,
@@ -235,8 +355,19 @@ const tree = ref([]);
 const flat = ref([]); // 全量平铺（表格底料）
 const rows = ref([]);
 const currentDir = ref('');
-const mode = ref('all'); // all | dir | search
+const mode = ref('all'); // all | dir | search | cond
 const query = ref('');
+const condTotal = ref(0);
+
+// normRow HTTP 检索行（repo.FileMetadata，file_path 键）归一到表格/详情的
+// path 口径——q 搜索与 cond 搜索同用（2026-09-10 顺带修 q 搜索行键错位）
+const normRow = (it) => ({ ...it, path: it.path || it.file_path });
+
+const headTitle = computed(() => {
+  if (mode.value === 'search') return `搜索结果 · ${query.value}`;
+  if (mode.value === 'cond') return `条件检索 · ${condTotal.value} 命中`;
+  return currentDir.value || '全部文件';
+});
 
 const walk = (nodes, out) => {
   for (const n of nodes || []) {
@@ -277,7 +408,7 @@ const onNodeClick = (data) => {
 const doSearch = async () => {
   if (!query.value.trim()) return clearSearch();
   const { data } = await searchFiles({ q: query.value.trim(), size: 100 });
-  rows.value = data.items || [];
+  rows.value = (data.items || []).map(normRow);
   mode.value = 'search';
 };
 
@@ -285,7 +416,103 @@ const clearSearch = () => {
   query.value = '';
   mode.value = 'all';
   currentDir.value = '';
+  condTotal.value = 0;
   applyMode();
+};
+
+// ---- 条件检索（索引机直查，2026-09-10）----
+const condVisible = ref(false);
+const condSearching = ref(false);
+const catalog = ref([]); // 字段目录（含 kind/values/min-max/desc/bench）
+const catalogLoaded = ref(false);
+const catalogError = ref('');
+const guideRules = ref([]);
+const guideQuick = ref([]);
+const condRows = ref([]); // [{field, op, value, inValues, lo, hi}]
+
+const openCond = async () => {
+  condVisible.value = true;
+  if (!catalogLoaded.value && !catalogError.value) await loadCatalog();
+  if (!condRows.value.length) addRow();
+};
+
+const loadCatalog = async () => {
+  try {
+    const { data } = await getIndexFields();
+    catalog.value = data.fields || [];
+    guideRules.value = data.guide?.rules || [];
+    guideQuick.value = data.guide?.quick_ref || [];
+    catalogLoaded.value = true;
+  } catch (e) {
+    catalogError.value =
+      '字段目录不可用：' + (e?.response?.data?.error || e.message) +
+      '（索引机未装配时目录端点 503——检索仍可用 q 关键词走 SQL）';
+  }
+};
+
+const fieldInfo = (c) => catalog.value.find((f) => f.field === c.field);
+const kindOf = (c) => fieldInfo(c)?.kind || '';
+const valuesOf = (c) => fieldInfo(c)?.values || [];
+
+const opsFor = (c) => {
+  if (kindOf(c) === 'num') return ['eq', 'in', 'gt', 'lt', 'range'];
+  return ['eq', 'in'];
+};
+
+const addRow = () => {
+  condRows.value.push({ field: '', op: 'eq', value: '', inValues: [], lo: null, hi: null });
+};
+
+const removeRow = (i) => {
+  if (condRows.value.length > 1) condRows.value.splice(i, 1);
+};
+
+const onFieldChange = (c) => {
+  c.op = 'eq';
+  onOpChange(c);
+};
+
+const onOpChange = (c) => {
+  c.value = c.op === 'eq' && kindOf(c) === 'num' ? null : '';
+  c.inValues = [];
+  c.lo = null;
+  c.hi = null;
+};
+
+const rowReady = (c) => {
+  if (!c.field || !c.op) return false;
+  if (c.op === 'in') return (c.inValues || []).length > 0;
+  if (c.op === 'range') return c.lo != null && c.hi != null && c.lo <= c.hi;
+  return c.value !== '' && c.value != null;
+};
+
+const buildCond = (c) => {
+  if (c.op === 'in') {
+    const vals = kindOf(c) === 'num' ? c.inValues.map(Number) : c.inValues;
+    return { field: c.field, op: 'in', value: vals };
+  }
+  if (c.op === 'range') return { field: c.field, op: 'range', value: [c.lo, c.hi] };
+  return { field: c.field, op: c.op, value: c.value };
+};
+
+const doCondSearch = async () => {
+  const conds = condRows.value.filter(rowReady).map(buildCond);
+  if (!conds.length) return;
+  condSearching.value = true;
+  try {
+    const { data } = await searchFiles({ cond: JSON.stringify(conds), size: 100 });
+    rows.value = (data.items || []).map(normRow);
+    condTotal.value = data.total ?? rows.value.length;
+    mode.value = 'cond';
+    condVisible.value = false;
+    if (!rows.value.length) {
+      ElMessage.info('0 命中——空集是合法答案，试试放宽分档（目录的 min/max 是本库实况）');
+    }
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.error || '条件检索失败');
+  } finally {
+    condSearching.value = false;
+  }
 };
 
 // ---- 统计 ----
@@ -524,5 +751,65 @@ onMounted(refresh);
 }
 .flex-fill {
   flex: 1;
+}
+
+/* ---- 条件检索对话框 ---- */
+.cond-item {
+  margin-bottom: 10px;
+}
+.cond-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.cond-field {
+  width: 280px;
+}
+.cond-op {
+  width: 96px;
+  flex: none;
+}
+.cond-value {
+  flex: 1;
+  min-width: 140px;
+}
+.cond-num {
+  flex: 1;
+  min-width: 100px;
+}
+.cond-range {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.cond-tilde {
+  color: var(--mabel-text-muted);
+}
+.cond-bench {
+  margin: 2px 0 0 4px;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--mabel-text-muted);
+}
+.cond-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+}
+.guide-pop {
+  max-height: 380px;
+  overflow-y: auto;
+  font-size: 0.78rem;
+  line-height: 1.6;
+}
+.guide-line {
+  margin: 0 0 4px;
+}
+.guide-q {
+  margin: 4px 0;
+  padding-top: 4px;
+  border-top: 1px dashed var(--mabel-border, #e3e7ee);
 }
 </style>

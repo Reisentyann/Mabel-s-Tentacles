@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/core/orchestrator.go —— 编排机门面：生命周期事件 + 异步队列 + worker 池（三机之上的统一编排层骨架）
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
 
 // Package core 是编排机：把描述机（describer-go，字节进事实出）/ 索引机
 // （indexer-go，条件→uuid）/ 管理机（manager-go，位置与谱系）的编排，
@@ -56,9 +56,12 @@ type Sink interface {
 
 // IndexSource 索引查询最小面（indexer-go Indexer 的结构子集）：
 // 检索门面（search.go）与启动重建（RebuildIndex）用。nil = 检索降级 SQL。
+// Catalog 为字段目录（search_files / list_index_fields 工具的发现接口，
+// 索引机 2026-09-09 目录批次）。
 type IndexSource interface {
 	Query(conds []indexer.Condition, mode indexer.Combine) ([]string, error)
 	Rebuild(all map[string]map[string]any) error
+	Catalog() []indexer.FieldInfo
 }
 
 // Store 编排机所需的最小存储面（repo.Store 的结构子集，pgx 实现直接注入；

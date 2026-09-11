@@ -1,11 +1,11 @@
 // 文件：manager-go/updater.go —— 更新回填域：T2 启动后台回填 + T3 手动重分析（字典第 10 节三触发器）
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
 
 // updater 域职责：让存量元数据跟上引擎演进。
 // 执行器唯一路径：读文件 → describer.Analyze → MergeResults → Upsert → 喂食索引机。
 // 幂等（家族整族替换保证），可中断续跑；循环由 timer/启动驱动，一轮结束即返回，
-// 绝不自旋（铁律 3）。连续 3 轮盘上缺失 → SoftDeleteMeta（字典 10.4，
-// 对接软删除待办）。
+// 绝不自旋（铁律 3）。连续 3 轮盘上缺失 → SoftDeleteMeta（字典 10.4）
+// 并联动卸载索引挂载（Update(uuid, old, nil)）。
 //
 // 陈旧判定用 describer.IsStale（缺 ver / 版本落后 / checksum 漂 / mtime 新），
 // execute_command 直改文件的绕口由此兜底。curVer 来源 describer.CurrentVersions()
@@ -111,7 +111,13 @@ func (m *Manager) Backfill(ctx context.Context, batch int) (int, error) {
 							continue
 						}
 						softDeleted++
-						slog.Warn("ghost metadata soft-deleted", "path", row.Path, "missing_rounds", rounds)
+						// 软删联动：索引同步卸载（new=nil 整体移除语义）——
+						// 免 Mounts 虚高拖到重启 Rebuild 才清；查询正确性另有
+						// 取件侧 IsDeleted 双保险，这里是计数卫生
+						if m.sink != nil {
+							m.sink.Update(row.UUID, describer.AttrsFromJSON(row.Attributes), nil)
+						}
+						slog.Warn("ghost metadata soft-deleted", "path", row.Path, "uuid", row.UUID, "missing_rounds", rounds)
 					}
 					continue
 				}

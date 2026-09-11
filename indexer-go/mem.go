@@ -1,5 +1,5 @@
 // 文件：indexer-go/mem.go —— 索引机进程内内存实现：字段级独立桶 + RWMutex 并发保护 + Stats 自省
-// 修改：2026-09-05（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
 
 // Package indexer 的 mem.go 是进程内内存实现：field → 桶。
 // DB 是唯一事实源，本实现是派生缓存——可丢弃可重建（Rebuild），
@@ -9,20 +9,29 @@ package indexer
 import (
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 )
 
 // memIndexer 进程内内存实现。
 // RWMutex：Query 走读锁、Update/Rebuild 走写锁——mcp-server 单进程内
 // HTTP/MCP 并发调用下安全（桶内 map 非并发安全，必须由锁保护）。
+//
+// 两层结构：
+//   - buckets：field → 桶（eq/in/gt/lt/range 的快路径，值寻址 O(1)）
+//   - attrs：uuid → 原始 attributes 镜像（ne/exists/contains 的扫描路径，
+//     2026-09-10 检索语言扩展批次）——语义需要"键存在性/值不等于/子串"，
+//     桶结构装不下（桶只挂可索引值，缺键信息在桶里不可见）；镜像在
+//     Update/Rebuild 与桶同步维护，个人库量级内存翻倍可接受
 type memIndexer struct {
 	mu      sync.RWMutex
-	buckets map[string]bucket // field → 桶
+	buckets map[string]bucket        // field → 桶
+	attrs   map[string]map[string]any // uuid → 原始 attributes（扫描型 op 的支撑）
 }
 
 // New 构造进程内索引机（空索引，等待 Rebuild 或增量 Update）。
 func New() Indexer {
-	return &memIndexer{buckets: map[string]bucket{}}
+	return &memIndexer{buckets: map[string]bucket{}, attrs: map[string]map[string]any{}}
 }
 
 // Query 按条件求 uuid 集合：逐条件求桶内命中，And 交集 / Or 并集，
@@ -38,6 +47,12 @@ func (m *memIndexer) Query(conds []Condition, mode Combine) ([]string, error) {
 
 	sets := make([]map[string]struct{}, len(conds))
 	for i, c := range conds {
+		// 扫描型 op（ne/exists/contains）走 attrs 镜像，不进桶
+		switch c.Op {
+		case OpNe, OpExists, OpContains:
+			sets[i] = m.scanSet(c)
+			continue
+		}
 		b, ok := m.buckets[c.Field]
 		if !ok {
 			sets[i] = map[string]struct{}{} // 该字段从未出现可索引值：无命中
@@ -57,6 +72,59 @@ func (m *memIndexer) Query(conds []Condition, mode Combine) ([]string, error) {
 	}
 	sort.Strings(res)
 	return res, nil
+}
+
+// scanSet 扫描型 op 的镜像求集（调用方已持读锁）：
+//   - exists：键存在性（Value=bool；true=有键，false=无键——"没有 X 的
+//     文件"由此查，缺键信息只在镜像里可见）
+//   - ne：有该键且值不同（缺键不算——语义上"无该键"≠"值不等于"；
+//     归一化比较，数值族 int 3 ≠ float64 3 不成立）
+//   - contains：字符串字段包含子串；数组字段任一元素包含即中
+//     （Value 须为 string，解析层已校验）
+func (m *memIndexer) scanSet(c Condition) map[string]struct{} {
+	out := map[string]struct{}{}
+	for uuid, a := range m.attrs {
+		v, has := a[c.Field]
+		switch c.Op {
+		case OpExists:
+			want, _ := c.Value.(bool)
+			if has == want {
+				out[uuid] = struct{}{}
+			}
+		case OpNe:
+			if has && !sameValue(v, c.Value) {
+				out[uuid] = struct{}{}
+			}
+		case OpContains:
+			sub, _ := c.Value.(string)
+			if has && containsValue(v, sub) {
+				out[uuid] = struct{}{}
+			}
+		}
+	}
+	return out
+}
+
+// containsValue 值的子串判定：字符串 → 直接包含；数组 → 任一字符串元素
+// 包含即中；其余类型（数值/bool）无子串语义，不命中。
+func containsValue(v any, sub string) bool {
+	switch x := v.(type) {
+	case string:
+		return strings.Contains(x, sub)
+	case []any:
+		for _, el := range x {
+			if s, ok := el.(string); ok && strings.Contains(s, sub) {
+				return true
+			}
+		}
+	case []string:
+		for _, s := range x {
+			if strings.Contains(s, sub) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // combine 交/并：And 从最小集起步逐集过滤（一旦空集即早退），
@@ -110,6 +178,27 @@ func (m *memIndexer) Stats() Stats {
 	return s
 }
 
+// Catalog 字段目录（查询方的发现接口）：按字段名升序，每字段给出
+// 桶型/键数/挂载数 + 取值列表（enum·multi，超 CatalogValueLimit 截断
+// 置 Truncated）或值域（num 的 min/max）。空索引返回空切片非 nil。
+func (m *memIndexer) Catalog() []FieldInfo {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	out := make([]FieldInfo, 0, len(m.buckets))
+	for f, b := range m.buckets {
+		info := b.catalog()
+		info.Field = f
+		info.Keys, info.Mounts = b.stats()
+		if len(info.Values) > CatalogValueLimit {
+			info.Values = info.Values[:CatalogValueLimit]
+			info.Truncated = true
+		}
+		out = append(out, info)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Field < out[j].Field })
+	return out
+}
+
 // Update 写路径喂食：old/new 为该文件变更前后的 attributes（读-改-写
 // 时由编排方各取一份，Upsert 后调用）。逐字段 diff：
 //   - 键消失或值变 → 从旧桶移除
@@ -134,6 +223,13 @@ func (m *memIndexer) Update(uuid string, old, new map[string]any) {
 		}
 		m.mount(f, uuid, nv)
 	}
+	// 镜像同步：new 为 nil/空 = 整体移除；否则整表覆写（镜像存原始值，
+	// 含不可挂桶的——exists 的语义就是"键在不在"，与值是否可索引无关）
+	if len(new) == 0 {
+		delete(m.attrs, uuid)
+	} else {
+		m.attrs[uuid] = new
+	}
 }
 
 // Rebuild 全量重建：清空全部桶后按 all 重新挂载（服务启动时从 DB 载入
@@ -143,9 +239,13 @@ func (m *memIndexer) Rebuild(all map[string]map[string]any) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.buckets = map[string]bucket{}
+	m.attrs = map[string]map[string]any{}
 	for uuid, attrs := range all {
 		for f, v := range attrs {
 			m.mount(f, uuid, v)
+		}
+		if len(attrs) > 0 {
+			m.attrs[uuid] = attrs
 		}
 	}
 	return nil
