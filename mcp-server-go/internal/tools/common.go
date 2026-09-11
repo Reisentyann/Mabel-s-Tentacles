@@ -1,5 +1,5 @@
-// 文件：mcp-server-go/internal/tools/common.go —— 工具共享层：Result / SessionID / RecordOperation / Principal 授权助手 / DownloadURL
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 文件：mcp-server-go/internal/tools/common.go —— 工具共享层：Result / SessionID / RecordOperation / Principal 授权助手
+// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
 
 package tools
 
@@ -8,8 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"net/url"
-	"strconv"
 	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
@@ -17,9 +15,7 @@ import (
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/authz"
-	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/config"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
-	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 )
 
 func Result(v map[string]any) *mcp.CallToolResult {
@@ -114,29 +110,9 @@ func CanFile(ctx context.Context, st repo.Store, path string, write bool) (denie
 // StrPtr 空串→nil 的指针语义转换已收敛 common.StrPtr（core 侧 strPtr、
 // repo 侧 derefStr 同步退役），本包不再持有副本。
 
-// DownloadURL 构造文件的对外下载地址（限时票据口径，2026-09-08）：
-// base 优先 download_base_url（专门前缀），空则回退 server.base_url（同源
-// 部署）；票据按 path+uuid 无状态签发、一天自动过期、单文件绑定——
-// 取代旧的 ACCESS_TOKEN 静态口径（静态 token 随链接扩散等于全站任意
-// 文件永久可下载，含私密）。入口全未配置返回空串（调用方走降级提示）。
-//
-// path 里的斜杠不编码（query 值中裸 / 合法）：QQ 等消息层会把 %2F
-// 二次转义成 %252F 导致服务端查无此键（实测 404）——源头少一个
-// 可被转义的靶子；接收侧另有容错解码兜底。
-func DownloadURL(cfg *config.Config, filePath, uuid string) string {
-	base := strings.TrimRight(cfg.API.DownloadBaseURL, "/")
-	if base == "" {
-		base = strings.TrimRight(cfg.Server.BaseURL, "/")
-	}
-	if base == "" {
-		return ""
-	}
-	escapedPath := strings.ReplaceAll(url.QueryEscape(filePath), "%2F", "/")
-	exp := service.DownloadTicketExpiry()
-	return base + "/api/files/download?path=" + escapedPath +
-		"&exp=" + strconv.FormatInt(exp.Unix(), 10) +
-		"&ticket=" + url.QueryEscape(service.SignDownloadTicket(cfg.Security.SecretKey, filePath, uuid, exp))
-}
+// 下载地址构造已归位管理机（2026-09-11 归位批次）：调用
+// deps.Manager.IssueDownloadURL(path, uuid, ttl)（manager-go/download.go）；
+// 票据公式与 QQ 斜杠转义治理随之迁移，本包不再持有副本。
 
 // ===== owner 键空间（多用户隔离批次 2026-09-08）=====
 

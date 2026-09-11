@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/cmd/server/main.go —— 服务入口：装配 config/logging/repo/search/api/mcp + 优雅关停 + 不安全默认值告警
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
 
 package main
 
@@ -91,10 +91,19 @@ func main() {
 	}
 	orch.Start(ctx)
 
-	// 管理机（updater 域：T2/T3）：sink 同为 idx 实例，重分析喂食随之点亮
+	// 管理机（updater 域：T2/T3）：sink 同为 idx 实例，重分析喂食随之点亮；
+	// 下载票据配置在此解析（download_base_url 优先，回退 server.base_url）
+	// ——manager 不感知 config，位置与下载策略的唯一知情者
+	dlBase := strings.TrimRight(cfg.API.DownloadBaseURL, "/")
+	if dlBase == "" {
+		dlBase = cfg.Server.BaseURL
+	}
 	mgr := manager.New(repo.NewManagerStore(st), cfg.DataDir, idx, func(p string) string {
 		_, mt := service.InferFileMeta(p)
 		return mt
+	}, manager.DownloadConfig{
+		Secret:  cfg.Security.SecretKey,
+		BaseURL: dlBase,
 	})
 
 	// MCP server。通道鉴权双轨：master key（.env，管家）/ 外部 key

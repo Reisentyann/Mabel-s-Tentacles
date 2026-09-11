@@ -1,5 +1,5 @@
 // 文件：manager-go/manager.go —— 管理机门面：文件位置与谱系的唯一知情者（架构设计.md 第 4 节）
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
 
 // Package manager 是文件生命周期的编排层与信息权威（docs/架构设计.md 第 4 节）：
 // 文件在哪（位置）、文件之间的关系（谱系）只有它知道，其他组件一律问它，
@@ -30,6 +30,8 @@ import (
 type MetaRow struct {
 	Path       string          // 逻辑路径（元数据唯一键，agent 寻址语言）
 	UUID       string          // 组件货币（物理路径派生源）
+	Scope      string          // 分区：global / user / game（逻辑口回执用）
+	MimeType   string          // 摘要 MIME（逻辑口回执用）
 	Checksum   string          // 顶层列 checksum（空 = 无 / 未算）
 	Attributes json.RawMessage // cod / llm / sp 全量属性
 	IsDeleted  bool            // 软删标记（fetch 语义：照报位置、拒取内容）
@@ -94,22 +96,25 @@ type IndexSink interface {
 
 // Manager 管理机。依赖按域逐步扩展。
 type Manager struct {
-	store   Store
-	dataDir string                   // 文件系统根（updater 读盘 / placement 改名）
-	sink    IndexSink                // 索引喂食钩子（可空：索引机批次前为 nil）
-	extMime func(path string) string // 扩展名→MIME 推导（装配层注入；与 mime_type 顶层列同源，cod-basic-mime-match 的对比口径；nil = 不产该字段）
-	buf     *fileBuffer              // 取件缓冲区（fetch 域 Open/Read 的快速路径；纯派生态，可丢可清）
+	store    Store
+	dataDir  string                   // 文件系统根（updater 读盘 / placement 改名）
+	sink     IndexSink                // 索引喂食钩子（可空：索引机批次前为 nil）
+	extMime  func(path string) string // 扩展名→MIME 推导（装配层注入；与 mime_type 顶层列同源，cod-basic-mime-match 的对比口径；nil = 不产该字段）
+	buf      *fileBuffer              // 取件缓冲区（fetch 域 Open/Read 的快速路径；纯派生态，可丢可清）
+	download DownloadConfig           // 下载票据域配置（Secret/BaseURL；装配层注入，空 = 下载未启用）
 }
 
 // New 构造管理机。dataDir 为 data 目录根；sink 与 extMime 允许 nil
 // （sink=nil 索引不喂食；extMime=nil 时 cod-basic-mime-match 不产出）。
+// dl 为下载票据配置（Secret/BaseURL 空 = 下载地址不产出）。
 // 取件缓冲区按默认预算构造（64MB / 单条目 5MB，见 buffer.go）。
-func New(st Store, dataDir string, sink IndexSink, extMime func(path string) string) *Manager {
+func New(st Store, dataDir string, sink IndexSink, extMime func(path string) string, dl DownloadConfig) *Manager {
 	return &Manager{
-		store:   st,
-		dataDir: dataDir,
-		sink:    sink,
-		extMime: extMime,
-		buf:     newFileBuffer(defaultBufCapBytes, defaultBufMaxEntry),
+		store:    st,
+		dataDir:  dataDir,
+		sink:     sink,
+		extMime:  extMime,
+		buf:      newFileBuffer(defaultBufCapBytes, defaultBufMaxEntry),
+		download: dl,
 	}
 }

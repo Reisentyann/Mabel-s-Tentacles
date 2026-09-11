@@ -180,7 +180,7 @@ func newTestManager(t *testing.T) (*manager.Manager, *fakeStore, *fakeSink, stri
 	t.Helper()
 	dir := t.TempDir()
 	st, sink := newFakeStore(), &fakeSink{}
-	m := manager.New(st, dir, sink, testExtMime)
+	m := manager.New(st, dir, sink, testExtMime, manager.DownloadConfig{})
 	return m, st, sink, dir
 }
 

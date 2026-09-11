@@ -1,5 +1,5 @@
 // 文件：manager-go/fetch.go —— 取件域：uuid 兑换处（Locate/LocateMany 出位置，Open/Read 出内容；软删/幽灵/批量语义钉死）
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
 
 // fetch 域职责：uuid 的兑换。调用方（编排机 / MCP 工具 / HTTP）持
 // indexer.Query 产出的 uuid 集合来问管理机——进 uuid，出位置或文件本体。
@@ -19,8 +19,8 @@
 //   - 内容读取经 buffer.go 取件缓冲区（命中直出 / 盘读入缓 / stat 新鲜度
 //     校验兜绕口 / 大文件旁路直流），实现批次落地
 //
-// 与 placement 域 Resolve(ctx,uuid)(string,error) 的关系：那是纯路径的
-// 便捷钉面；实现批次可改写为 Locate 的薄壳（Locate(uuid).Path），不冲突。
+// 与 placement 域 Resolve(ctx,uuid)(string,error) 的关系：那是 Locate 的
+// 纯路径薄壳（2026-09-11 收口，Locate(uuid).Path），不冲突。
 package manager
 
 import (
@@ -175,6 +175,9 @@ func (m *Manager) locateByLogic(ctx context.Context, logicPath string) (*FileRef
 	return &FileRef{
 		UUID:      row.UUID,
 		Path:      row.Path,
+		Scope:     row.Scope,
+		SizeBytes: row.SizeBytes,
+		MimeType:  row.MimeType,
 		IsDeleted: row.IsDeleted,
 	}, nil
 }

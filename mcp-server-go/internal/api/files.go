@@ -122,8 +122,13 @@ func (s *Server) downloadFile(w http.ResponseWriter, r *http.Request) {
 
 	switch {
 	case ticket != "":
-		// 票据对 path+uuid 绑定：换文件、过期、篡改一概拒
-		if verr := service.VerifyDownloadTicket(s.cfg.Security.SecretKey, path, m.UUID, expStr, ticket); verr != nil {
+		// 票据对 path+uuid 绑定：换文件、过期、篡改一概拒（验签归管理机，
+		// 2026-09-11 归位批次）
+		if s.manager == nil {
+			writeError(w, http.StatusForbidden, "download link expired or invalid")
+			return
+		}
+		if verr := s.manager.VerifyDownloadTicket(path, m.UUID, expStr, ticket); verr != nil {
 			writeError(w, http.StatusForbidden, "download link expired or invalid")
 			return
 		}

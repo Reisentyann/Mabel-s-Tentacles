@@ -87,7 +87,6 @@ func (o *Orchestrator) SearchByConditions(ctx context.Context, expr indexer.Expr
 	if err != nil {
 		return nil, 0, err
 	}
-	sortByAttr(items, q)
 	return items, total, nil
 }
 
@@ -188,9 +187,10 @@ func numFloat(v any) (float64, bool) {
 	return 0, false
 }
 
-// collectByUUIDs 索引命中后的取件复判分页（Search / SearchByConditions
+// collectByUUIDs 索引命中后的取件复判排序分页（Search / SearchByConditions
 // 共享后半段）：uuid 批量取件 → 软删双保险过滤 → 内存复判（与 SQL
-// metaWhere 同口径）→ updated_at DESC 排序分页。
+// metaWhere 同口径）→ 排序（order_by 属性值优先，否则 updated_at DESC）
+// → 分页。排序先于分页：order_by + size=1 才是"取最大/最小"。
 func (o *Orchestrator) collectByUUIDs(ctx context.Context, uuids []string, q search.Query) ([]repo.FileMetadata, int, error) {
 	if len(uuids) == 0 {
 		return []repo.FileMetadata{}, 0, nil // 空集 = 合法答案（无命中），不降级
@@ -210,7 +210,14 @@ func (o *Orchestrator) collectByUUIDs(ctx context.Context, uuids []string, q sea
 			items = append(items, *m)
 		}
 	}
-	sort.Slice(items, func(i, j int) bool { return items[i].UpdatedAt.After(items[j].UpdatedAt) })
+	// 排序必须在分页之前：order_by 显式优先（size=1 = 取最大/最小），
+	// 否则 updated_at 倒序（现状口径）。先切页再排序 = order_by+size=1
+	// 只会对一条任意行排序（历史真 bug，2026-09-11 修）。
+	if q.OrderBy != "" {
+		sortByAttr(items, q)
+	} else {
+		sort.SliceStable(items, func(i, j int) bool { return items[i].UpdatedAt.After(items[j].UpdatedAt) })
+	}
 
 	total := len(items)
 	page, size := q.Page, q.Size

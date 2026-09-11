@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/writefile/writefile.go —— MCP 工具 write_file：写文件 + 内联描述字段随编排机事件异步落库
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
 
 package writefile
 
@@ -132,9 +132,13 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		// 转义（QQ 实测：invitation_to_lilywhite → invitationtolilywhite），
 		// 代码框内的 URL 原样呈现，用户复制框内链接即完整无损；
 		// 入口未配置时不卡回执——降级提示 agent 稍后走读文件/元数据接口自取
-		if u := tools.DownloadURL(deps.Cfg, key, receipt.UUID); u != "" {
-			result["download_url"] = u
-			result["message"] = "Successfully wrote to " + key + ". 下载地址（请把下方代码框内的链接原样发给用户，不要拆开）：\n```\n" + u + "\n```"
+		var dlURL string
+		if deps.Manager != nil {
+			dlURL = deps.Manager.IssueDownloadURL(key, receipt.UUID, 0)
+		}
+		if dlURL != "" {
+			result["download_url"] = dlURL
+			result["message"] = "Successfully wrote to " + key + ". 下载地址（请把下方代码框内的链接原样发给用户，不要拆开）：\n```\n" + dlURL + "\n```"
 		} else {
 			result["message"] = "Successfully wrote to " + key + "（下载链接暂不可用：请稍后调用 read_file 或查询文件元数据接口获取下载地址）"
 		}

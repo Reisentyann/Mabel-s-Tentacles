@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/repo/manager_adapter.go —— manager.Store 适配器：repo 存取 → manager 最小面（DTO 转换 + 顶层列推导归装配侧）
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
 
 package repo
 
@@ -146,6 +146,8 @@ func toMetaRow(m *FileMetadata) manager.MetaRow {
 	return manager.MetaRow{
 		Path:       m.FilePath,
 		UUID:       m.UUID,
+		Scope:      m.Scope,
+		MimeType:   common.DerefStr(m.MimeType),
 		Checksum:   common.DerefStr(m.Checksum),
 		Attributes: m.Attributes,
 		IsDeleted:  m.IsDeleted,
