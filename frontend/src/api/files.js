@@ -15,6 +15,12 @@ export const copyFile = (data) => api.post('/files/copy', data);
 // 逻辑键改（文件管理域 2026-09-08）：与 MCP move_file 同一正主
 export const moveFile = (data) => api.post('/files/move', data);
 
+// 软删除文件
+export const deleteFile = (path) => api.post('/files/delete', { path });
+
+// 获取 24 小时极简分享短链 (/d/{code})
+export const getShareLink = (path) => api.post('/files/share', { path });
+
 // 重分析 / 回填（管理台维护动作）
 export const analyzeFile = (path) => api.post('/files/analyze', { path });
 export const backfillFiles = () => api.post('/files/backfill');

@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/describefile/describefile.go —— MCP 工具 describe_file：描述三件套 + llm 字段（编排机同步入口，拒因当场回传）
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
 
 package describefile
 
@@ -25,12 +25,14 @@ func init() {
 func register(s *server.MCPServer, deps tools.Deps) {
 	tool := mcp.NewTool("describe_file",
 		mcp.WithDescription("Add description, tags, and semantic attributes to an existing file so it can be searched later. "+
-			"attributes accepts a JSON object: llm-* fixed fields (llm-semantic-type in [novel,game_guide,technical_doc,note,log,meme,illustration,photo,screenshot,code_artifact,data,other], "+
-			"llm-tone, llm-characters, llm-action, llm-style, llm-summary) and sp-llm-* free-form fields; set a value to null to delete that key. "+
-			"cod-* fields are read-only engine facts and are always rejected."),
+			"[FORBIDDEN] DO NOT pass cod-* fields in attributes! cod-* fields (e.g. cod-text-lines) are read-only facts computed by the deterministic engine. "+
+			"[ACCEPTED ATTRIBUTES] JSON object of: llm-semantic-type (in [novel, game_guide, technical_doc, note, log, meme, illustration, photo, screenshot, code_artifact, data, other]), "+
+			"llm-tone, llm-characters, llm-action, llm-style, llm-summary, or custom sp-llm-* fields. Pass null for any attribute key to remove it."),
 		mcp.WithString("file_path",
-			mcp.Required(),
-			mcp.Description("Path of the file, relative to the data directory."),
+			mcp.Description("Path of the file to describe, relative to workspace or ~username/path. Also accepts 'path'."),
+		),
+		mcp.WithString("path",
+			mcp.Description("Alias for file_path."),
 		),
 		mcp.WithString("title",
 			mcp.Description("Short title of the file."),
@@ -56,7 +58,7 @@ func register(s *server.MCPServer, deps tools.Deps) {
 	)
 
 	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		filePath, err := req.RequireString("file_path")
+		filePath, err := tools.GetFilePath(req)
 		if err != nil {
 			return tools.ResultError("invalid file_path: " + err.Error()), nil
 		}

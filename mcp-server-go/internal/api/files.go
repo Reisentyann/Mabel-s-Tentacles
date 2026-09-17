@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/api/files.go —— 文件端点：可见性裁剪的目录树 / 单文件下载（自证：静态 token 或 JWT）/ zip 打包
-// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
 
 package api
 
@@ -333,4 +333,42 @@ func (s *Server) moveFile(w http.ResponseWriter, r *http.Request) {
 		"to":           receipt.To,
 		"storage_move": receipt.StorageMove,
 	})
+}
+
+// deleteFile 软删除文件（HTTP 面，前端管理页用）
+func (s *Server) deleteFile(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		var body struct {
+			Path string `json:"path"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
+			path = body.Path
+		}
+	}
+	if path == "" {
+		writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+	if !s.canActFile(w, r, path, "delete", true) {
+		return
+	}
+	if s.orch != nil {
+		if err := s.orch.Delete(r.Context(), path, ""); err != nil {
+			slog.Error("delete file failed", "path", path, "error", err)
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	} else if s.repo != nil {
+		if err := s.repo.SoftDeleteMetadata(r.Context(), path); err != nil {
+			slog.Error("soft delete file failed", "path", path, "error", err)
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	} else {
+		writeError(w, http.StatusServiceUnavailable, "service unavailable")
+		return
+	}
+	slog.Info("delete file ok", "path", path, "user", principalOf(r).Subject())
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "path": path})
 }

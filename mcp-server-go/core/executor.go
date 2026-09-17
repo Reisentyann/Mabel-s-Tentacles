@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/core/executor.go —— 统一执行器：盘上读 → describer.Analyze → 读旧合并 → 顶层列推导 → 单次 Upsert → 喂索引
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
 
 package core
 
@@ -61,6 +61,10 @@ func (o *Orchestrator) execute(ctx context.Context, ev Event) (*Report, error) {
 	}
 	if meta == nil {
 		return nil, fmt.Errorf("no meta row for %q (intake first)", ev.Path)
+	}
+	// 软删早退：若该文件在排队在途期间已被删除，早退避免重新落库并防复活进索引机
+	if meta.IsDeleted {
+		return &Report{UUID: meta.UUID, Visibility: ev.Visibility}, nil
 	}
 	old := describer.AttrsFromJSON(meta.Attributes)
 

@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/movefile/movefile.go —— MCP 工具 move_file：逻辑键改（管理机 Move；文件管理域 2026-09-08）
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
 
 package movefile
 
@@ -22,24 +22,24 @@ func init() {
 func register(s *server.MCPServer, deps tools.Deps) {
 	tool := mcp.NewTool("move_file",
 		mcp.WithDescription("Move (rename) a file to a new logical path. The file keeps its identity: uuid, description, tags and lineage are unchanged; only the key changes. Renaming with a different extension also moves the stored file; same extension is a pure database rename. Source can address another user's file as ~username/path if you can read it, but the target must be in your own space."),
+		mcp.WithString("source_path",
+			mcp.Description("Source logical path (your space by default, or ~username/path to address another user's readable file). Also accepts 'source'."),
+		),
+		mcp.WithString("target_path",
+			mcp.Description("Target logical path (must be in your own space). Also accepts 'target'."),
+		),
 		mcp.WithString("source",
-			mcp.Required(),
-			mcp.Description("Source logical path (your space by default, or ~username/path to address another user's readable file)."),
+			mcp.Description("Alias for source_path."),
 		),
 		mcp.WithString("target",
-			mcp.Required(),
-			mcp.Description("Target logical path (must be in your own space)."),
+			mcp.Description("Alias for target_path."),
 		),
 	)
 
 	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		source, err := req.RequireString("source")
+		source, target, err := tools.GetSourceTarget(req)
 		if err != nil {
-			return tools.ResultError("invalid source: " + err.Error()), nil
-		}
-		target, err := req.RequireString("target")
-		if err != nil {
-			return tools.ResultError("invalid target: " + err.Error()), nil
+			return tools.ResultError("invalid parameters: " + err.Error()), nil
 		}
 		if source == target {
 			return tools.ResultError("source and target must differ"), nil

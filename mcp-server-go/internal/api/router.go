@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/api/router.go —— HTTP API 路由装配：公共路由 + JWT 保护路由 + Server 结构
-// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
 
 package api
 
@@ -34,6 +34,8 @@ func Register(mux *http.ServeMux, cfg *config.Config, st repo.Store, orch *core.
 
 	// 公共路由（登录/注册限流：撞库与滥注册的第一道闸）
 	mux.HandleFunc("GET /health", s.health)
+	mux.HandleFunc("GET /api/health", s.health)
+	mux.HandleFunc("GET /d/{code}", s.downloadShortLink)
 	mux.HandleFunc("POST /api/auth/login", s.limit("login", 5, time.Minute, s.login))
 	mux.HandleFunc("POST /api/auth/refresh", s.limit("refresh", 10, time.Minute, s.refresh))
 	mux.HandleFunc("POST /api/auth/logout", s.logout)
@@ -43,12 +45,16 @@ func Register(mux *http.ServeMux, cfg *config.Config, st repo.Store, orch *core.
 	// 受 JWT 保护
 	mux.Handle("GET /api/files", s.requireAuth(http.HandlerFunc(s.listFiles)))
 	mux.Handle("POST /api/files/download-zip", s.requireAuth(http.HandlerFunc(s.downloadZip)))
+	mux.Handle("GET /api/files/share", s.requireAuth(http.HandlerFunc(s.createShareLink)))
+	mux.Handle("POST /api/files/share", s.requireAuth(http.HandlerFunc(s.createShareLink)))
 	mux.Handle("GET /api/files/search", s.requireAuth(http.HandlerFunc(s.searchFiles)))
 	mux.Handle("GET /api/index/fields", s.requireAuth(http.HandlerFunc(s.indexFields))) // 索引机字段目录（目录批次 2026-09-09）
 	mux.Handle("GET /api/files/metadata", s.requireAuth(http.HandlerFunc(s.getFileMetadata)))
 	mux.Handle("PUT /api/files/metadata", s.requireAuth(http.HandlerFunc(s.describeFile)))
 	mux.Handle("POST /api/files/copy", s.requireAuth(http.HandlerFunc(s.copyFile)))
 	mux.Handle("POST /api/files/move", s.requireAuth(http.HandlerFunc(s.moveFile)))
+	mux.Handle("DELETE /api/files", s.requireAuth(http.HandlerFunc(s.deleteFile)))
+	mux.Handle("POST /api/files/delete", s.requireAuth(http.HandlerFunc(s.deleteFile)))
 	mux.Handle("POST /api/files/analyze", s.requireAuth(http.HandlerFunc(s.analyzeFile)))
 
 	// admin 专属（权限批次 2026-09-06）：全库扫描与账号/组/钥匙管理

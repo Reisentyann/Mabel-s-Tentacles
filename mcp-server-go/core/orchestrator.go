@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/core/orchestrator.go —— 编排机门面：生命周期事件 + 异步队列 + worker 池（三机之上的统一编排层骨架）
-// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
 
 // Package core 是编排机：把描述机（describer-go，字节进事实出）/ 索引机
 // （indexer-go，条件→uuid）/ 管理机（manager-go，位置与谱系）的编排，
@@ -73,6 +73,8 @@ type Store interface {
 	// GetMetadataByUUIDs 批量凭 uuid 取件（检索索引路径：Index.Query →
 	// uuids → 一次取齐，免 N+1；含软删行，由检索侧过滤）。
 	GetMetadataByUUIDs(ctx context.Context, uuids []string) (map[string]*repo.FileMetadata, error)
+	// SoftDeleteMetadata 软删除元数据行
+	SoftDeleteMetadata(ctx context.Context, filePath string) error
 }
 
 // Kind 生命周期事件种类。提交即表示盘上内容已是终态（调用方先完成盘写）。

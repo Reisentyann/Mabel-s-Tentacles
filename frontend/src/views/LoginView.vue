@@ -56,7 +56,11 @@ const handleLogin = async () => {
     });
     router.push(route.query.redirect || '/manage');
   } catch (e) {
-    error.value = e?.response?.data?.error || '登录失败（账号或密码不对）';
+    if (!e.response || e.response.status >= 500) {
+      error.value = '后端服务连接失败，请确认 Go 后端（:8080）已启动';
+    } else {
+      error.value = e?.response?.data?.error || '登录失败（账号或密码不正确）';
+    }
   } finally {
     loading.value = false;
   }

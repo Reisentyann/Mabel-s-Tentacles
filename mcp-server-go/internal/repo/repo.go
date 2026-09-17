@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/repo/repo.go —— 数据访问接口 Store + pgx 连接池实现（可 mock）
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
 
 package repo
 
@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 )
 
 // Store 是数据访问层接口，便于 mock 测试与替换实现。
@@ -77,6 +79,10 @@ type Store interface {
 	// 2026-09-08）：from 行键改 to + moved_from 记谱系，返回行 uuid。
 	// 无行/软删 → pgx.ErrNoRows；to 占用 → ErrKeyExists（UNIQUE 兜底并发）。
 	MoveMetadata(ctx context.Context, from, to string) (string, error)
+
+	// 短链服务
+	CreateShortLink(ctx context.Context, code, filePath, uuid string, expiresAt time.Time) error
+	GetShortLink(ctx context.Context, code string) (*service.ShortLink, error)
 
 	Close()
 }
@@ -254,6 +260,16 @@ var migrations = []string{
 		created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
 	`ALTER TABLE agent_keys ADD COLUMN IF NOT EXISTS uuid UUID NOT NULL DEFAULT gen_random_uuid()`,
+
+	// ---- 短链表（下载短码服务）----
+	`CREATE TABLE IF NOT EXISTS short_links (
+		code         VARCHAR(16) PRIMARY KEY,
+		file_path    TEXT NOT NULL,
+		uuid         UUID NOT NULL,
+		expires_at   TIMESTAMPTZ NOT NULL,
+		created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_short_links_exp ON short_links (expires_at)`,
 }
 
 func New(ctx context.Context, dsn string, maxConns int32) (Store, error) {

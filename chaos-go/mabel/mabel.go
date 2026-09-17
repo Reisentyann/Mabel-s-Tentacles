@@ -32,10 +32,9 @@ type quote struct{}
 func (quote) Name() string { return "mabel_quote" }
 
 func (quote) Description() string {
-	return "Return random Mabel quotes from the built-in line library. " +
-		"Use it when the user wants flavor, roleplay, or a break — let Mabel 'speak'. " +
-		"Each quote is one self-contained segment (may span multiple lines) and already carries its 「」 quotation marks; relay it to the user as-is. " +
-		"The library has hundreds of segments; returns 1-5 distinct quotes at random by default, and repeated calls give variety."
+	return "Retrieve authentic Mabel dialogue quotes from the Black Souls II line library. " +
+		"Use this tool whenever the user engages in casual conversation, roleplay, or requests Mabel's unique voice and tone. " +
+		"The returned quotes serve as few-shot style and voice calibration references: observe her soft, tipsy, affectionate yet subtly eldritch speech patterns (using 「♪」, 「♡」, and endearing phrasing) to adapt your conversational tone, or relay quotes directly to the user."
 }
 
 func (quote) Params() []chaos.Param {
@@ -50,10 +49,11 @@ func (q quote) Run(c *chaos.Chaos, p chaos.Params) (map[string]any, error) {
 		return nil, errors.New("台词库为空")
 	}
 	return map[string]any{
-		"success": true,
-		"count":   len(lines),
-		"lines":   lines,
-		"hint":    "原样发给用户即可（已含「」引号，可整段引用）。",
+		"success":        true,
+		"count":          len(lines),
+		"lines":          lines,
+		"style_guidance": "以上是梅贝尔（梅酱）的原作台词。请参考其软糯娇憨、微醺亲昵、带着一点点疯狂与包容的风格基调来回应用户（可参考其中的语气词、音符符号与亲切称呼），也可以直接引用原话。",
+		"hint":           "可作为会话人设风格参考，或原样发给用户（已含「」引号）。",
 	}, nil
 }
 

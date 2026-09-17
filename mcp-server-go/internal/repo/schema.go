@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/repo/schema.go —— 启动前 schema 校验：数据模型字段与数据库对账
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
 
 package repo
 
@@ -13,11 +13,12 @@ import (
 
 // expectedSchema 定义数据模型期望的字段（启动前用于校验数据库是否对得上）。
 var expectedSchema = map[string][]string{
-	"users":           {"id", "uuid", "username", "password_hash", "email", "is_active", "created_at", "updated_at"},
+	"users":           {"id", "uuid", "username", "password_hash", "email", "role", "is_active", "created_at", "updated_at"},
 	"token_blacklist": {"id", "uuid", "token_jti", "expires_at", "created_at"},
 	"operations":      {"id", "uuid", "session_id", "tool_name", "file_path", "params", "status", "error", "created_at"},
 	"commands":        {"id", "uuid", "user_id", "source", "command_text", "command_type", "status", "result", "error_message", "exit_code", "environment", "created_at", "finished_at"},
-	"file_metadata":   {"id", "uuid", "file_path", "scope", "owner_id", "title", "description", "tags", "file_type", "mime_type", "extension", "size_bytes", "checksum", "session_id", "user_id", "attributes", "copied_from", "moved_from", "download_count", "last_accessed_at", "expires_at", "is_deleted", "deleted_at", "created_at", "updated_at"},
+	"file_metadata":   {"id", "uuid", "file_path", "scope", "owner_id", "visibility", "group_id", "title", "description", "tags", "file_type", "mime_type", "extension", "size_bytes", "checksum", "session_id", "user_id", "attributes", "copied_from", "moved_from", "download_count", "last_accessed_at", "expires_at", "is_deleted", "deleted_at", "missing_rounds", "created_at", "updated_at"},
+	"short_links":     {"code", "file_path", "uuid", "expires_at", "created_at"},
 }
 
 // checkSchema 启动前校验数据库字段与数据模型是否一致，不一致打 WARN 日志（不阻断启动）。

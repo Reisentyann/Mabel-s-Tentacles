@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/copyfile/copyfile.go —— MCP 工具 copy_file：内容 + 元数据一起复制（KindCopy 事件喂索引）
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
 
 package copyfile
 
@@ -22,25 +22,25 @@ func init() {
 
 func register(s *server.MCPServer, deps tools.Deps) {
 	tool := mcp.NewTool("copy_file",
-		mcp.WithDescription("Copy a file (content and metadata) to a new path."),
+		mcp.WithDescription("Copy a file (content and metadata) to a new path. Lineage is tracked (copied_from)."),
+		mcp.WithString("source_path",
+			mcp.Description("Source file path, relative to workspace or ~username/path. Also accepts 'source'."),
+		),
+		mcp.WithString("target_path",
+			mcp.Description("Target file path in your space. Also accepts 'target'."),
+		),
 		mcp.WithString("source",
-			mcp.Required(),
-			mcp.Description("Source file path, relative to the data directory."),
+			mcp.Description("Alias for source_path."),
 		),
 		mcp.WithString("target",
-			mcp.Required(),
-			mcp.Description("Target file path, relative to the data directory."),
+			mcp.Description("Alias for target_path."),
 		),
 	)
 
 	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		source, err := req.RequireString("source")
+		source, target, err := tools.GetSourceTarget(req)
 		if err != nil {
-			return tools.ResultError("invalid source: " + err.Error()), nil
-		}
-		target, err := req.RequireString("target")
-		if err != nil {
-			return tools.ResultError("invalid target: " + err.Error()), nil
+			return tools.ResultError("invalid parameters: " + err.Error()), nil
 		}
 		if source == target {
 			return tools.ResultError("source and target must differ"), nil

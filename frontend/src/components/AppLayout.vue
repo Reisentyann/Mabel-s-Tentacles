@@ -4,8 +4,16 @@
       <router-link to="/manage" class="brand">
         <span class="brand-mark">🐙</span>
         <span>Mabel's Tentacles</span>
-        <span class="brand-sub">触手书房 · 管理台</span>
+        <span class="brand-sub">触手书房</span>
       </router-link>
+      <nav class="nav-links">
+        <router-link to="/manage" class="nav-link" active-class="active">
+          <span>📁 文件工作区</span>
+        </router-link>
+        <router-link to="/operations" class="nav-link" active-class="active">
+          <span>📜 调用日志</span>
+        </router-link>
+      </nav>
       <div class="flex-fill"></div>
       <div v-if="auth.username" class="user-box">
         <el-tag size="small" type="info" effect="plain">{{ auth.username }}</el-tag>
@@ -64,6 +72,34 @@ const handleLogout = async () => {
   font-size: 0.78rem;
   font-weight: 500;
   color: var(--mabel-text-muted);
+}
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 20px;
+}
+.nav-link {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--mabel-text-muted);
+  text-decoration: none;
+  transition: all 0.2s;
+}
+.nav-link:hover {
+  color: var(--mabel-text);
+  background: var(--mabel-surface-2);
+}
+.nav-link.active {
+  color: #fff;
+  background: var(--el-color-primary-light-9);
+  border: 1px solid var(--el-color-primary-light-8);
+  box-shadow: 0 2px 8px rgba(184, 118, 217, 0.25);
 }
 .flex-fill {
   flex: 1;

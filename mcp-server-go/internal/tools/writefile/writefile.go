@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/writefile/writefile.go —— MCP 工具 write_file：写文件 + 内联描述字段随编排机事件异步落库
-// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
 
 package writefile
 
@@ -14,6 +14,7 @@ import (
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/common"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
 )
 
@@ -23,10 +24,12 @@ func init() {
 
 func register(s *server.MCPServer, deps tools.Deps) {
 	tool := mcp.NewTool("write_file",
-		mcp.WithDescription("Write generated content to a file under the data directory. Pass title/description/tags so the file can be found later via search; without a description the file may become unfindable. Use this when the user wants to generate code, write an article, or create a file."),
+		mcp.WithDescription("Write generated content to a file. Pass title/description/tags so the file can be easily found later via search. Use this when creating new files or overwriting existing ones."),
 		mcp.WithString("file_path",
-			mcp.Required(),
-			mcp.Description("Path of the file to write, relative to the data directory."),
+			mcp.Description("Path of the file to write, relative to your workspace. Also accepts 'path'."),
+		),
+		mcp.WithString("path",
+			mcp.Description("Alias for file_path."),
 		),
 		mcp.WithString("content",
 			mcp.Required(),
@@ -45,12 +48,12 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			mcp.Description("File type, e.g. text / image / code / other. Defaults to inferred from extension."),
 		),
 		mcp.WithString("visibility",
-			mcp.Description("Who can see this file: 'private' (default, only you), 'public' (everyone can read), or 'group' (members of its group)."),
+			mcp.Description("Who can see this file: 'public' (default, anyone can read/edit) or 'private' (only you and admin)."),
 		),
 	)
 
 	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		filePath, err := req.RequireString("file_path")
+		filePath, err := tools.GetFilePath(req)
 		if err != nil {
 			return tools.ResultError("invalid file_path: " + err.Error()), nil
 		}
@@ -133,12 +136,23 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		// 代码框内的 URL 原样呈现，用户复制框内链接即完整无损；
 		// 入口未配置时不卡回执——降级提示 agent 稍后走读文件/元数据接口自取
 		var dlURL string
-		if deps.Manager != nil {
+		// 优先签发 /d/{code} 极简短链（24小时有效，对朋友转发极度友好，无乱码与断行）
+		if deps.Store != nil && deps.Cfg != nil {
+			dlBase := strings.TrimRight(deps.Cfg.API.DownloadBaseURL, "/")
+			if dlBase == "" {
+				dlBase = deps.Cfg.Server.BaseURL
+			}
+			if shortURL, err := service.IssueShortURL(ctx, deps.Store, dlBase, key, receipt.UUID, 24*time.Hour); err == nil {
+				dlURL = shortURL
+			}
+		}
+		// 降级回退到常规票据下载地址
+		if dlURL == "" && deps.Manager != nil {
 			dlURL = deps.Manager.IssueDownloadURL(key, receipt.UUID, 0)
 		}
 		if dlURL != "" {
 			result["download_url"] = dlURL
-			result["message"] = "Successfully wrote to " + key + ". 下载地址（请把下方代码框内的链接原样发给用户，不要拆开）：\n```\n" + dlURL + "\n```"
+			result["message"] = "Successfully wrote to " + key + ". 下载短链（24小时有效，可直接发给朋友）：\n" + dlURL
 		} else {
 			result["message"] = "Successfully wrote to " + key + "（下载链接暂不可用：请稍后调用 read_file 或查询文件元数据接口获取下载地址）"
 		}

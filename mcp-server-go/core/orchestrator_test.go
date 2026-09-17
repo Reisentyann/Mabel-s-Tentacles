@@ -1,10 +1,11 @@
 // 文件：mcp-server-go/core/orchestrator_test.go —— 编排机骨架测试：执行器管线 / 队列生命周期 / Describe 闸门 / 检索降级 / 索引重建
-// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
 
 package core
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -155,6 +156,17 @@ func (s *memStore) GetMetadataByUUIDs(_ context.Context, uuids []string) (map[st
 		}
 	}
 	return out, nil
+}
+
+func (s *memStore) SoftDeleteMetadata(_ context.Context, path string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, ok := s.rows[path]
+	if !ok {
+		return errors.New("no row")
+	}
+	m.IsDeleted = true
+	return nil
 }
 
 func (s *memStore) row(t *testing.T, p string) *repo.FileMetadata {

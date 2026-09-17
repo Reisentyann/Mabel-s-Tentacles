@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/common.go —— 工具共享层：Result / SessionID / RecordOperation / Principal 授权助手
-// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
 
 package tools
 
@@ -109,6 +109,39 @@ func CanFile(ctx context.Context, st repo.Store, path string, write bool) (denie
 
 // StrPtr 空串→nil 的指针语义转换已收敛 common.StrPtr（core 侧 strPtr、
 // repo 侧 derefStr 同步退役），本包不再持有副本。
+
+// GetFilePath 统一提取文件路径参数：优先读取 file_path，若未传则回退读取 path。
+// 解决各工具与调用模型间参数命名不一致的痛点。
+func GetFilePath(req mcp.CallToolRequest) (string, error) {
+	if p := strings.TrimSpace(req.GetString("file_path", "")); p != "" {
+		return p, nil
+	}
+	if p := strings.TrimSpace(req.GetString("path", "")); p != "" {
+		return p, nil
+	}
+	return "", errors.New("missing required parameter: file_path (or path)")
+}
+
+// GetSourceTarget 统一提取源与目标路径参数：优先读取 source_path/target_path，兼容 source/target。
+func GetSourceTarget(req mcp.CallToolRequest) (source string, target string, err error) {
+	if s := strings.TrimSpace(req.GetString("source_path", "")); s != "" {
+		source = s
+	} else if s := strings.TrimSpace(req.GetString("source", "")); s != "" {
+		source = s
+	} else {
+		return "", "", errors.New("missing required parameter: source_path (or source)")
+	}
+
+	if t := strings.TrimSpace(req.GetString("target_path", "")); t != "" {
+		target = t
+	} else if t := strings.TrimSpace(req.GetString("target", "")); t != "" {
+		target = t
+	} else {
+		return "", "", errors.New("missing required parameter: target_path (or target)")
+	}
+
+	return source, target, nil
+}
 
 // 下载地址构造已归位管理机（2026-09-11 归位批次）：调用
 // deps.Manager.IssueDownloadURL(path, uuid, ttl)（manager-go/download.go）；
