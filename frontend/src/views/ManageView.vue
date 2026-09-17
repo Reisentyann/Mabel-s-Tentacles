@@ -136,16 +136,16 @@
             @row-click="(row) => openDetail(row.path)"
           >
             <el-table-column type="selection" width="45" align="center" />
-            <el-table-column prop="path" label="路径" min-width="240" show-overflow-tooltip />
-            <el-table-column label="类型" width="90" align="center">
+            <el-table-column prop="path" label="路径" min-width="240" sortable show-overflow-tooltip />
+            <el-table-column prop="file_type" label="类型" width="90" align="center" sortable>
               <template #default="{ row }">
                 <el-tag size="small" effect="plain">{{ row.file_type || '-' }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="大小" width="90" align="right">
+            <el-table-column prop="size_bytes" label="大小" width="110" align="right" sortable>
               <template #default="{ row }">{{ formatBytes(row.size_bytes) }}</template>
             </el-table-column>
-            <el-table-column label="更新时间" width="160">
+            <el-table-column prop="updated_at" label="更新时间" width="170" sortable>
               <template #default="{ row }">{{ formatDate(row.updated_at) }}</template>
             </el-table-column>
             <el-table-column label="操作" width="240" fixed="right">
