@@ -1,45 +1,37 @@
-// 文件：chaos-go/feature_test.go —— 功能注册表单测：自注册 / 派发 / 参数归一
+// 文件：chaos-go/feature_test.go —— 核心单测：注册表机制 / 参数归一 / 熵源注入
 // 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
+//
+// 组件的功能测试在各组件文件夹内（mabel/mabel_test.go、truerandom/…）。
 
 package chaos
 
-import "testing"
+import (
+	"errors"
+	"testing"
+)
 
-func TestMabelFeatureRegistered(t *testing.T) {
-	f, ok := Lookup("mabel_quote")
-	if !ok {
-		t.Fatal("mabel_quote 未自注册")
-	}
-	if f.Name() != "mabel_quote" {
-		t.Fatalf("功能名不符: %q", f.Name())
-	}
-	if len(f.Params()) == 0 {
-		t.Fatal("mabel_quote 应声明 count 参数")
-	}
+// dummyFeature 注册表机制测试用（不依赖任何组件子包）。
+type dummyFeature struct{}
+
+func (dummyFeature) Name() string        { return "dummy_test_feature" }
+func (dummyFeature) Description() string { return "test" }
+func (dummyFeature) Params() []Param     { return nil }
+func (dummyFeature) Run(c *Chaos, p Params) (map[string]any, error) {
+	return map[string]any{"ok": true}, nil
 }
 
-func TestRunFeature(t *testing.T) {
-	out, err := Run("mabel_quote", Params{"count": 2})
-	if err != nil {
-		t.Fatal(err)
+func TestRegistry(t *testing.T) {
+	if _, ok := Lookup("dummy_test_feature"); !ok {
+		Register(dummyFeature{})
 	}
-	lines, ok := out["lines"].([]string)
-	if !ok || len(lines) != 2 {
-		t.Fatalf("lines 形态异常: %#v", out["lines"])
+	f, ok := Lookup("dummy_test_feature")
+	if !ok || f.Name() != "dummy_test_feature" {
+		t.Fatalf("注册表查找失败: %+v", f)
 	}
-}
-
-func TestRunFeatureJSONFloat(t *testing.T) {
-	out, err := Run("mabel_quote", Params{"count": float64(3)})
-	if err != nil {
-		t.Fatal(err)
+	out, err := Run("dummy_test_feature", nil)
+	if err != nil || out["ok"] != true {
+		t.Fatalf("Run = (%v, %v)", out, err)
 	}
-	if lines, _ := out["lines"].([]string); len(lines) != 3 {
-		t.Fatalf("float64 形参未归一，得到 %d 段", len(lines))
-	}
-}
-
-func TestRunUnknownFeature(t *testing.T) {
 	if _, err := Run("no_such_feature", nil); err == nil {
 		t.Fatal("未知功能应返回错误")
 	}
@@ -64,5 +56,31 @@ func TestIntParam(t *testing.T) {
 		if got := IntParam(c.in, c.key, c.def); got != c.want {
 			t.Errorf("IntParam(%v) = %d, want %d", c.in, got, c.want)
 		}
+	}
+}
+
+// fakeEntropy 熵源替身。
+type fakeEntropy struct {
+	name string
+	data []byte
+	err  error
+}
+
+func (f fakeEntropy) Name() string              { return f.name }
+func (f fakeEntropy) Bytes(int) ([]byte, error) { return f.data, f.err }
+
+func TestEntropySource(t *testing.T) {
+	c := New()
+	if _, err := c.Entropy(); !errors.Is(err, ErrNoEntropy) {
+		t.Fatalf("未注入应返回 ErrNoEntropy，得到 %v", err)
+	}
+	c.SetEntropySource(fakeEntropy{name: "fake", data: []byte{1, 2, 3}})
+	src, err := c.Entropy()
+	if err != nil || src.Name() != "fake" {
+		t.Fatalf("注入后取源失败: %v %v", src, err)
+	}
+	c.SetEntropySource(nil)
+	if _, err := c.Entropy(); !errors.Is(err, ErrNoEntropy) {
+		t.Fatal("清除后应回到未配置")
 	}
 }
