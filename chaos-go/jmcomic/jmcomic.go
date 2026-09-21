@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -20,6 +21,31 @@ import (
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/chaos-go"
 )
+
+// resultMarker 结果行前缀：jmcomic 自身会向 stdout 打中文日志，
+// 真正的结果 JSON 用本前缀标记，Go 侧按行扫描提取（容忍日志噪音）。
+// 子进程强制 PYTHONUTF8=1——管道下 Python 默认 GBK，本子标题的 ♡ 等字符
+// 无法编码会导致脚本崩溃、stdout 乱码（2026-09-21 本地实测修复）。
+const resultMarker = "##JMRESULT##"
+
+// pythonEnv 子进程环境：强制 UTF-8 输入输出（管道默认跟随系统 locale）。
+func pythonEnv() []string {
+	return append(os.Environ(), "PYTHONUTF8=1", "PYTHONIOENCODING=utf-8")
+}
+
+// extractResult 从子进程 stdout 按行扫描标记行并解析结果 JSON。
+func extractResult(stdout []byte) (map[string]any, bool) {
+	for _, line := range strings.Split(string(stdout), "\n") {
+		line = strings.TrimSpace(line)
+		if after, ok := strings.CutPrefix(line, resultMarker); ok {
+			var result map[string]any
+			if err := json.Unmarshal([]byte(after), &result); err == nil {
+				return result, true
+			}
+		}
+	}
+	return nil, false
+}
 
 func init() {
 	chaos.Register(jmComicFeature{})
@@ -143,36 +169,35 @@ try:
         "update_date": getattr(album, "update_date", ""),
         "episode_count": len(album.episode_list) if hasattr(album, "episode_list") else 0,
         "episodes": [
-            {"id": ep.photo_id, "title": ep.title} for ep in getattr(album, "episode_list", [])
+            ({"id": str(ep[0]), "title": str(ep[-1])} if isinstance(ep, (tuple, list))
+             else {"id": str(getattr(ep, "photo_id", "")), "title": str(getattr(ep, "title", ""))})
+            for ep in getattr(album, "episode_list", [])
         ]
     }
-    print(json.dumps(data, ensure_ascii=False))
+    print("` + resultMarker + `" + json.dumps(data, ensure_ascii=False))
 except Exception as e:
     err_data = {
         "success": False,
         "error": str(e)
     }
-    print(json.dumps(err_data, ensure_ascii=False))
+    print("` + resultMarker + `" + json.dumps(err_data, ensure_ascii=False))
     sys.exit(1)
 `
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "python", "-c", pyScript, rawID, optionFile)
+	cmd.Env = pythonEnv()
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()
-	outBytes := bytes.TrimSpace(stdout.Bytes())
-	if len(outBytes) > 0 {
-		var result map[string]any
-		if parseErr := json.Unmarshal(outBytes, &result); parseErr == nil {
-			if err != nil {
-				return result, fmt.Errorf("jmcomic python script failed: %v", result["error"])
-			}
-			return result, nil
+	if result, ok := extractResult(stdout.Bytes()); ok {
+		if err != nil {
+			return result, fmt.Errorf("jmcomic python script failed: %v", result["error"])
 		}
+		return result, nil
 	}
 
 	if err != nil {
@@ -244,33 +269,30 @@ try:
             "file_size": file_size,
             "save_dir": target_dir or option.dir_rule.base_dir
         }
-    print(json.dumps(data, ensure_ascii=False))
+    print("` + resultMarker + `" + json.dumps(data, ensure_ascii=False))
 except Exception as e:
     err_data = {
         "success": False,
         "error": str(e)
     }
-    print(json.dumps(err_data, ensure_ascii=False))
+    print("` + resultMarker + `" + json.dumps(err_data, ensure_ascii=False))
     sys.exit(1)
 `
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
 	cmd := exec.CommandContext(ctx, "python", "-c", pyScript, rawID, targetType, format, dir, optionFile)
+	cmd.Env = pythonEnv()
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()
-	outBytes := bytes.TrimSpace(stdout.Bytes())
-	if len(outBytes) > 0 {
-		var result map[string]any
-		if parseErr := json.Unmarshal(outBytes, &result); parseErr == nil {
-			if err != nil {
-				return result, fmt.Errorf("jmcomic download failed: %v", result["error"])
-			}
-			return result, nil
+	if result, ok := extractResult(stdout.Bytes()); ok {
+		if err != nil {
+			return result, fmt.Errorf("jmcomic download failed: %v", result["error"])
 		}
+		return result, nil
 	}
 
 	if err != nil {
