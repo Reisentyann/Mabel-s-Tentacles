@@ -49,7 +49,7 @@ func (jmComicFeature) Params() []chaos.Param {
 		{
 			Name:        "action",
 			Type:        chaos.ParamString,
-			Description: "Action to execute: 'view' (retrieve metadata) or 'download' (download images). Default is 'view'.",
+			Description: "Action to execute: 'view' (retrieve metadata) or 'download' (download comic). Default is 'view'.",
 			Default:     "view",
 		},
 		{
@@ -59,9 +59,20 @@ func (jmComicFeature) Params() []chaos.Param {
 			Default:     "album",
 		},
 		{
+			Name:        "format",
+			Type:        chaos.ParamString,
+			Description: "Archive format when downloading: 'zip' (default) or 'raw' (loose images).",
+			Default:     "zip",
+		},
+		{
+			Name:        "save_name",
+			Type:        chaos.ParamString,
+			Description: "Optional target logic path/filename in Mabel storage (e.g. 'comics/350234.zip'). If omitted, defaults to 'comics/[JM<id>] <title>.zip'.",
+		},
+		{
 			Name:        "dir",
 			Type:        chaos.ParamString,
-			Description: "Optional target directory for downloaded files.",
+			Description: "Optional temporary directory for downloading files.",
 		},
 		{
 			Name:        "option_file",
@@ -79,6 +90,7 @@ func (jmComicFeature) Run(c *chaos.Chaos, p chaos.Params) (map[string]any, error
 
 	action := strings.ToLower(strings.TrimSpace(chaos.StrParam(p, "action", "view")))
 	targetType := strings.ToLower(strings.TrimSpace(chaos.StrParam(p, "target_type", "album")))
+	format := strings.ToLower(strings.TrimSpace(chaos.StrParam(p, "format", "zip")))
 	dir := chaos.StrParam(p, "dir", "")
 	optionFile := chaos.StrParam(p, "option_file", "")
 
@@ -86,7 +98,14 @@ func (jmComicFeature) Run(c *chaos.Chaos, p chaos.Params) (map[string]any, error
 	case "view", "info":
 		return runView(rawID, optionFile)
 	case "download":
-		return runDownload(rawID, targetType, dir, optionFile)
+		res, err := runDownload(rawID, targetType, format, dir, optionFile)
+		if err != nil {
+			return res, err
+		}
+		if sn := chaos.StrParam(p, "save_name", ""); sn != "" {
+			res["save_name"] = sn
+		}
+		return res, nil
 	default:
 		return nil, fmt.Errorf("unknown action '%s', expected 'view' or 'download'", action)
 	}
@@ -162,7 +181,7 @@ except Exception as e:
 	return map[string]any{"success": true, "raw_output": stdout.String()}, nil
 }
 
-func runDownload(rawID, targetType, dir, optionFile string) (map[string]any, error) {
+func runDownload(rawID, targetType, format, dir, optionFile string) (map[string]any, error) {
 	pyScript := `
 import json, sys, os
 base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__) if '__file__' in locals() else '.', '..'))
@@ -174,8 +193,9 @@ import jmcomic
 
 raw_id = sys.argv[1]
 target_type = sys.argv[2]
-target_dir = sys.argv[3] if len(sys.argv) > 3 and sys.argv[3] else None
-option_path = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] else None
+format_type = sys.argv[3]
+target_dir = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] else None
+option_path = sys.argv[5] if len(sys.argv) > 5 and sys.argv[5] else None
 
 try:
     if option_path:
@@ -187,24 +207,41 @@ try:
         option.dir_rule.base_dir = target_dir
 
     jm_id = jmcomic.JmcomicText.parse_to_jm_id(raw_id)
+    extra = None
+    if format_type == "zip":
+        zip_save_dir = target_dir or option.dir_rule.base_dir
+        extra = jmcomic.Feature.export_zip(delete_original_file=True, zip_dir=zip_save_dir)
+
     if target_type == "photo":
-        res = jmcomic.download_photo(jm_id, option=option)
-        detail = res[0]
+        res = jmcomic.download_photo(jm_id, option=option, extra=extra)
+        detail, dler = res
+        exported_zips = dler.manifest_dict[detail].get_export_filepath_list('zip') if extra else []
+        archive_path = exported_zips[0] if exported_zips else ""
+        file_size = os.path.getsize(archive_path) if archive_path and os.path.exists(archive_path) else 0
         data = {
             "success": True,
             "type": "photo",
             "id": detail.photo_id,
             "title": detail.title,
+            "archive_path": archive_path,
+            "archive_filename": os.path.basename(archive_path) if archive_path else "",
+            "file_size": file_size,
             "save_dir": target_dir or option.dir_rule.base_dir
         }
     else:
-        res = jmcomic.download_album(jm_id, option=option)
-        detail = res[0]
+        res = jmcomic.download_album(jm_id, option=option, extra=extra)
+        detail, dler = res
+        exported_zips = dler.manifest_dict[detail].get_export_filepath_list('zip') if extra else []
+        archive_path = exported_zips[0] if exported_zips else ""
+        file_size = os.path.getsize(archive_path) if archive_path and os.path.exists(archive_path) else 0
         data = {
             "success": True,
             "type": "album",
             "id": detail.album_id,
             "title": detail.title,
+            "archive_path": archive_path,
+            "archive_filename": os.path.basename(archive_path) if archive_path else "",
+            "file_size": file_size,
             "save_dir": target_dir or option.dir_rule.base_dir
         }
     print(json.dumps(data, ensure_ascii=False))
@@ -216,10 +253,10 @@ except Exception as e:
     print(json.dumps(err_data, ensure_ascii=False))
     sys.exit(1)
 `
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "python", "-c", pyScript, rawID, targetType, dir, optionFile)
+	cmd := exec.CommandContext(ctx, "python", "-c", pyScript, rawID, targetType, format, dir, optionFile)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

@@ -1,5 +1,5 @@
 // 文件：manager-go/intake.go —— 入库域：文件新增的唯一口（逻辑键 + uuid 派生物理随机路径，agent 不接触物理布局）
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-21（日期由 fresh-header.ps1 刷新）
 
 // intake 域职责（2026-09-08 架构决策落地：物理路径防猜 + 文件 IO 主权收归管理机）：
 //
@@ -57,14 +57,18 @@ func StoragePathOf(uuid, logicPath string) (string, error) {
 	return path.Join(uuid[:2], uuid+path.Ext(logicPath)), nil
 }
 
-// storageAbs 物理相对路径 → dataDir 内绝对路径（防穿越纵深：路径虽是
+// StorageAbs 物理相对路径 → dataDir 内绝对路径（防穿越纵深：路径虽是
 // 系统派生理论安全，纵深校验不亏——uuid/ext 全来自受控源也挡实现回归）。
-func (m *Manager) storageAbs(uuid, logicPath string) (string, error) {
+func (m *Manager) StorageAbs(uuid, logicPath string) (string, error) {
 	rel, err := StoragePathOf(uuid, logicPath)
 	if err != nil {
 		return "", err
 	}
 	return m.resolve(rel)
+}
+
+func (m *Manager) storageAbs(uuid, logicPath string) (string, error) {
+	return m.StorageAbs(uuid, logicPath)
 }
 
 // validLogicPath 逻辑键规范：非空、无前导分隔符、无盘符、无 . / .. / 空段。
