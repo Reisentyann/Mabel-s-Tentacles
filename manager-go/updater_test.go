@@ -1,5 +1,5 @@
 // 文件：manager-go/updater_test.go —— updater 域 L1：T3 执行器（路由/合并/穿越/喂食）+ T2 陈旧四条件 + 幽灵软删 + batch 上限
-// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
 
 package manager_test
 
@@ -149,6 +149,16 @@ func (s *fakeStore) GetMetaByUUIDs(ctx context.Context, uuids []string) (map[str
 		if r, ok := s.refs[u]; ok {
 			cp := *r
 			out[u] = &cp
+		}
+	}
+	return out, nil
+}
+
+func (s *fakeStore) ReverseCopiedFrom(ctx context.Context, path string) ([]manager.MetaRow, error) {
+	out := make([]manager.MetaRow, 0)
+	for _, row := range s.rows {
+		if row.CopiedFrom == path {
+			out = append(out, *row)
 		}
 	}
 	return out, nil

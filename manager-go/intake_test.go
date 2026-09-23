@@ -1,5 +1,5 @@
-// 文件：manager-go/intake_test.go —— 入库域 L1：uuid 派生物理位 / 覆写幂等 / Modify 双模 / 逻辑键校验 / 逻辑视图
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 文件：manager-go/intake_test.go —— 入库域 L1：文本写入、外部文件导入、覆写幂等与逻辑视图
+// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
 
 package manager_test
 
@@ -60,6 +60,35 @@ func TestIntakeWriteOverwriteIdempotent(t *testing.T) {
 	}
 	if r2.SizeBytes != int64(len("v2-longer")) {
 		t.Fatalf("receipt size = %d", r2.SizeBytes)
+	}
+}
+
+// TestImportFile 管理机外部文件接入口：下载器只提供源文件路径，管理机
+// 负责占位、uuid 派生物理位与文件转移，不要求调用方拼接 data 布局。
+func TestImportFile(t *testing.T) {
+	m, st, _, dir := newTestManager(t)
+	source := filepath.Join(t.TempDir(), "download.zip")
+	if err := os.WriteFile(source, []byte("zip-payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := m.ImportFile(context.Background(), "comics/download.zip", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.UUID == "" || r.LogicPath != "comics/download.zip" || r.SizeBytes != int64(len("zip-payload")) {
+		t.Fatalf("import receipt = %+v", r)
+	}
+	if st.uuids[r.LogicPath] != r.UUID {
+		t.Fatalf("row uuid = %q, receipt uuid = %q", st.uuids[r.LogicPath], r.UUID)
+	}
+	stored := filepath.Join(dir, filepath.FromSlash(r.StorageRel))
+	b, err := os.ReadFile(stored)
+	if err != nil {
+		t.Fatalf("stored import missing: %v", err)
+	}
+	if string(b) != "zip-payload" {
+		t.Fatalf("stored import = %q", b)
 	}
 }
 

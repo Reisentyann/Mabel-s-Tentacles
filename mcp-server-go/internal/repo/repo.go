@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/repo/repo.go —— 数据访问接口 Store + pgx 连接池实现（可 mock）
-// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
 
 package repo
 
@@ -61,6 +61,7 @@ type Store interface {
 	// 无行 = ErrNoRows / 批量缺失不入 map）。
 	GetMetadataByUUID(ctx context.Context, uuid string) (*FileMetadata, error)
 	GetMetadataByUUIDs(ctx context.Context, uuids []string) (map[string]*FileMetadata, error)
+	ReverseCopiedFrom(ctx context.Context, path string) ([]FileMetadata, error)
 	SearchFiles(ctx context.Context, fs FileSearch) ([]FileMetadata, int, error)
 	CopyMetadata(ctx context.Context, source, target, owner, sessionID string) error
 	SoftDeleteMetadata(ctx context.Context, filePath string) error

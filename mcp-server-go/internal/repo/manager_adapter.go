@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/repo/manager_adapter.go —— manager.Store 适配器：repo 存取 → manager 最小面（DTO 转换 + 顶层列推导归装配侧）
-// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
 
 package repo
 
@@ -130,6 +130,19 @@ func (a *ManagerStore) GetMetaByUUIDs(ctx context.Context, uuids []string) (map[
 	return out, nil
 }
 
+// ReverseCopiedFrom 反查复制来源路径，转换为 manager 谱系 DTO。
+func (a *ManagerStore) ReverseCopiedFrom(ctx context.Context, path string) ([]manager.MetaRow, error) {
+	items, err := a.st.ReverseCopiedFrom(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]manager.MetaRow, 0, len(items))
+	for i := range items {
+		out = append(out, toMetaRow(&items[i]))
+	}
+	return out, nil
+}
+
 // toFileRef repo 行 → manager 取件视图（DTO 归属 manager，装配侧只做转换）。
 func toFileRef(m *FileMetadata) *manager.FileRef {
 	return &manager.FileRef{
@@ -154,5 +167,6 @@ func toMetaRow(m *FileMetadata) manager.MetaRow {
 		SizeBytes:  common.DerefInt64(m.SizeBytes),
 		UpdatedAt:  m.UpdatedAt,
 		MovedFrom:  common.DerefStr(m.MovedFrom),
+		CopiedFrom: common.DerefStr(m.CopiedFrom),
 	}
 }

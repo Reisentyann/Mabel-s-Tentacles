@@ -1,5 +1,5 @@
-// 文件：manager-go/intake.go —— 入库域：文件新增的唯一口（逻辑键 + uuid 派生物理随机路径，agent 不接触物理布局）
-// 修改：2026-09-21（日期由 fresh-header.ps1 刷新）
+// 文件：manager-go/intake.go —— 入库域：文本写入与外部文件导入（逻辑键 + uuid 派生物理随机路径）
+// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
 
 // intake 域职责（2026-09-08 架构决策落地：物理路径防猜 + 文件 IO 主权收归管理机）：
 //
@@ -12,14 +12,16 @@
 //     uuid 不变则物理文件根本不用搬
 //   - 旧明文存量已清场（旧内容/data-明文存量-20260908），无迁移兼容层
 //
-// 时序（write_file 全链）：工具层 CanFile 授权 → manager.Write（Reserve →
-// 派生 → 落盘）→ 编排机事件 → executor 盘读（storageAbs）→ 描述落库喂索引。
+// 时序（写入全链）：工具层 CanFile 授权 → manager.Write/ImportFile
+// （Reserve → 派生 → 落盘）→ 编排机事件 → executor 盘读（storageAbs）→
+// 描述落库喂索引。
 package manager
 
 import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path"
 	"path/filepath"
@@ -40,6 +42,16 @@ var ErrInvalidPath = errors.New("manager: invalid logic path")
 // WriteReceipt 入库回执：uuid（后续操作凭证）+ 逻辑键 + 物理相对路径
 // （审计/排障用，agent 场景不依赖它）。
 type WriteReceipt struct {
+	UUID       string `json:"uuid"`
+	LogicPath  string `json:"logic_path"`
+	StorageRel string `json:"storage_rel"`
+	SizeBytes  int64  `json:"size_bytes"`
+}
+
+// ImportReceipt 外部文件导入回执：与 WriteReceipt 同形，但内容来自已有的
+// 本地文件。下载器等内部组件只需把源文件路径交给管理机，不需要知道
+// uuid 派生的物理布局。
+type ImportReceipt struct {
 	UUID       string `json:"uuid"`
 	LogicPath  string `json:"logic_path"`
 	StorageRel string `json:"storage_rel"`
@@ -117,6 +129,102 @@ func (m *Manager) Write(ctx context.Context, logicPath, content string) (*WriteR
 		return nil, fmt.Errorf("write file: %w", err)
 	}
 	return &WriteReceipt{UUID: uuid, LogicPath: logicPath, StorageRel: rel, SizeBytes: int64(len(content))}, nil
+}
+
+// ImportFile 将一个已有的本地文件纳入管理机：Reserve 占位行 → uuid 派生
+// 物理路径 → 迁移或复制文件。调用方只负责提供逻辑路径与源文件路径，
+// 不得自行 ReserveMeta、拼接 data 目录或直接写物理盘。
+//
+// 同卷且目标不存在时优先 Rename，避免大文件重复读写；跨卷或目标已存在
+// 时退化为流式覆盖。跨卷回退不会删除源文件，便于下载任务保留断点与审计
+// 证据；成功 Rename 的源路径则由操作系统完成移动。
+func (m *Manager) ImportFile(ctx context.Context, logicPath, sourcePath string) (*ImportReceipt, error) {
+	if err := validLogicPath(logicPath); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(sourcePath) == "" {
+		return nil, errors.New("import file: source path is empty")
+	}
+
+	info, err := os.Lstat(sourcePath)
+	if err != nil {
+		return nil, fmt.Errorf("stat source file: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, errors.New("import file: symbolic links are not accepted")
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("import file: source is not a regular file")
+	}
+
+	uuid, err := m.store.ReserveMeta(ctx, logicPath)
+	if err != nil {
+		return nil, fmt.Errorf("reserve meta: %w", err)
+	}
+	rel, err := StoragePathOf(uuid, logicPath)
+	if err != nil {
+		return nil, err
+	}
+	targetAbs, err := m.resolve(rel)
+	if err != nil {
+		return nil, err
+	}
+	if err := os.MkdirAll(filepath.Dir(targetAbs), 0o755); err != nil {
+		return nil, fmt.Errorf("create import directory: %w", err)
+	}
+	if err := transferImportedFile(sourcePath, targetAbs); err != nil {
+		return nil, fmt.Errorf("store imported file: %w", err)
+	}
+	return &ImportReceipt{
+		UUID:       uuid,
+		LogicPath:  logicPath,
+		StorageRel: rel,
+		SizeBytes:  info.Size(),
+	}, nil
+}
+
+// transferImportedFile 先尝试同卷移动；目标已存在或跨卷时流式覆盖。
+// 不在回退路径删除源文件：临时下载产物可继续作为断点与审计证据。
+func transferImportedFile(sourcePath, targetPath string) error {
+	sourceInfo, err := os.Stat(sourcePath)
+	if err != nil {
+		return err
+	}
+
+	targetInfo, err := os.Lstat(targetPath)
+	if err == nil {
+		if targetInfo.Mode()&os.ModeSymlink != 0 {
+			return errors.New("import file: target is a symbolic link")
+		}
+		if targetStat, statErr := os.Stat(targetPath); statErr == nil && os.SameFile(sourceInfo, targetStat) {
+			return nil
+		}
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+
+	if errors.Is(err, os.ErrNotExist) {
+		if err := os.Rename(sourcePath, targetPath); err == nil {
+			return nil
+		}
+	}
+
+	in, err := os.Open(sourcePath)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(targetPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	if err != nil {
+		return err
+	}
+	_, copyErr := io.Copy(out, in)
+	closeErr := out.Close()
+	if copyErr != nil {
+		return copyErr
+	}
+	return closeErr
 }
 
 // Modify 修改既有文件（append / overwrite）。行必须已在（无行 = 文件不存在，

@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/repo/metadata.go —— file_metadata 表存取：模型 / Upsert(COALESCE 返回 uuid) / 搜索 / 分页扫描 / 缺失计数 / 软删
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
 
 package repo
 
@@ -165,6 +165,25 @@ func (s *pgxStore) GetMetadataByPaths(ctx context.Context, paths []string) (map[
 		out[m.FilePath] = m
 	}
 	return out, rows.Err()
+}
+
+// ReverseCopiedFrom 返回复制自 path 的文件，包含软删除行以保持谱系可追溯。
+func (s *pgxStore) ReverseCopiedFrom(ctx context.Context, path string) ([]FileMetadata, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+metaColumns+` FROM file_metadata WHERE copied_from=$1 ORDER BY file_path ASC`, path)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]FileMetadata, 0)
+	for rows.Next() {
+		m, err := scanMeta(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, *m)
+	}
+	return items, rows.Err()
 }
 
 // GetMetadataByUUID 凭 uuid 读单行（含软删行——manager fetch 的 Locate

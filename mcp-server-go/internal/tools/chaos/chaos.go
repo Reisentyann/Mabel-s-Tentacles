@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/chaos/chaos.go —— 混沌机 MCP 工具面：遍历 chaos-go 注册表自动挂载每个娱乐功能
-// 修改：2026-09-21（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
 
 // Package chaos 是混沌机（chaos-go）的 MCP 工具面。
 //
@@ -11,9 +11,7 @@ package chaos
 import (
 	"context"
 	"fmt"
-	"io"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -106,36 +104,40 @@ func handler(deps tools.Deps, f chaoslib.Feature) func(context.Context, mcp.Call
 			return tools.ResultError(err.Error()), nil
 		}
 
-		// 特殊钩子：针对产生本地归档文件的混沌机工具（如 jm_comic 下载），
-		// 执行零拷贝落盘入库并签发 Mabel 下载短链，深度融入 Mabel 管理生命周期。
+		// 特殊钩子：针对产生本地归档文件的混沌机工具（jm_comic 下载），
+		// 交给管理机导入并签发 Mabel 下载短链，接入文件生命周期。
+		operationPath := ""
 		if f.Name() == "jm_comic" {
-			postProcessJMComic(ctx, deps, sessionID, out)
+			if err := postProcessJMComic(ctx, deps, sessionID, begin, out); err != nil {
+				slog.Error("jm_comic ingest failed", "feature", f.Name(),
+					"session", sessionID, "error", err, "duration", time.Since(begin).String())
+				tools.RecordOperation(ctx, deps.Store, sessionID, f.Name(), "", "failed", err.Error(), params)
+				return tools.ResultError(err.Error()), nil
+			}
+			operationPath, _ = out["logic_path"].(string)
 		}
 
 		slog.Info("chaos feature ok", "feature", f.Name(),
 			"session", sessionID, "duration", time.Since(begin).String())
-		tools.RecordOperation(ctx, deps.Store, sessionID, f.Name(), "", "success", "", params)
+		tools.RecordOperation(ctx, deps.Store, sessionID, f.Name(), operationPath, "success", "", params)
 		return tools.Result(out), nil
 	}
 }
 
-// postProcessJMComic 对 JMComic 导出的压缩归档执行零拷贝入库与短链生成。
-func postProcessJMComic(ctx context.Context, deps tools.Deps, sessionID string, out map[string]any) {
+// postProcessJMComic 把 JMComic 导出的压缩归档交给管理机入库，再由编排机
+// 异步完成描述与索引。混沌机不再自行 ReserveMeta 或拼接 data 物理路径。
+func postProcessJMComic(ctx context.Context, deps tools.Deps, sessionID string, begin time.Time, out map[string]any) error {
 	if out == nil {
-		return
+		return nil
 	}
 	archivePath, _ := out["archive_path"].(string)
 	if archivePath == "" {
-		return
-	}
-
-	info, err := os.Stat(archivePath)
-	if err != nil || info.IsDir() {
-		return
+		out["ingest_status"] = "skipped_no_archive"
+		return nil // raw 格式没有归档文件，保留下载器原始结果。
 	}
 
 	if deps.Manager == nil || deps.Store == nil {
-		return
+		return fmt.Errorf("jm_comic: manager/store not wired; archive=%s", archivePath)
 	}
 
 	// 1. 确定入库逻辑路径：优先用入参指定 save_name，否则用 comics/<filename>
@@ -151,35 +153,31 @@ func postProcessJMComic(ctx context.Context, deps tools.Deps, sessionID string, 
 	logicKey = strings.ReplaceAll(logicKey, "\\", "/")
 	logicKey = strings.TrimPrefix(logicKey, "/")
 
-	// 2. 向 Mabel 数据库预留占位行，获取该逻辑路径的权威 UUID
-	uuid, err := deps.Store.ReserveMeta(ctx, logicKey)
+	// 2. 与其他 MCP 写入口采用同一用户键空间与写权限口径。
+	sc, err := tools.ScopeWrite(ctx, logicKey)
 	if err != nil {
-		slog.Warn("jmcomic reserve meta failed", "path", logicKey, "error", err)
-		return
+		return fmt.Errorf("jm_comic target path: %w", err)
+	}
+	logicKey = sc.Key
+	if denied, reason := tools.CanFile(ctx, deps.Store, logicKey, true); denied {
+		return fmt.Errorf("jm_comic target %q denied: %s", logicKey, reason)
 	}
 
-	// 3. 计算 Mabel 的物理存储绝对路径：data/<uuid前2位>/<uuid><ext>
-	targetAbs, err := deps.Manager.StorageAbs(uuid, logicKey)
+	// 3. 管理机是唯一入库口：它负责 Reserve、uuid 派生物理路径与文件搬运。
+	receipt, err := deps.Manager.ImportFile(ctx, logicKey, archivePath)
 	if err != nil {
-		slog.Warn("jmcomic compute storage path failed", "uuid", uuid, "path", logicKey, "error", err)
-		return
+		return fmt.Errorf("jm_comic import %q: %w", logicKey, err)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(targetAbs), 0o755); err != nil {
-		slog.Warn("jmcomic mkdir target dir failed", "target", targetAbs, "error", err)
-		return
-	}
-
-	// 4. 零拷贝搬移（同一磁盘卷瞬间 rename；跨卷自动退化为流式移动）
-	if err := moveOrCopyFile(archivePath, targetAbs); err != nil {
-		slog.Warn("jmcomic move file to mabel storage failed", "src", archivePath, "dst", targetAbs, "error", err)
-		return
-	}
-
-	out["storage_uuid"] = uuid
+	out["storage_uuid"] = receipt.UUID
 	out["logic_path"] = logicKey
+	out["stored_bytes"] = receipt.SizeBytes
+	out["ingest_status"] = "imported"
+	// 不把服务端临时路径继续暴露给 MCP 调用方；归档已由管理机接管。
+	out["archive_path"] = ""
+	out["save_dir"] = ""
 
-	// 5. 编排机接管异步分析（T1：落库元数据、计算 Hash、喂索引机）
+	// 4. 编排机接管异步分析（T1：落库元数据、计算 Hash、喂索引机）
 	if deps.Orch != nil {
 		title, _ := out["title"].(string)
 		deps.Orch.Submit(core.Event{
@@ -195,48 +193,27 @@ func postProcessJMComic(ctx context.Context, deps tools.Deps, sessionID string, 
 		})
 	}
 
-	// 6. 生成 24 小时有效的 Mabel 极简短链（/d/{code}）与防篡改票据下载链接
+	// 5. 生成 24 小时有效的 Mabel 极简短链（/d/{code}）与防篡改票据下载链接
 	var dlURL string
-	if deps.Cfg != nil {
+	if deps.Store != nil && deps.Cfg != nil {
 		dlBase := strings.TrimRight(deps.Cfg.API.DownloadBaseURL, "/")
 		if dlBase == "" {
 			dlBase = deps.Cfg.Server.BaseURL
 		}
-		if shortURL, err := service.IssueShortURL(ctx, deps.Store, dlBase, logicKey, uuid, 24*time.Hour); err == nil {
+		if shortURL, err := service.IssueShortURL(ctx, deps.Store, dlBase, logicKey, receipt.UUID, 24*time.Hour); err == nil {
 			dlURL = shortURL
 		}
 	}
 	if dlURL == "" {
-		dlURL = deps.Manager.IssueDownloadURL(logicKey, uuid, 0)
+		dlURL = deps.Manager.IssueDownloadURL(logicKey, receipt.UUID, 0)
 	}
 
 	if dlURL != "" {
 		out["download_url"] = dlURL
 		out["message"] = fmt.Sprintf("已成功下载并收录入库: %s\nMabel 专属下载短链（24小时有效）：\n%s", logicKey, dlURL)
 	}
-}
-
-// moveOrCopyFile 优先原子 Rename，失败（如跨卷）回退到流式拷贝并清理源文件。
-func moveOrCopyFile(src, dst string) error {
-	if err := os.Rename(src, dst); err == nil {
-		return nil
-	}
-	in, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer in.Close()
-
-	out, err := os.Create(dst)
-	if err != nil {
-		return err
-	}
-	defer out.Close()
-
-	if _, err := io.Copy(out, in); err != nil {
-		return err
-	}
-	_ = in.Close()
-	_ = os.Remove(src)
+	slog.Info("jm_comic archive imported", "feature", "jm_comic", "path", logicKey,
+		"uuid", receipt.UUID, "bytes", receipt.SizeBytes, "session", sessionID,
+		"duration", time.Since(begin).String())
 	return nil
 }

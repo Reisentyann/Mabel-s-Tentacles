@@ -1,5 +1,5 @@
 // 文件：manager-go/manager.go —— 管理机门面：文件位置与谱系的唯一知情者（架构设计.md 第 4 节）
-// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
 
 // Package manager 是文件生命周期的编排层与信息权威（docs/架构设计.md 第 4 节）：
 // 文件在哪（位置）、文件之间的关系（谱系）只有它知道，其他组件一律问它，
@@ -38,6 +38,7 @@ type MetaRow struct {
 	SizeBytes  int64           // 逻辑树视图计量
 	UpdatedAt  time.Time       // 逻辑树视图计量
 	MovedFrom  string          // 谱系：最近一次移动的原键（空 = 从未移动）
+	CopiedFrom string          // 谱系：复制来源逻辑路径（空 = 非副本）
 }
 
 // MetaRecord updater 域的元数据写视图：T2/T3 重分析后的落库载荷。
@@ -76,6 +77,8 @@ type Store interface {
 	// GetMetaByUUIDs 批量取件视图：uuid 集合 → 映射，缺失的 uuid 不入 map
 	// （fetch 域 LocateMany 的支撑，搜索结果一次取齐）。
 	GetMetaByUUIDs(ctx context.Context, uuids []string) (map[string]*FileRef, error)
+	// ReverseCopiedFrom 反查以 path 为复制来源的文件，供 lineage Related 构造入边。
+	ReverseCopiedFrom(ctx context.Context, path string) ([]MetaRow, error)
 	// ReserveMeta 入库占位行：按逻辑键幂等拿 uuid（存在即复用，写入即
 	// 文件存在证据——missing_rounds 清零）。intake 域 Write 的支撑：
 	// uuid 生成权归 DB，盘写发生在 uuid 之后（物理路径由它派生）。

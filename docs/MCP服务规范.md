@@ -48,6 +48,7 @@
 | `mabel_quote` | `mabel_quote` | 混沌 | 梅贝尔随机台词（娱乐/陪聊） | 保持混沌机自注册 |
 | `pseudo_random` | `pseudo_random` | 混沌 | 本地快速伪随机数生成 | 保持混沌机自注册 |
 | `true_random` | `true_random` | 混沌 | 物理量子真随机数（需熵源接入） | 保持混沌机自注册 |
+| `jm_comic` | `jm_comic` | 混沌/文件 | 查询或下载 JMComic；ZIP 下载自动交给管理机入库并生成短链 | 保持混沌机自注册，装配层调用 `Manager.ImportFile` |
 
 ---
 
