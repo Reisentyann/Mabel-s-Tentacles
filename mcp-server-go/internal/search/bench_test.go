@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/search/bench_test.go —— 基准注册表 L1：收录完备性抽查 + 词条质量底线
-// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
 
 package search_test
 
@@ -12,8 +12,8 @@ import (
 
 // TestBenchRegistryQuality 词条质量底线：无空 Desc / 无空 Bench / 键无空白。
 func TestBenchRegistryQuality(t *testing.T) {
-	if n := search.BenchLen(); n < 80 {
-		t.Fatalf("registry = %d entries, want >= 80 (cod-basic/text/image/code + llm families)", n)
+	if n := search.BenchLen(); n < 90 {
+		t.Fatalf("registry = %d entries, want >= 90 (cod-basic/text/image/code + jm + llm families)", n)
 	}
 	for field, b := range benchAll(t) {
 		if strings.TrimSpace(field) != field || field == "" {
@@ -39,6 +39,7 @@ func TestBenchKeyFieldsPresent(t *testing.T) {
 		"cod-image-megapixels", "cod-image-brightness", "cod-image-family",
 		"cod-basic-entropy", "cod-basic-mime-match",
 		"llm-semantic-type", "llm-characters",
+		"sp-cod-jm-id", "sp-cod-jm-tags", "sp-cod-jm-page_count",
 	}
 	for _, f := range want {
 		if _, ok := search.Bench(f); !ok {

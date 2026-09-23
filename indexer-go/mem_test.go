@@ -1,5 +1,5 @@
 // 文件：indexer-go/mem_test.go —— 索引机单元测试：三型桶查询 / And-Or 组合 / Update diff 幂等 / Rebuild / 脏值 / 并发 / Stats 自省
-// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
 
 package indexer
 
@@ -237,6 +237,34 @@ func TestQueryMulti(t *testing.T) {
 	}
 	if got := mustQuery(t, ix, eq("tags", "无此标签"), false); len(got) != 0 {
 		t.Fatalf("tags 无命中 → %v", got)
+	}
+}
+
+func TestQueryJMSourceFields(t *testing.T) {
+	ix := New()
+	if err := ix.Rebuild(map[string]map[string]any{
+		"jm-a": {
+			"sp-cod-jm-id":            "123456",
+			"sp-cod-jm-tags":          []any{"原创", "校园"},
+			"sp-cod-jm-page_count":    120,
+			"sp-cod-jm-episode_count": 3,
+		},
+		"jm-b": {
+			"sp-cod-jm-id":         "654321",
+			"sp-cod-jm-tags":       []any{"校园"},
+			"sp-cod-jm-page_count": 24,
+		},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got := mustQuery(t, ix, eq("sp-cod-jm-tags", "原创"), false); !reflect.DeepEqual(got, []string{"jm-a"}) {
+		t.Fatalf("JM tag query = %v", got)
+	}
+	if got := mustQuery(t, ix, []Condition{{Field: "sp-cod-jm-page_count", Op: OpGt, Value: 100}}, false); !reflect.DeepEqual(got, []string{"jm-a"}) {
+		t.Fatalf("JM page query = %v", got)
+	}
+	if got := mustQuery(t, ix, eq("sp-cod-jm-id", "654321"), false); !reflect.DeepEqual(got, []string{"jm-b"}) {
+		t.Fatalf("JM id query = %v", got)
 	}
 }
 

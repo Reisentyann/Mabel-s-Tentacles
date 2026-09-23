@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/core/orchestrator_test.go —— 编排机骨架测试：执行器管线 / 队列生命周期 / Describe 闸门 / 检索降级 / 索引重建
-// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
 
 package core
 
@@ -354,6 +354,10 @@ func TestExecutePipeline(t *testing.T) {
 
 	ms := newMemStore()
 	intakeSeed(t, ms, dir, "note.txt", content)
+	ms.row(t, "note.txt").Tags = []string{"人工标签"}
+	ms.row(t, "note.txt").Attributes = describer.JSONFromAttrs(map[string]any{
+		"sp-cod-jm-old": "stale",
+	})
 	sn := &fakeSink{}
 	o, err := New(Options{DataDir: dir, Store: ms, Sink: sn})
 	if err != nil {
@@ -362,7 +366,12 @@ func TestExecutePipeline(t *testing.T) {
 
 	rep, err := o.execute(context.Background(), Event{
 		Kind: KindWrite, Path: "note.txt", SessionID: "s1",
-		Agent: &AgentMeta{Title: ptr("书架笔记")},
+		Agent: &AgentMeta{Title: ptr("书架笔记"), Tags: []string{"jm-tag"}, Attributes: map[string]any{
+			"sp-cod-jm-demo": "kept",
+			"sp-cod-jm-tags": []string{"jm-tag"},
+			"sp-src-demo":    "ignored",
+			"cod-forbidden":  "ignored",
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -391,6 +400,22 @@ func TestExecutePipeline(t *testing.T) {
 	}
 	if row.SessionID == nil || *row.SessionID != "s1" {
 		t.Fatalf("session not persisted: %v", row.SessionID)
+	}
+	attrs = describer.AttrsFromJSON(row.Attributes)
+	if attrs["sp-cod-jm-demo"] != "kept" {
+		t.Fatalf("source attribute not persisted: %#v", attrs)
+	}
+	if _, ok := attrs["sp-cod-jm-old"]; ok {
+		t.Fatal("stale JM source attribute must be purged on a fresh source snapshot")
+	}
+	if _, ok := attrs["sp-src-demo"]; ok {
+		t.Fatal("source adapter must use sp-cod-jm-* attributes")
+	}
+	if _, ok := attrs["cod-forbidden"]; ok {
+		t.Fatal("source adapter must not inject cod-* attributes")
+	}
+	if got := ms.row(t, "note.txt").Tags; len(got) != 2 || got[0] != "人工标签" || got[1] != "jm-tag" {
+		t.Fatalf("source tags = %#v", got)
 	}
 
 	feeds := sn.snapshot()

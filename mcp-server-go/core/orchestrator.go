@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/core/orchestrator.go —— 编排机门面：生命周期事件 + 异步队列 + worker 池（三机之上的统一编排层骨架）
-// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
 
 // Package core 是编排机：把描述机（describer-go，字节进事实出）/ 索引机
 // （indexer-go，条件→uuid）/ 管理机（manager-go，位置与谱系）的编排，
@@ -115,6 +115,9 @@ type AgentMeta struct {
 	Description *string
 	Tags        []string
 	FileType    *string
+	// Attributes 是装配层传入的受信来源事实（例如 JMComic 下载详情），
+	// 不经过 LLMStore；当前 JM 适配器使用 sp-cod-jm-* 命名空间。
+	Attributes map[string]any
 }
 
 // Options 编排机构造参数。

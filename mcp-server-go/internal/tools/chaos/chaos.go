@@ -187,8 +187,10 @@ func postProcessJMComic(ctx context.Context, deps tools.Deps, sessionID string, 
 			Actor:     tools.Actor(ctx),
 			Agent: &core.AgentMeta{
 				Title:       common.StrPtr(title),
-				Description: common.StrPtr("Downloaded via JMComic chaos machine"),
+				Description: common.StrPtr(jmDescription(out)),
+				Tags:        jmTags(out),
 				FileType:    common.StrPtr("application/zip"),
+				Attributes:  jmAttributes(out),
 			},
 		})
 	}
@@ -216,4 +218,91 @@ func postProcessJMComic(ctx context.Context, deps tools.Deps, sessionID string, 
 		"uuid", receipt.UUID, "bytes", receipt.SizeBytes, "session", sessionID,
 		"duration", time.Since(begin).String())
 	return nil
+}
+
+// jmDescription 给文件详情补一段可读的来源摘要；详细字段仍放在
+// sp-cod-jm-* attributes 中，供索引机按 id/作者/标签/页数检索。
+func jmDescription(out map[string]any) string {
+	title, _ := out["title"].(string)
+	id := fmt.Sprint(out["id"])
+	if id == "<nil>" || id == "" {
+		return "Downloaded via JMComic chaos machine"
+	}
+	if title == "" {
+		return fmt.Sprintf("JMComic %s", id)
+	}
+	return fmt.Sprintf("JMComic %s · %s", id, title)
+}
+
+func jmTags(out map[string]any) []string {
+	return stringSlice(out["tags"])
+}
+
+// jmAttributes 只取 JMComic 结构化详情，不把 archive_path/save_dir 等内部
+// 工作路径带进元数据。字段值保持 string/number/array，indexer 可直接建桶。
+func jmAttributes(out map[string]any) map[string]any {
+	attrs := map[string]any{}
+	if id, ok := out["id"]; ok && id != nil {
+		attrs["sp-cod-jm-id"] = fmt.Sprint(id)
+	}
+	for _, field := range []string{"type", "title", "page_count", "episode_count", "pub_date", "update_date"} {
+		if value, ok := out[field]; ok && value != nil {
+			attrs["sp-cod-jm-"+field] = value
+		}
+	}
+	for _, field := range []string{"author", "tags", "actors", "works"} {
+		if values := stringSlice(out[field]); values != nil {
+			attrs["sp-cod-jm-"+field] = values
+		}
+	}
+	if episodes := jmEpisodeIDs(out["episodes"]); episodes != nil {
+		attrs["sp-cod-jm-episode-ids"] = episodes
+	}
+	return attrs
+}
+
+func stringSlice(value any) []string {
+	switch values := value.(type) {
+	case string:
+		if strings.TrimSpace(values) == "" {
+			return nil
+		}
+		return []string{values}
+	case []string:
+		out := make([]string, 0, len(values))
+		for _, value := range values {
+			if text := strings.TrimSpace(value); text != "" {
+				out = append(out, text)
+			}
+		}
+		return out
+	case []any:
+		out := make([]string, 0, len(values))
+		for _, value := range values {
+			if text, ok := value.(string); ok && strings.TrimSpace(text) != "" {
+				out = append(out, text)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func jmEpisodeIDs(value any) []string {
+	episodes, ok := value.([]any)
+	if !ok {
+		return nil
+	}
+	ids := make([]string, 0, len(episodes))
+	for _, episode := range episodes {
+		item, ok := episode.(map[string]any)
+		if !ok {
+			continue
+		}
+		if id, ok := item["id"].(string); ok && id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }

@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/listindexfields/listindexfields.go —— MCP 索引查询双工具：list_index_fields（字段目录发现）+ search_files（条件查询）
-// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
 
 // 索引机对 agent 的两个查询入口同包落地（目录批次 2026-09-09）：
 //   - list_index_fields 字段目录：一次调用拿到全部可查字段 + 桶型
@@ -41,7 +41,7 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			"and bench (calibration tiers translating natural language like 'long article' or 'dialogue-heavy' into query values), "+
 			"plus a guide (cross-field rules and a want-to-query quick reference). "+
 			"Call this once before search_files to learn usable field names, meanings and value scales, then cache it; refresh only when searches miss. "+
-			"Field names follow the describer pattern cod-<family>-<fact> (e.g. cod-text-language, cod-code-lang, cod-image-megapixels) or llm-* (model-supplied)."),
+			"Field names follow the describer pattern cod-<family>-<fact> (e.g. cod-text-language, cod-code-lang, cod-image-megapixels), stable source fields such as sp-cod-jm-* (JMComic), or llm-* (model-supplied)."),
 		mcp.WithString("prefix",
 			mcp.Description("Optional field-name prefix filter to narrow the catalog, e.g. 'cod-text' or 'cod-image'."),
 		),
@@ -128,7 +128,7 @@ func registerSearch(s *server.MCPServer, deps tools.Deps) {
 			"ne (not equals — only rows having the key; for rows missing the key use exists), "+
 			"exists (value true/false — key presence; fields that are absent when a denominator is zero, like EXIF on generated images, are queried this way), "+
 			"contains (substring on string fields; on array fields any element containing it matches). "+
-			"Field names come from the describer (prefix pattern cod-<family>-<fact>, e.g. cod-text-language, cod-code-lang, cod-image-megapixels; llm-* for model-supplied tags). "+
+			"Field names come from the describer (prefix pattern cod-<family>-<fact>, e.g. cod-text-language, cod-code-lang, cod-image-megapixels), stable source metadata such as sp-cod-jm-* for JMComic, or llm-* for model-supplied tags. "+
 			"Ordering: pass order_by=<field> and order=asc|desc (default desc) to sort hits by that value — with size=1 you get THE max/min file directly, no binary searching. "+
 			"Best practice: before your first search, call list_index_fields once to learn usable fields, their meanings (desc), value calibrations (bench) and current values/ranges, then cache that catalog for the session — skip the discovery call if you already have it; refresh only when a search misses unexpectedly. "+
 			"Returns paginated brief metadata (path/title/description/tags); read_file to fetch content."),

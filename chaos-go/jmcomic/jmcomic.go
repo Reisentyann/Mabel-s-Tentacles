@@ -1,5 +1,5 @@
 // 文件：chaos-go/jmcomic/jmcomic.go —— 混沌机组件·JMComic：调用 Python API/CLI 查询详情与下载本子
-// 修改：2026-09-21（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
 
 // Package jmcomic 是混沌机的 JMComic 娱乐/下载组件：功能名 `jm_comic`。
 //
@@ -222,6 +222,53 @@ format_type = sys.argv[3]
 target_dir = sys.argv[4] if len(sys.argv) > 4 and sys.argv[4] else None
 option_path = sys.argv[5] if len(sys.argv) > 5 and sys.argv[5] else None
 
+def text_list(value):
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value] if value.strip() else []
+    try:
+        values = list(value)
+    except TypeError:
+        values = [value]
+    return [str(item) for item in values if str(item).strip()]
+
+def int_value(value):
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+def detail_payload(detail, target_kind, fallback_id):
+    raw_episodes = getattr(detail, "episode_list", []) or []
+    episodes = []
+    for episode in raw_episodes:
+        if isinstance(episode, (tuple, list)):
+            episode_id = str(episode[0]) if episode else ""
+            episode_title = str(episode[-1]) if episode else ""
+        else:
+            episode_id = str(getattr(episode, "photo_id", ""))
+            episode_title = str(getattr(episode, "title", ""))
+        episodes.append({"id": episode_id, "title": episode_title})
+    id_attr = "photo_id" if target_kind == "photo" else "album_id"
+    detail_id = getattr(detail, id_attr, None) or fallback_id
+    detail_title = getattr(detail, "title", "") or ""
+    return {
+        "success": True,
+        "type": target_kind,
+        "id": str(detail_id),
+        "title": str(detail_title),
+        "author": text_list(getattr(detail, "author", [])),
+        "tags": text_list(getattr(detail, "tags", [])),
+        "actors": text_list(getattr(detail, "actors", [])),
+        "works": text_list(getattr(detail, "works", [])),
+        "page_count": int_value(getattr(detail, "page_count", 0)),
+        "pub_date": str(getattr(detail, "pub_date", "") or ""),
+        "update_date": str(getattr(detail, "update_date", "") or ""),
+        "episode_count": len(episodes),
+        "episodes": episodes,
+    }
+
 try:
     if option_path:
         option = jmcomic.create_option_by_file(option_path)
@@ -243,32 +290,20 @@ try:
         exported_zips = dler.manifest_dict[detail].get_export_filepath_list('zip') if extra else []
         archive_path = exported_zips[0] if exported_zips else ""
         file_size = os.path.getsize(archive_path) if archive_path and os.path.exists(archive_path) else 0
-        data = {
-            "success": True,
-            "type": "photo",
-            "id": detail.photo_id,
-            "title": detail.title,
-            "archive_path": archive_path,
-            "archive_filename": os.path.basename(archive_path) if archive_path else "",
-            "file_size": file_size,
-            "save_dir": target_dir or option.dir_rule.base_dir
-        }
+        data = detail_payload(detail, "photo", jm_id)
     else:
         res = jmcomic.download_album(jm_id, option=option, extra=extra)
         detail, dler = res
         exported_zips = dler.manifest_dict[detail].get_export_filepath_list('zip') if extra else []
         archive_path = exported_zips[0] if exported_zips else ""
         file_size = os.path.getsize(archive_path) if archive_path and os.path.exists(archive_path) else 0
-        data = {
-            "success": True,
-            "type": "album",
-            "id": detail.album_id,
-            "title": detail.title,
-            "archive_path": archive_path,
-            "archive_filename": os.path.basename(archive_path) if archive_path else "",
-            "file_size": file_size,
-            "save_dir": target_dir or option.dir_rule.base_dir
-        }
+        data = detail_payload(detail, "album", jm_id)
+    data.update({
+        "archive_path": archive_path,
+        "archive_filename": os.path.basename(archive_path) if archive_path else "",
+        "file_size": file_size,
+        "save_dir": target_dir or option.dir_rule.base_dir,
+    })
     print("` + resultMarker + `" + json.dumps(data, ensure_ascii=False))
 except Exception as e:
     err_data = {

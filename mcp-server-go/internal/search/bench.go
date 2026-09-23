@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/search/bench.go —— 检索字段基准注册表：每字段一句含义 + 分档基准（自然语言 → 查询值的翻译表）
-// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
 
 // Package search 的基准面：agent 拿到字段目录（list_index_fields /
 // GET /api/index/fields）时只知道"有哪些字段、什么桶型、当前取值"，
@@ -10,9 +10,9 @@
 // 维护规则（与 logging 双侧同步同款）：
 //   - 语义权威 = docs/元数据字段说明.md（先改字典再写代码）；
 //     分档基准的人类审读版 = docs/检索契约.md——三处同步改
-//   - 注册表只收确定会出现在 attributes 的键（cod-* 硬编码面 +
-//     llm-* 受控词表）；sp-* 自由区长尾不枚举（目录的 kind/values
-//     本身就是它们的发现面）
+//   - 注册表收确定会出现在 attributes 的键（cod-* 硬编码面 +
+//     llm-* 受控词表 + 稳定的来源适配器字段）；临时 sp-* 自由区长尾不枚举，
+//     目录的 kind/values 本身就是它们的发现面
 //   - 分档是经验锚点不是真理：库内实测值域（目录的 min/max）优先，
 //     基准用于跨库的先验分档
 package search
@@ -139,6 +139,20 @@ var registry = map[string]FieldBench{
 	"cod-code-test-file":      {Desc: "测试文件判定（文件名模式）", Bench: "eq true 圈测试"},
 	"cod-code-license":        {Desc: "许可证识别（前 10 行）", Bench: "eq MIT/Apache-2.0/GPL-3.0…"},
 	"cod-code-exported-names": {Desc: "前 10 导出符号（go 大写 / python 公开）", Bench: "in 找 API 面"},
+
+	// —— JMComic 来源字段（sp-cod-jm-*）——
+	"sp-cod-jm-id":            {Desc: "JMComic 本子/单章编号", Bench: "eq 精确找指定 JM 内容"},
+	"sp-cod-jm-type":          {Desc: "JM 对象类型", Bench: "取值 album/photo；eq 区分整本与单章"},
+	"sp-cod-jm-title":         {Desc: "JM 来源标题", Bench: "contains 按标题片段找本子"},
+	"sp-cod-jm-author":        {Desc: "JM 作者（多值）", Bench: "eq/in 找指定作者"},
+	"sp-cod-jm-tags":          {Desc: "JM 题材标签（多值）", Bench: "eq/in 找含某题材的下载文件"},
+	"sp-cod-jm-actors":        {Desc: "JM 演员/角色标签（多值）", Bench: "eq/in 找指定角色"},
+	"sp-cod-jm-works":         {Desc: "JM 作品分类（多值）", Bench: "eq/in 找指定作品分类"},
+	"sp-cod-jm-page_count":    {Desc: "JM 页数", Bench: "gt/range 按篇幅筛选"},
+	"sp-cod-jm-episode_count": {Desc: "JM 分集数", Bench: "gt/range 找多话本"},
+	"sp-cod-jm-episode-ids":   {Desc: "JM 分集编号（多值）", Bench: "eq/in 找包含某一话的本子"},
+	"sp-cod-jm-pub_date":      {Desc: "JM 发布日期（来源字符串）", Bench: "contains 按年份或日期片段筛选"},
+	"sp-cod-jm-update_date":   {Desc: "JM 更新时间（来源字符串）", Bench: "contains 按年份或日期片段筛选"},
 
 	// —— llm 轨（受控词表，仅经过 LLM 描述的文件才有）——
 	"llm-semantic-type": {Desc: "模糊类型（模型判定的受控词表）", Bench: "取值 novel/game_guide/technical_doc/note/log/meme/illustration/photo/screenshot/code_artifact/data/other"},

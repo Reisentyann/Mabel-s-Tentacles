@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/core/executor.go —— 统一执行器：盘上读 → describer.Analyze → 读旧合并 → 顶层列推导 → 单次 Upsert → 喂索引
-// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
 
 package core
 
@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -105,6 +106,7 @@ func (o *Orchestrator) execute(ctx context.Context, ev Event) (*Report, error) {
 
 	// 读-改-写：整族合并 cod-*，保留 llm-* / sp-llm-*（旧值已前置读取）
 	merged := describer.MergeResults(old, results, time.Now())
+	mergeSourceAttributes(merged, ev.Agent)
 
 	// 顶层列 + agent 顺带字段 → 单次 Upsert（消灭 write_file 的双 upsert）。
 	// 归属打标（权限批次 2026-09-06）：仅创建语义（KindWrite）落 owner——
@@ -140,7 +142,11 @@ func (o *Orchestrator) execute(ctx context.Context, ev Event) (*Report, error) {
 			upsert.Description = ev.Agent.Description
 		}
 		if ev.Agent.Tags != nil {
-			upsert.Tags = ev.Agent.Tags
+			if _, fromJM := ev.Agent.Attributes["sp-cod-jm-tags"]; fromJM {
+				upsert.Tags = mergeTags(meta.Tags, ev.Agent.Tags)
+			} else {
+				upsert.Tags = ev.Agent.Tags
+			}
 		}
 		if ev.Agent.FileType != nil {
 			upsert.FileType = ev.Agent.FileType
@@ -164,4 +170,52 @@ func (o *Orchestrator) execute(ctx context.Context, ev Event) (*Report, error) {
 		report.CodKeys += len(r.Attrs)
 	}
 	return report, nil
+}
+
+// mergeSourceAttributes 合并内部来源适配器提供的结构化事实。
+// 来源事实不是描述机固定 cod-* 结果，也不是模型 llm-* 结果，统一放在
+// sp-cod-jm-* 自由命名空间；重放同一事件时覆盖同名键，保证下载重试幂等。
+func mergeSourceAttributes(attrs map[string]any, agent *AgentMeta) {
+	if agent == nil {
+		return
+	}
+	hasJM := false
+	for key := range agent.Attributes {
+		if strings.HasPrefix(key, "sp-cod-jm-") {
+			hasJM = true
+			break
+		}
+	}
+	if !hasJM {
+		return
+	}
+	for key := range attrs {
+		if strings.HasPrefix(key, "sp-cod-jm-") {
+			delete(attrs, key)
+		}
+	}
+	for key, value := range agent.Attributes {
+		if strings.HasPrefix(key, "sp-cod-jm-") {
+			attrs[key] = value
+		}
+	}
+}
+
+func mergeTags(existing, incoming []string) []string {
+	seen := make(map[string]struct{}, len(existing)+len(incoming))
+	out := make([]string, 0, len(existing)+len(incoming))
+	for _, tags := range [][]string{existing, incoming} {
+		for _, tag := range tags {
+			tag = strings.TrimSpace(tag)
+			if tag == "" {
+				continue
+			}
+			if _, ok := seen[tag]; ok {
+				continue
+			}
+			seen[tag] = struct{}{}
+			out = append(out, tag)
+		}
+	}
+	return out
 }
