@@ -211,6 +211,63 @@ func (m *Manager) ImportInDirectory(ctx context.Context, parentUUID, name, sourc
 	return r, nil
 }
 
+func (m *Manager) CopyInDirectory(ctx context.Context, sourceUUID, parentUUID, name string) (*WriteReceipt, error) {
+	if _, ok := m.store.(interface{ AtomicDirectoryIntake() }); !ok {
+		return nil, fmt.Errorf("manager: atomic directory copy unavailable")
+	}
+	if err := validEntryName(name); err != nil {
+		return nil, err
+	}
+	ds, err := m.directoryStore()
+	if err != nil {
+		return nil, err
+	}
+	parent, err := ds.DirectoryByUUID(ctx, parentUUID)
+	if err != nil {
+		return nil, err
+	}
+	ref, err := m.Locate(ctx, sourceUUID)
+	if err != nil {
+		return nil, err
+	}
+	if ref.IsDeleted {
+		return nil, ErrDeleted
+	}
+	src, err := m.Read(ctx, sourceUUID, maxIntakeBytes+1)
+	if err != nil {
+		return nil, err
+	}
+	if len(src.Content) > maxIntakeBytes {
+		return nil, fmt.Errorf("directory copy exceeds content limit")
+	}
+	key, err := newDirectoryFilePath(parent, name)
+	if err != nil {
+		return nil, err
+	}
+	ctx = WithDirectoryIntake(ctx, parentUUID, name)
+	ctx = withDirectoryCopy(ctx, sourceUUID)
+	out, err := m.Write(ctx, key, string(src.Content))
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// WithDirectoryCopy 由入库事务按源 UUID 固定复制谱系。
+func WithDirectoryCopy(ctx context.Context, sourceUUID string) context.Context {
+	return withDirectoryCopy(ctx, sourceUUID)
+}
+
+type directoryCopyKey struct{}
+
+func withDirectoryCopy(ctx context.Context, sourceUUID string) context.Context {
+	return context.WithValue(ctx, directoryCopyKey{}, sourceUUID)
+}
+func DirectoryCopyFrom(ctx context.Context) (string, bool) {
+	v, ok := ctx.Value(directoryCopyKey{}).(string)
+	return v, ok
+}
+
 func (m *Manager) ListDirectory(ctx context.Context, uuid string) ([]DirectoryEntry, error) {
 	if _, err := m.LocateDirectory(ctx, uuid); err != nil {
 		return nil, err

@@ -32,7 +32,7 @@ func TestReserveMetaPostgres(t *testing.T) {
 	_, err = pool.Exec(ctx, `CREATE TEMP TABLE file_metadata (
 		file_path text UNIQUE NOT NULL, uuid uuid DEFAULT gen_random_uuid(),
 		missing_rounds integer DEFAULT 0, updated_at timestamptz DEFAULT now(),
-		is_deleted boolean DEFAULT false, checksum text, title text, owner_id text, visibility text default 'public', moved_from text, attributes jsonb DEFAULT '{}')`)
+		is_deleted boolean DEFAULT false, checksum text, title text, owner_id text, visibility text default 'public', moved_from text, copied_from text, attributes jsonb DEFAULT '{}')`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestReserveMetaPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := &pgxStore{pool: pool}
-	if _, err := pool.Exec(ctx, `CREATE TEMP TABLE move_operations(uuid uuid primary key,source_path text,target_path text,status text,updated_at timestamptz default now())`); err != nil {
+	if _, err := pool.Exec(ctx, `CREATE TEMP TABLE move_operations(uuid uuid primary key,source_path text,target_path text,status text,updated_at timestamptz default now(),parent_uuid uuid,display_name text default '',source_extension text default '',target_extension text default '')`); err != nil {
 		t.Fatal(err)
 	}
 	a := NewManagerStore(st)
@@ -186,5 +186,41 @@ func TestReserveMetaPostgres(t *testing.T) {
 	items, err = a.DirectoryEntries(ctx, dest.UUID)
 	if err != nil || len(items) != 1 || items[0].UUID != newID || items[0].Name != "moved.md" {
 		t.Fatalf("destination=%v err=%v", items, err)
+	}
+	if _, err := a.MoveUUID(ctx, newID, "~alice/uuid.bin", d.UUID, "display.bin"); err != nil {
+		t.Fatal(err)
+	}
+	moves, err = a.ListPendingMoves(ctx)
+	if err != nil || len(moves) != 1 || moves[0].ParentUUID != d.UUID || moves[0].Name != "display.bin" {
+		t.Fatalf("uuid moves=%v err=%v", moves, err)
+	}
+	items, err = a.DirectoryEntries(ctx, d.UUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range items {
+		if item.UUID == newID {
+			t.Fatal("pending move exposed")
+		}
+	}
+	if err := a.CompleteMove(ctx, newID, "~alice/uuid.bin"); err != nil {
+		t.Fatal(err)
+	}
+	copyCtx := manager.WithDirectoryCopy(manager.WithDirectoryIntake(ctx, dest.UUID, "copy.bin"), newID)
+	copyID, err := a.ReserveMeta(copyCtx, "~alice/dest/copy.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sourcePath, owner string
+	if err := pool.QueryRow(ctx, `SELECT copied_from,owner_id FROM file_metadata WHERE uuid=$1`, copyID).Scan(&sourcePath, &owner); err != nil || sourcePath != "~alice/uuid.bin" || owner != "alice" {
+		t.Fatalf("copy path=%s owner=%s err=%v", sourcePath, owner, err)
+	}
+	badCtx := manager.WithDirectoryCopy(manager.WithDirectoryIntake(ctx, dest.UUID, "bad.bin"), "00000000-0000-0000-0000-000000000000")
+	if _, err := a.ReserveMeta(badCtx, "~alice/dest/bad.bin"); err == nil {
+		t.Fatal("missing copy source accepted")
+	}
+	var remains bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM file_metadata WHERE file_path='~alice/dest/bad.bin')`).Scan(&remains); err != nil || remains {
+		t.Fatalf("failed copy reserved=%v err=%v", remains, err)
 	}
 }

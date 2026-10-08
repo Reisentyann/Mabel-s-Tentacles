@@ -524,6 +524,85 @@ func (m *Manager) Move(ctx context.Context, from, to string) (*MoveReceipt, erro
 	return &MoveReceipt{UUID: uuid, From: from, To: to, StorageMove: moved}, nil
 }
 
+// MoveByUUID 以对象身份移动文件；目标由目录 UUID 与新名称确定。
+func (m *Manager) MoveByUUID(ctx context.Context, uuid, parentUUID, name string) (*MoveReceipt, error) {
+	m.mutation.Lock()
+	defer m.mutation.Unlock()
+	if err := validEntryName(name); err != nil {
+		return nil, err
+	}
+	ds, err := m.directoryStore()
+	if err != nil {
+		return nil, err
+	}
+	parent, err := ds.DirectoryByUUID(ctx, parentUUID)
+	if err != nil {
+		return nil, err
+	}
+	ref, err := m.Locate(ctx, uuid)
+	if err != nil {
+		return nil, err
+	}
+	if ref.IsDeleted {
+		return nil, ErrDeleted
+	}
+	if err := m.requirePublished(ctx, uuid); err != nil {
+		return nil, err
+	}
+	target, err := newDirectoryFilePath(parent, name)
+	if err != nil {
+		return nil, err
+	}
+	if err := m.ensureFilePathAvailable(ctx, target); err != nil {
+		return nil, err
+	}
+	moveStore, ok := m.store.(UUIDMoveStore)
+	if !ok {
+		return nil, fmt.Errorf("manager: UUID move unavailable")
+	}
+	oldRel, err := StoragePathOf(uuid, ref.Path)
+	if err != nil {
+		return nil, err
+	}
+	newRel, err := StoragePathOf(uuid, target)
+	if err != nil {
+		return nil, err
+	}
+	moved := oldRel != newRel
+	if moved {
+		if _, ok := m.store.(MoveRecoveryStore); !ok {
+			return nil, fmt.Errorf("manager: recoverable extension move unavailable")
+		}
+		abs, err := m.storageAbs(uuid, ref.Path)
+		if err != nil {
+			return nil, err
+		}
+		info, err := os.Lstat(abs)
+		if err != nil {
+			return nil, err
+		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("move source is not regular")
+		}
+	}
+	if _, err := moveStore.MoveUUID(ctx, uuid, target, parentUUID, name); err != nil {
+		return nil, err
+	}
+	if moved {
+		if _, ok := m.store.(MoveRecoveryStore); !ok {
+			return nil, fmt.Errorf("manager: recoverable extension move unavailable")
+		}
+		if err := m.finishStorageMove(MoveOperation{UUID: uuid, From: ref.Path, To: target}); err != nil {
+			return nil, err
+		}
+		if err := m.store.(MoveRecoveryStore).CompleteMove(ctx, uuid, target); err != nil {
+			return nil, err
+		}
+	}
+	m.buf.drop(uuid)
+	return &MoveReceipt{UUID: uuid, From: ref.Path, To: target, StorageMove: moved}, nil
+}
+
 // LogicNode 逻辑树节点（与前端树视图结构同构：name/path/type/size/updated）。
 type LogicNode struct {
 	Name      string       `json:"name"`

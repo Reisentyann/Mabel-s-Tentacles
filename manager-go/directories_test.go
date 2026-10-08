@@ -21,6 +21,95 @@ type directoryTestStore struct {
 	links map[string][]manager.DirectoryEntry
 }
 
+type atomicDirectoryTestStore struct{ *directoryTestStore }
+
+func (s *atomicDirectoryTestStore) AtomicDirectoryIntake() {}
+func (s *atomicDirectoryTestStore) ReserveMeta(ctx context.Context, key string) (string, error) {
+	uuid, err := s.fakeStore.ReserveMeta(ctx, key)
+	if err != nil {
+		return "", err
+	}
+	if in, ok := manager.DirectoryIntakeFrom(ctx); ok {
+		s.links[in.ParentUUID] = append(s.links[in.ParentUUID], manager.DirectoryEntry{UUID: uuid, Name: in.Name, Kind: "file"})
+	}
+	if source, ok := manager.DirectoryCopyFrom(ctx); ok {
+		for _, row := range s.rows {
+			if row.UUID == source {
+				s.rows[key].CopiedFrom = row.Path
+				break
+			}
+		}
+	}
+	return uuid, nil
+}
+func (s *atomicDirectoryTestStore) MoveUUID(ctx context.Context, uuid, target, parent, name string) (string, error) {
+	var source string
+	for p, row := range s.rows {
+		if row.UUID == uuid {
+			source = p
+			break
+		}
+	}
+	if source == "" {
+		return "", manager.ErrNotFound
+	}
+	id, err := s.fakeStore.MoveMeta(ctx, source, target)
+	if err != nil {
+		return "", err
+	}
+	for p, items := range s.links {
+		keep := items[:0]
+		for _, item := range items {
+			if item.UUID != uuid {
+				keep = append(keep, item)
+			}
+		}
+		s.links[p] = keep
+	}
+	s.links[parent] = append(s.links[parent], manager.DirectoryEntry{UUID: uuid, Name: name, Kind: "file"})
+	return id, nil
+}
+
+func TestUUIDDirectoryMoveAndCopySameNames(t *testing.T) {
+	st := &atomicDirectoryTestStore{&directoryTestStore{fakeStore: newFakeStore(), links: map[string][]manager.DirectoryEntry{}}}
+	st.dirs["~alice"] = true
+	st.dirs["~alice/dest"] = true
+	m := manager.New(st, t.TempDir(), nil, nil, manager.DownloadConfig{})
+	ctx := context.Background()
+	a, err := m.WriteInDirectory(ctx, "~alice", "same.txt", "original")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := m.WriteInDirectory(ctx, "~alice/dest", "same.txt", "existing")
+	if err != nil {
+		t.Fatal(err)
+	}
+	copy, err := m.CopyInDirectory(ctx, a.UUID, "~alice/dest", "same.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if copy.UUID == a.UUID || st.rows[copy.LogicPath].CopiedFrom != a.LogicPath {
+		t.Fatalf("copy=%+v", copy)
+	}
+	move, err := m.MoveByUUID(ctx, a.UUID, "~alice/dest", "same.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if move.UUID != a.UUID {
+		t.Fatal("move changed identity")
+	}
+	for id, want := range map[string]string{a.UUID: "original", b.UUID: "existing", copy.UUID: "original"} {
+		f, err := m.Read(ctx, id, 0)
+		if err != nil || string(f.Content) != want {
+			t.Fatalf("id=%s content=%v err=%v", id, f, err)
+		}
+	}
+	items, err := m.ListDirectory(ctx, "~alice/dest")
+	if err != nil || len(items) != 3 {
+		t.Fatalf("items=%v err=%v", items, err)
+	}
+}
+
 func (s *directoryTestStore) AnalysisName(ctx context.Context, uuid string) (string, error) {
 	for _, items := range s.links {
 		for _, item := range items {

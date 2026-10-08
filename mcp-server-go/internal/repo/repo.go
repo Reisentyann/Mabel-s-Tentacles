@@ -94,6 +94,7 @@ type Store interface {
 	// 2026-09-08）：from 行键改 to + moved_from 记谱系，返回行 uuid。
 	// 无行/软删 → pgx.ErrNoRows；to 占用 → ErrKeyExists（UNIQUE 兜底并发）。
 	MoveMetadata(ctx context.Context, from, to string) (string, error)
+	MoveMetadataByUUID(context.Context, string, string, string, string) error
 
 	// 短链服务
 	CreateShortLink(ctx context.Context, code, filePath, uuid string, expiresAt time.Time) error
@@ -292,9 +293,14 @@ var migrations = []string{
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_intake_operations_pending ON intake_operations (status) WHERE status = 'reserved'`,
 	`CREATE TABLE IF NOT EXISTS move_operations (
-	 uuid UUID PRIMARY KEY, source_path TEXT NOT NULL, target_path TEXT NOT NULL,
-	 status TEXT NOT NULL CHECK(status IN ('pending','completed')), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		uuid UUID PRIMARY KEY, source_path TEXT NOT NULL, target_path TEXT NOT NULL,
+		parent_uuid UUID, display_name TEXT NOT NULL DEFAULT '', source_extension TEXT NOT NULL DEFAULT '', target_extension TEXT NOT NULL DEFAULT '',
+		status TEXT NOT NULL CHECK(status IN ('pending','completed')), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
+	`ALTER TABLE move_operations ADD COLUMN IF NOT EXISTS parent_uuid UUID`,
+	`ALTER TABLE move_operations ADD COLUMN IF NOT EXISTS display_name TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE move_operations ADD COLUMN IF NOT EXISTS source_extension TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE move_operations ADD COLUMN IF NOT EXISTS target_extension TEXT NOT NULL DEFAULT ''`,
 	`CREATE TABLE IF NOT EXISTS logical_directories (
 		file_path TEXT PRIMARY KEY, is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

@@ -172,6 +172,16 @@ func (a *ManagerStore) MoveMeta(ctx context.Context, from, to string) (string, e
 	return uuid, nil
 }
 
+func (a *ManagerStore) MoveUUID(ctx context.Context, uuid, target, parentUUID, name string) (string, error) {
+	if err := a.st.MoveMetadataByUUID(ctx, uuid, target, parentUUID, name); err != nil {
+		if errors.Is(err, ErrKeyExists) {
+			return "", manager.ErrKeyExists
+		}
+		return "", err
+	}
+	return uuid, nil
+}
+
 func (a *ManagerStore) SoftDeleteMeta(ctx context.Context, path string) error {
 	return a.st.SoftDeleteMetadata(ctx, path)
 }

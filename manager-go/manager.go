@@ -60,11 +60,15 @@ type IntakeOperation struct {
 	UUID      string
 }
 
-type MoveOperation struct{ UUID, From, To string }
+type MoveOperation struct{ UUID, From, To, ParentUUID, Name string }
 
 type MoveRecoveryStore interface {
 	ListPendingMoves(context.Context) ([]MoveOperation, error)
 	CompleteMove(context.Context, string, string) error
+}
+
+type UUIDMoveStore interface {
+	MoveUUID(context.Context, string, string, string, string) (string, error)
 }
 
 // Store manager 所需的最小存储面（依赖倒置，io.Reader 模式）：updater + fetch 域批次。

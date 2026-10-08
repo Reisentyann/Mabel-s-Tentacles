@@ -45,9 +45,9 @@ func (s *pgxStore) DirectoryEntries(ctx context.Context, id string) ([]manager.D
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.pool.Query(ctx, `SELECT d.file_uuid,d.name,'file' FROM directory_files d JOIN file_metadata f ON f.uuid=d.file_uuid WHERE d.parent_uuid=$1 AND starts_with(f.file_path,$2||'/') AND strpos(substr(f.file_path,length($2)+2),'/')=0 AND NOT f.is_deleted AND NOT EXISTS(SELECT 1 FROM intake_operations i WHERE i.uuid=f.uuid AND i.status='reserved')
+	rows, err := s.pool.Query(ctx, `SELECT d.file_uuid,d.name,'file' FROM directory_files d JOIN file_metadata f ON f.uuid=d.file_uuid WHERE d.parent_uuid=$1 AND starts_with(f.file_path,$2||'/') AND strpos(substr(f.file_path,length($2)+2),'/')=0 AND NOT f.is_deleted AND NOT EXISTS(SELECT 1 FROM move_operations m WHERE m.uuid=f.uuid AND m.status='pending') AND NOT EXISTS(SELECT 1 FROM intake_operations i WHERE i.uuid=f.uuid AND i.status='reserved')
 	 UNION ALL SELECT uuid,substr(file_path,length($2)+2),'dir' FROM logical_directories WHERE NOT is_deleted AND starts_with(file_path,$2||'/') AND strpos(substr(file_path,length($2)+2),'/')=0
-	 UNION ALL SELECT uuid,COALESCE((SELECT name FROM directory_files d WHERE d.file_uuid=f.uuid),substr(file_path,length($2)+2)),'file' FROM file_metadata f WHERE NOT is_deleted AND starts_with(file_path,$2||'/') AND strpos(substr(file_path,length($2)+2),'/')=0 AND NOT EXISTS(SELECT 1 FROM directory_files d WHERE d.file_uuid=f.uuid AND d.parent_uuid=$1) AND NOT EXISTS(SELECT 1 FROM intake_operations i WHERE i.uuid=f.uuid AND i.status='reserved')
+	 UNION ALL SELECT uuid,COALESCE((SELECT name FROM directory_files d WHERE d.file_uuid=f.uuid),substr(file_path,length($2)+2)),'file' FROM file_metadata f WHERE NOT is_deleted AND starts_with(file_path,$2||'/') AND strpos(substr(file_path,length($2)+2),'/')=0 AND NOT EXISTS(SELECT 1 FROM move_operations m WHERE m.uuid=f.uuid AND m.status='pending') AND NOT EXISTS(SELECT 1 FROM directory_files d WHERE d.file_uuid=f.uuid AND d.parent_uuid=$1) AND NOT EXISTS(SELECT 1 FROM intake_operations i WHERE i.uuid=f.uuid AND i.status='reserved')
 	 ORDER BY 3,2,1`, id, dir.Path)
 	if err != nil {
 		return nil, err

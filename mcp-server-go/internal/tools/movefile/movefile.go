@@ -1,13 +1,16 @@
 // 文件：mcp-server-go/internal/tools/movefile/movefile.go —— MCP 工具 move_file：逻辑键改（管理机 Move；文件管理域 2026-09-08）
-// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 package movefile
 
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"time"
 
+	manager "github.com/Reisentyann/Mabel-s-Tentacles/manager-go"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/authz"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
@@ -34,15 +37,59 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		mcp.WithString("target",
 			mcp.Description("Alias for target_path."),
 		),
+		mcp.WithString("file_uuid", mcp.Description("Preferred: source file UUID; when supplied, use directory_uuid and name instead of source_path/target_path.")),
+		mcp.WithString("directory_uuid", mcp.Description("Target parent directory UUID for a UUID-based move.")),
+		mcp.WithString("name", mcp.Description("New displayed filename for a UUID-based move.")),
 	)
 
 	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		source, target, err := tools.GetSourceTarget(req)
-		if err != nil {
-			return tools.ResultError("invalid parameters: " + err.Error()), nil
+		if deps.Manager == nil {
+			return tools.ResultError("manager not wired"), nil
 		}
-		if source == target {
-			return tools.ResultError("source and target must differ"), nil
+		fileUUID := req.GetString("file_uuid", "")
+		var source, target string
+		if fileUUID != "" {
+			dirID := req.GetString("directory_uuid", "")
+			name := req.GetString("name", "")
+			if dirID == "" || name == "" {
+				return tools.ResultError("file_uuid requires directory_uuid and name"), nil
+			}
+			if strings.ContainsAny(name, "/\\:") || name == "." || name == ".." {
+				return tools.ResultError("invalid entry name"), nil
+			}
+			p := tools.Principal(ctx)
+			if p == nil || deps.Store == nil {
+				return tools.ResultError("authenticated storage required"), nil
+			}
+			meta, err := deps.Store.GetMetadataByUUID(ctx, fileUUID)
+			if err != nil || meta == nil {
+				return tools.ResultError("source unavailable"), nil
+			}
+			if allowed, reason := authz.CanWrite(p, authz.ACLOf(meta.OwnerID, meta.Visibility, meta.GroupID)); !allowed {
+				return tools.Deny(ctx, "move_file", fileUUID, reason), nil
+			}
+			ref, err := deps.Manager.Locate(ctx, fileUUID)
+			if err != nil {
+				return tools.ResultError(err.Error()), nil
+			}
+			source = ref.Path
+			dir, err := deps.Manager.LocateDirectory(ctx, dirID)
+			if err != nil {
+				return tools.ResultError(err.Error()), nil
+			}
+			if !p.IsAdmin() && dir.Path != "~"+p.Name && !strings.HasPrefix(dir.Path, "~"+p.Name+"/") {
+				return tools.Deny(ctx, "move_file", dirID, "directory belongs to another user"), nil
+			}
+			target = dir.Path + "/" + name
+		} else {
+			var err error
+			source, target, err = tools.GetSourceTarget(req)
+			if err != nil {
+				return tools.ResultError("invalid parameters: " + err.Error()), nil
+			}
+			if source == target {
+				return tools.ResultError("source and target must differ"), nil
+			}
 		}
 
 		sessionID := tools.SessionID(ctx)
@@ -70,12 +117,15 @@ func register(s *server.MCPServer, deps tools.Deps) {
 
 		// 键改走管理机（intake 域 Move：uuid 不变零重分析，ext 变则物理位
 		// 随派生规则 rename；谱系 moved_from 记原键）
-		if deps.Manager == nil {
-			return tools.ResultError("manager not wired"), nil
+		var receipt *manager.MoveReceipt
+		var err error
+		if fileUUID != "" {
+			receipt, err = deps.Manager.MoveByUUID(ctx, fileUUID, req.GetString("directory_uuid", ""), req.GetString("name", ""))
+		} else {
+			receipt, err = deps.Manager.Move(ctx, src, dst)
 		}
-		receipt, err := deps.Manager.Move(ctx, src, dst)
 		if err != nil {
-			slog.Error("move_file failed", "from", src, "to", dst, "session", sessionID, "error", err, "duration", time.Since(start).String())
+			slog.Error("move_file failed", "tool", "move_file", "user", tools.Actor(ctx).Name, "from", src, "to", dst, "session", sessionID, "error", err, "duration", time.Since(start).String())
 			tools.RecordOperation(ctx, deps.Store, sessionID, "move_file", src, "failed", err.Error(), params)
 			return tools.ResultError(err.Error()), nil
 		}
@@ -84,13 +134,13 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		if deps.Orch != nil {
 			deps.Orch.Submit(core.Event{
 				Kind:      core.KindMove,
-				Path:      dst,
+				Path:      receipt.To,
 				SessionID: sessionID,
 				Actor:     tools.Actor(ctx),
 			})
 		}
 
-		slog.Info("move_file ok", "from", src, "to", dst, "uuid", receipt.UUID, "storage_move", receipt.StorageMove, "session", sessionID, "duration", time.Since(start).String())
+		slog.Info("move_file ok", "tool", "move_file", "user", tools.Actor(ctx).Name, "from", receipt.From, "to", receipt.To, "uuid", receipt.UUID, "storage_move", receipt.StorageMove, "session", sessionID, "duration", time.Since(start).String())
 		tools.RecordOperation(ctx, deps.Store, sessionID, "move_file", dst, "success", "", params)
 		return tools.Result(map[string]any{
 			"success":      true,
