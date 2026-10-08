@@ -1,5 +1,5 @@
 // 文件：manager-go/manager.go —— 管理机门面：文件位置与谱系的唯一知情者（架构设计.md 第 4 节）
-// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 // Package manager 是文件生命周期的编排层与信息权威（docs/架构设计.md 第 4 节）：
 // 文件在哪（位置）、文件之间的关系（谱系）只有它知道，其他组件一律问它，
@@ -28,17 +28,18 @@ import (
 // （2026-09-08：物理路径 uuid 派生需要 UUID；逻辑树需要计量列；
 // 软删照报语义需要 IsDeleted）。
 type MetaRow struct {
-	Path       string          // 逻辑路径（元数据唯一键，agent 寻址语言）
-	UUID       string          // 组件货币（物理路径派生源）
-	Scope      string          // 分区：global / user / game（逻辑口回执用）
-	MimeType   string          // 摘要 MIME（逻辑口回执用）
-	Checksum   string          // 顶层列 checksum（空 = 无 / 未算）
-	Attributes json.RawMessage // cod / llm / sp 全量属性
-	IsDeleted  bool            // 软删标记（fetch 语义：照报位置、拒取内容）
-	SizeBytes  int64           // 逻辑树视图计量
-	UpdatedAt  time.Time       // 逻辑树视图计量
-	MovedFrom  string          // 谱系：最近一次移动的原键（空 = 从未移动）
-	CopiedFrom string          // 谱系：复制来源逻辑路径（空 = 非副本）
+	Path          string          // 逻辑路径（元数据唯一键，agent 寻址语言）
+	UUID          string          // 组件货币（物理路径派生源）
+	Scope         string          // 分区：global / user / game（逻辑口回执用）
+	MimeType      string          // 摘要 MIME（逻辑口回执用）
+	Checksum      string          // 顶层列 checksum（空 = 无 / 未算）
+	Attributes    json.RawMessage // cod / llm / sp 全量属性
+	IsDeleted     bool            // 软删标记（fetch 语义：照报位置、拒取内容）
+	MissingRounds int             // 盘上连续缺失轮次（updater 幽灵存续状态）
+	SizeBytes     int64           // 逻辑树视图计量
+	UpdatedAt     time.Time       // 逻辑树视图计量
+	MovedFrom     string          // 谱系：最近一次移动的原键（空 = 从未移动）
+	CopiedFrom    string          // 谱系：复制来源逻辑路径（空 = 非副本）
 }
 
 // MetaRecord updater 域的元数据写视图：T2/T3 重分析后的落库载荷。
@@ -61,6 +62,8 @@ type Store interface {
 	// ListMetaPage 按 Path 升序的游标分页：sincePath 之后（不含）limit 条，
 	// 不含软删。T2 回填的扫描入口，可中断续跑。
 	ListMetaPage(ctx context.Context, sincePath string, limit int) ([]MetaRow, error)
+	// ListMetaPageAll 与 ListMetaPage 相同，但包含软删除行，供 audit 只读对账。
+	ListMetaPageAll(ctx context.Context, sincePath string, limit int) ([]MetaRow, error)
 	// GetMeta 读单文件元数据（读-改-写的旧值侧）；无行返回 (nil, nil)。
 	GetMeta(ctx context.Context, path string) (*MetaRow, error)
 	// UpsertMeta 写回重分析结果，返回该行 uuid（组件间货币，索引挂载键）。

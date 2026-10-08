@@ -1,5 +1,5 @@
 // 文件：describer-go/code/code.go —— cod-code 插件：源码语言 / import 提取 / TODO / 生成标记 / 包名 / 函数数 / 注释率 / 测试文件 / 许可证 / 导出名
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 // Package code cod-code 插件：源码文件的确定性事实。
 // 字段字典见 docs/元数据字段说明.md 第 4.4 节。
@@ -31,7 +31,8 @@ func (descriptor) Family() string { return "code" }
 // FamilyVersion=2：v1 首发（lang/imports/todo-count）；
 // v2 增补 P2 字段 7 个（字段字典 4.4 节）：generated/package/func-count/
 // comment-ratio/test-file/license/exported-names。
-func (descriptor) FamilyVersion() int     { return 2 }
+// v3：Go AST 提取环境变量名与包含未导出名称的顶层声明。
+func (descriptor) FamilyVersion() int     { return 3 }
 func (descriptor) SPNamespaces() []string { return nil }
 func (descriptor) Supports(path string, _ []byte, b describer.Basic) bool {
 	if !b.Textish {
@@ -93,6 +94,9 @@ func (descriptor) Analyze(in describer.Input, full []byte) (map[string]any, map[
 	}
 	if names := exportedNames(lang, src); len(names) > 0 {
 		a["cod-code-exported-names"] = names
+	}
+	if lang == "go" && in.Size <= int64(len(full)) {
+		goContentFacts(full, a)
 	}
 	return a, nil
 }

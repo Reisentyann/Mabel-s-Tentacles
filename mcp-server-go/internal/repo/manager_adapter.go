@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/repo/manager_adapter.go —— manager.Store 适配器：repo 存取 → manager 最小面（DTO 转换 + 顶层列推导归装配侧）
-// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 package repo
 
@@ -31,6 +31,18 @@ func NewManagerStore(st Store) *ManagerStore {
 
 func (a *ManagerStore) ListMetaPage(ctx context.Context, sincePath string, limit int) ([]manager.MetaRow, error) {
 	items, err := a.st.ListMetadataPage(ctx, sincePath, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]manager.MetaRow, 0, len(items))
+	for i := range items {
+		out = append(out, toMetaRow(&items[i]))
+	}
+	return out, nil
+}
+
+func (a *ManagerStore) ListMetaPageAll(ctx context.Context, sincePath string, limit int) ([]manager.MetaRow, error) {
+	items, err := a.st.ListMetadataPageAll(ctx, sincePath, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -157,16 +169,17 @@ func toFileRef(m *FileMetadata) *manager.FileRef {
 
 func toMetaRow(m *FileMetadata) manager.MetaRow {
 	return manager.MetaRow{
-		Path:       m.FilePath,
-		UUID:       m.UUID,
-		Scope:      m.Scope,
-		MimeType:   common.DerefStr(m.MimeType),
-		Checksum:   common.DerefStr(m.Checksum),
-		Attributes: m.Attributes,
-		IsDeleted:  m.IsDeleted,
-		SizeBytes:  common.DerefInt64(m.SizeBytes),
-		UpdatedAt:  m.UpdatedAt,
-		MovedFrom:  common.DerefStr(m.MovedFrom),
-		CopiedFrom: common.DerefStr(m.CopiedFrom),
+		Path:          m.FilePath,
+		UUID:          m.UUID,
+		Scope:         m.Scope,
+		MimeType:      common.DerefStr(m.MimeType),
+		Checksum:      common.DerefStr(m.Checksum),
+		Attributes:    m.Attributes,
+		IsDeleted:     m.IsDeleted,
+		MissingRounds: m.MissingRounds,
+		SizeBytes:     common.DerefInt64(m.SizeBytes),
+		UpdatedAt:     m.UpdatedAt,
+		MovedFrom:     common.DerefStr(m.MovedFrom),
+		CopiedFrom:    common.DerefStr(m.CopiedFrom),
 	}
 }

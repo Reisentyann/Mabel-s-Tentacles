@@ -1,5 +1,5 @@
 // 文件：describer-go/text/text.go —— cod-text 插件主编排：建 ctx + 遍历 extractor 注册表（加字段不碰这里）
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 // Package text cod-text 插件：文本统计事实（无语义）。
 // 字段字典见 docs/元数据字段说明.md 第 4.3 节。
@@ -31,7 +31,8 @@ func (descriptor) Family() string { return "text" }
 // trailing-space-lines/consecutive-blank-max/indent-style、
 // longest-line/minified/timestamp-line-ratio/bracket-balance。
 // 存量 cod-text-ver<4 由回填重算。
-func (descriptor) FamilyVersion() int { return 4 }
+// v5 新增四个内容定位字段及列表截断、部分读取标记。
+func (descriptor) FamilyVersion() int { return 5 }
 
 func (descriptor) SPNamespaces() []string { return nil }
 func (descriptor) Supports(_ string, _ []byte, b describer.Basic) bool {
@@ -46,6 +47,7 @@ func (descriptor) Analyze(in describer.Input, full []byte) (map[string]any, map[
 	}
 	ctx := buildCtx(full)
 	a := map[string]any{}
+	a["cod-text-partial"] = in.Size > int64(len(full))
 	for _, e := range extractors {
 		if e.needs != nil && !e.needs(ctx) {
 			continue

@@ -1,5 +1,5 @@
 // 文件：chaos-go/jmcomic/jmcomic.go —— 混沌机组件·JMComic：调用 Python API/CLI 查询详情与下载本子
-// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 // Package jmcomic 是混沌机的 JMComic 娱乐/下载组件：功能名 `jm_comic`。
 //
@@ -28,9 +28,31 @@ import (
 // 无法编码会导致脚本崩溃、stdout 乱码（2026-09-21 本地实测修复）。
 const resultMarker = "##JMRESULT##"
 
-// pythonEnv 子进程环境：强制 UTF-8 输入输出（管道默认跟随系统 locale）。
+// pythonEnv 子进程环境：强制 UTF-8 输入输出（管道默认跟随系统 locale），
+// 并把 JM_PROXY 传给 Python。代理只来自服务端环境，不从 MCP 参数接收，
+// 避免调用方把任意内网地址当作代理探测入口。
 func pythonEnv() []string {
-	return append(os.Environ(), "PYTHONUTF8=1", "PYTHONIOENCODING=utf-8")
+	env := os.Environ()
+	proxy := strings.TrimSpace(os.Getenv("JM_PROXY"))
+	if proxy != "" {
+		filtered := make([]string, 0, len(env)+5)
+		for _, item := range env {
+			key, _, _ := strings.Cut(item, "=")
+			switch key {
+			case "JM_PROXY", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY":
+				continue
+			}
+			filtered = append(filtered, item)
+		}
+		env = filtered
+		env = append(env,
+			"JM_PROXY="+proxy,
+			"HTTP_PROXY="+proxy,
+			"HTTPS_PROXY="+proxy,
+			"ALL_PROXY="+proxy,
+		)
+	}
+	return append(env, "PYTHONUTF8=1", "PYTHONIOENCODING=utf-8")
 }
 
 // extractResult 从子进程 stdout 按行扫描标记行并解析结果 JSON。
@@ -152,6 +174,9 @@ option_path = sys.argv[2] if len(sys.argv) > 2 and sys.argv[2] else None
 
 try:
     option = jmcomic.create_option_by_file(option_path) if option_path else jmcomic.JmModuleConfig.option_class().default()
+    proxy = os.environ.get("JM_PROXY", "").strip()
+    if proxy:
+        option.client.postman.meta_data["proxies"] = {"http": proxy, "https": proxy}
     client = option.build_jm_client()
     album_id = jmcomic.JmcomicText.parse_to_jm_id(raw_id)
     album = client.get_album_detail(album_id)
@@ -274,6 +299,10 @@ try:
         option = jmcomic.create_option_by_file(option_path)
     else:
         option = jmcomic.JmModuleConfig.option_class().default()
+
+    proxy = os.environ.get("JM_PROXY", "").strip()
+    if proxy:
+        option.client.postman.meta_data["proxies"] = {"http": proxy, "https": proxy}
 
     if target_dir:
         option.dir_rule.base_dir = target_dir

@@ -1,5 +1,5 @@
 // 文件：describer-go/text/ctx.go —— textCtx 共享上下文：解码/分行/切 rune 一次构造 + Quant/FP 惰性预计算
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 // Package text 内的 ctx.go 定义文本分析的共享上下文。
 // 字段字典见 docs/元数据字段说明.md 第 4.3 节。
@@ -22,6 +22,7 @@ import (
 // 结构量化与行文指纹两组计数各自只在首次访问时遍历一次。
 // 这是 cod-text 家族"共享一次全量加载"的落地点。
 type textCtx struct {
+	content   map[string]*contentList
 	decoded   string       // 解码后的 UTF-8 文本
 	encoding  string       // utf-8 / gbk / latin-1
 	lines     []string     // 按 \n 分行（\r 保留，由 extractor 自行 TrimRight）

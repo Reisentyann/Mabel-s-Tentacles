@@ -1,5 +1,5 @@
 // 文件：manager-go/updater_test.go —— updater 域 L1：T3 执行器（路由/合并/穿越/喂食）+ T2 陈旧四条件 + 幽灵软删 + batch 上限
-// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 package manager_test
 
@@ -67,6 +67,10 @@ func (s *fakeStore) GetMeta(ctx context.Context, path string) (*manager.MetaRow,
 		return &cp, nil
 	}
 	return nil, nil
+}
+
+func (s *fakeStore) ListMetaPageAll(ctx context.Context, since string, limit int) ([]manager.MetaRow, error) {
+	return s.ListMetaPage(ctx, since, limit)
 }
 
 func (s *fakeStore) UpsertMeta(ctx context.Context, rec manager.MetaRecord) (string, error) {

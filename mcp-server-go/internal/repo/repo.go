@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/repo/repo.go —— 数据访问接口 Store + pgx 连接池实现（可 mock）
-// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 package repo
 
@@ -69,6 +69,7 @@ type Store interface {
 	// ListMetadataPage 按 file_path 升序的游标分页（sincePath 之后 limit 条，
 	// 不含软删）——manager updater T2 回填扫描用。
 	ListMetadataPage(ctx context.Context, sincePath string, limit int) ([]FileMetadata, error)
+	ListMetadataPageAll(ctx context.Context, sincePath string, limit int) ([]FileMetadata, error)
 	// MarkMissingRound 盘上缺失计数 +1 并返回累计轮次（连续 3 轮触发软删除，
 	// manager updater 的幽灵存续状态；Upsert 即文件存在证据，会清零）。
 	MarkMissingRound(ctx context.Context, filePath string) (rounds int, err error)

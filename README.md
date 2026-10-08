@@ -41,6 +41,7 @@
 | `search_files` | 按字段条件找文件（等于 / 在集合里 / 大于小于 / 区间 / 包含 / 有没有），多个条件默认"且"，要"或 / 非 / 分组"也能写 |
 | `describe_file` | 给文件写描述、标签（机器算出来的字段不许动，只有描述区开放） |
 | `analyze_file` | 让系统把文件重新读一遍、刷新描述字段（比如 agent 绕过系统直接改了文件之后） |
+| `audit_files` | 管理员只读盘库对账：报告孤儿文件、幽灵元数据及重复 checksum，不改文件或缺失计数 |
 | `execute_command` / `get_command_history` | 执行 Shell 命令（60s 超时）/ 查询历史执行结果（入参免填 user_id，自动绑定上下文） |
 | `mabel_quote` | 让梅贝尔说随机台词（1–5 段，混沌机娱乐功能），附带人设语气指导 `style_guidance`，便于 agent 沉浸式陪聊 |
 | `pseudo_random` | 伪随机机：给随机整数（快、本地、娱乐用，别拿来搞密码） |

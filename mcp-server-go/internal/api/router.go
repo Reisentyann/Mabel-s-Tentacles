@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/api/router.go —— HTTP API 路由装配：公共路由 + JWT 保护路由 + Server 结构
-// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 package api
 
@@ -59,6 +59,7 @@ func Register(mux *http.ServeMux, cfg *config.Config, st repo.Store, orch *core.
 
 	// admin 专属（权限批次 2026-09-06）：全库扫描与账号/组/钥匙管理
 	mux.Handle("POST /api/files/backfill", s.requireAdmin(http.HandlerFunc(s.backfillFile)))
+	mux.Handle("GET /api/admin/audit", s.requireAdmin(http.HandlerFunc(s.auditFiles)))
 	mux.Handle("GET /api/admin/users", s.requireAdmin(http.HandlerFunc(s.listUsers)))
 	mux.Handle("PUT /api/admin/users/{username}/active", s.requireAdmin(http.HandlerFunc(s.setUserActive)))
 	mux.Handle("POST /api/admin/groups", s.requireAdmin(http.HandlerFunc(s.createGroup)))

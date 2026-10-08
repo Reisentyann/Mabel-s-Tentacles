@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/search/bench.go —— 检索字段基准注册表：每字段一句含义 + 分档基准（自然语言 → 查询值的翻译表）
-// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 // Package search 的基准面：agent 拿到字段目录（list_index_fields /
 // GET /api/index/fields）时只知道"有哪些字段、什么桶型、当前取值"，
@@ -25,6 +25,19 @@ type FieldBench struct {
 
 // registry 字段基准表。键 = attributes 里的字段名。
 var registry = map[string]FieldBench{
+	"cod-text-link-domains-truncated":     {Desc: "链接主机列表因预算省略项目", Bench: "eq true 表示列表不完整"},
+	"cod-text-code-languages-truncated":   {Desc: "围栏语言列表因预算省略项目", Bench: "eq true 表示列表不完整"},
+	"cod-text-section-paths-truncated":    {Desc: "章节路径列表因预算省略项目", Bench: "eq true 表示列表不完整"},
+	"cod-text-table-headers-truncated":    {Desc: "表头列表因预算省略项目", Bench: "eq true 表示列表不完整"},
+	"cod-code-env-vars-truncated":         {Desc: "Go 环境变量列表因预算省略项目", Bench: "eq true 表示列表不完整"},
+	"cod-code-declared-symbols-truncated": {Desc: "Go 声明符号列表因预算省略项目", Bench: "eq true 表示列表不完整"},
+	"cod-text-link-domains":               {Desc: "原文 HTTP(S) 链接主机名，小写去重前30项", Bench: "eq/in 匹配网站主机名，不包含协议或路径"},
+	"cod-text-code-languages":             {Desc: "Markdown 围栏声明的语言标记，小写去重前30项", Bench: "eq/in 匹配 go/sql 等原始标记，不推断别名"},
+	"cod-text-section-paths":              {Desc: "Markdown ATX 标题层级路径，排除代码围栏，前30项", Bench: "eq 精确路径；contains 查章节名称"},
+	"cod-text-table-headers":              {Desc: "合法 Markdown 管道表格的表头单元格，去重前30项", Bench: "eq/in 匹配栏目名，如角色、阵营"},
+	"cod-code-env-vars":                   {Desc: "Go AST 静态识别的 os.Getenv/LookupEnv 字面量参数，前30项", Bench: "eq/in 匹配环境变量名；动态表达式不产"},
+	"cod-code-declared-symbols":           {Desc: "Go 顶层声明与 Type.Method 方法名，含未导出符号，前30项", Bench: "eq/in 按符号名称找源码；局部变量不产"},
+	"cod-text-partial":                    {Desc: "文本只读取了部分字节", Bench: "true 时结果不代表全文；未命中不等于全文不存在"},
 	// —— cod-basic（一切文件）——
 	"cod-basic-mime":         {Desc: "魔数嗅探的真实 MIME（读文件头 512B，不看扩展名）", Bench: "eq 精确匹配（image/png、text/plain…）；扩展名可疑时以它为准"},
 	"cod-basic-mime-match":   {Desc: "内容 MIME 与扩展名推断是否一致；false = 扩展名伪造嫌疑", Bench: "eq false 圈可疑伪装文件"},

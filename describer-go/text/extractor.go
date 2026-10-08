@@ -1,5 +1,5 @@
 // 文件：describer-go/text/extractor.go —— cod-text 字段注册表：一个字段一个 extractor，注册序即产出序
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 // Package text 内的 extractor.go 定义字段注册表：一个字段一个 extractor，
 // 注册序即产出序（确定）。加字段不动 text.go 主编排，只动本文件 + 对应分类文件。
@@ -31,6 +31,14 @@ type extractor struct {
 // extractors 是 cod-text 家族的字段注册表。
 // 按分类分块，加新字段在对应块末尾追加一行即可。
 var extractors = []extractor{
+	{name: "link-domains", extract: contentExtract("link-domains")},
+	{name: "link-domains-truncated", extract: contentTruncated("link-domains")},
+	{name: "code-languages", extract: contentExtract("code-languages")},
+	{name: "code-languages-truncated", extract: contentTruncated("code-languages")},
+	{name: "section-paths", extract: contentExtract("section-paths")},
+	{name: "section-paths-truncated", extract: contentTruncated("section-paths")},
+	{name: "table-headers", extract: contentExtract("table-headers")},
+	{name: "table-headers-truncated", extract: contentTruncated("table-headers")},
 	// —— 基础统计（stats.go，4.3.1）——
 	{name: "encoding", extract: extractEncoding},
 	{name: "lines", extract: extractLines},

@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/repo/metadata.go —— file_metadata 表存取：模型 / Upsert(COALESCE 返回 uuid) / 搜索 / 分页扫描 / 缺失计数 / 软删
-// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 package repo
 
@@ -379,13 +379,26 @@ func (s *pgxStore) IncrementDownloadCount(ctx context.Context, filePath string) 
 // limit 条未软删元数据。sincePath 传空串从头开始。T2 回填的扫描入口——
 // 游标分页可中断续跑，深分页无 OFFSET 性能悬崖。
 func (s *pgxStore) ListMetadataPage(ctx context.Context, sincePath string, limit int) ([]FileMetadata, error) {
+	return s.listMetadataPage(ctx, sincePath, limit, false)
+}
+
+// ListMetadataPageAll 与回填分页相同，但包含软删除行，供管理机 audit 只读对账。
+func (s *pgxStore) ListMetadataPageAll(ctx context.Context, sincePath string, limit int) ([]FileMetadata, error) {
+	return s.listMetadataPage(ctx, sincePath, limit, true)
+}
+
+func (s *pgxStore) listMetadataPage(ctx context.Context, sincePath string, limit int, includeDeleted bool) ([]FileMetadata, error) {
 	if limit <= 0 {
 		limit = 100
 	}
+	where := "is_deleted = FALSE AND"
+	if includeDeleted {
+		where = ""
+	}
 	rows, err := s.pool.Query(ctx,
 		`SELECT `+metaColumns+` FROM file_metadata
-		 WHERE is_deleted = FALSE AND file_path > $1
-		 ORDER BY file_path ASC LIMIT $2`, sincePath, limit)
+			 WHERE `+where+` file_path > $1
+			 ORDER BY file_path ASC LIMIT $2`, sincePath, limit)
 	if err != nil {
 		return nil, err
 	}
