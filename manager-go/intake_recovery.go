@@ -20,6 +20,8 @@ type IntakeOperation struct {
 // RecoverPendingIntakes 确认已完整落盘的普通文件，归档其他未完成占位。
 // 必须在启动接收请求和扫描之前执行。
 func (m *Manager) RecoverPendingIntakes(ctx context.Context) (completed, archived int, err error) {
+	m.intake.Lock()
+	defer m.intake.Unlock()
 	items, err := m.store.ListPendingIntakes(ctx)
 	if err != nil {
 		return 0, 0, fmt.Errorf("list pending intakes: %w", err)

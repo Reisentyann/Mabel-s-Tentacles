@@ -15,7 +15,8 @@ type IndexSink interface {
 
 // Manager 协调文件内容和元数据。通过 New 构造，首次使用后不可复制。
 type Manager struct {
-	mutation sync.Mutex // 单实例修改与移动串行。
+	intake   sync.RWMutex // 入库持读锁；清理执行持写锁等待在途发布。
+	mutation sync.Mutex   // 单实例修改与移动串行。
 	store    Store
 	dataDir  string                   // 文件系统根（updater 读盘 / placement 改名）
 	sink     IndexSink                // 索引喂食钩子（可空：索引机批次前为 nil）

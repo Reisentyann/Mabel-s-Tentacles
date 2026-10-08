@@ -96,6 +96,8 @@ func (m *Manager) ImportFile(ctx context.Context, logicPath, sourcePath string) 
 // 发布前失败归档占位；发布后确认失败保留 pending，供启动恢复。
 // 来源校验和各入口的逻辑路径占用规则由调用方执行。
 func (m *Manager) storeNewFile(ctx context.Context, logicPath string, size int64, publish func(string) error) (_ *WriteReceipt, resultErr error) {
+	m.intake.RLock()
+	defer m.intake.RUnlock()
 	uuid, err := m.store.ReserveMeta(ctx, logicPath)
 	if err != nil {
 		return nil, fmt.Errorf("reserve meta: %w", err)
