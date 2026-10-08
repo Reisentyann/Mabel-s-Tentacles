@@ -2,10 +2,10 @@
   <div class="login-page">
     <form class="login-card" @submit.prevent="handleLogin">
       <div class="brand">
-        <span class="mark">🐙</span>
+        <span class="mark">M</span>
         <h1>Mabel's Tentacles</h1>
       </div>
-      <p class="subtitle">触手书房 · 管理员入口</p>
+      <p class="subtitle">管理控制台 · 登录</p>
 
       <label class="field">
         <span>账号</span>
@@ -23,12 +23,12 @@
       </label>
 
       <button class="submit" type="submit" :disabled="loading">
-        {{ loading ? '进入书房…' : '进入管理台' }}
+        {{ loading ? '登录中…' : '登录' }}
       </button>
 
       <p v-if="error" class="error">{{ error }}</p>
 
-      <p class="hint">本系统是 MCP 服务器，对接自有 agent；管理面仅限管理员（.env 种子账号），不开放注册。</p>
+      <p class="hint">请使用管理员账号登录。</p>
     </form>
   </div>
 </template>
@@ -73,13 +73,10 @@ const handleLogin = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background:
-    radial-gradient(ellipse at 30% 20%, #241f31 0%, transparent 55%),
-    radial-gradient(ellipse at 75% 80%, #1f2a2e 0%, transparent 50%),
-    var(--mabel-bg);
+    background: var(--mabel-bg);
 }
 .login-card {
-  width: 340px;
+  width: min(400px, calc(100vw - 32px));
   padding: 32px 28px;
   background-color: var(--mabel-surface);
   border: 1px solid var(--mabel-border);
@@ -94,7 +91,15 @@ const handleLogin = async () => {
   gap: 10px;
 }
 .mark {
-  font-size: 1.6rem;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
+  background: var(--el-color-primary);
+  color: white;
+  font-size: 1.1rem;
+  font-weight: 600;
 }
 h1 {
   font-size: 1.15rem;
@@ -128,7 +133,7 @@ h1 {
   border: none;
   border-radius: 8px;
   background-color: var(--el-color-primary);
-  color: #16121f;
+  color: #ffffff;
   font-weight: 700;
   cursor: pointer;
 }

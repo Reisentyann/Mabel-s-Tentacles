@@ -2,22 +2,22 @@
   <div class="app-layout">
     <header class="navbar">
       <router-link to="/manage" class="brand">
-        <span class="brand-mark">🐙</span>
+        <span class="brand-mark">M</span>
         <span>Mabel's Tentacles</span>
-        <span class="brand-sub">触手书房</span>
+        <span class="brand-sub">管理控制台</span>
       </router-link>
       <nav class="nav-links">
         <router-link to="/manage" class="nav-link" active-class="active">
-          <span>📁 文件工作区</span>
+          <span>文件管理</span>
         </router-link>
         <router-link to="/operations" class="nav-link" active-class="active">
-          <span>📜 调用日志</span>
+          <span>调用日志</span>
         </router-link>
       </nav>
       <div class="flex-fill"></div>
       <div v-if="auth.username" class="user-box">
         <el-tag size="small" type="info" effect="plain">{{ auth.username }}</el-tag>
-        <el-button size="small" text @click="handleLogout">登出</el-button>
+        <el-button size="small" text @click="handleLogout">退出登录</el-button>
       </div>
     </header>
     <main class="content">
@@ -66,7 +66,14 @@ const handleLogout = async () => {
   text-decoration: none;
 }
 .brand-mark {
-  font-size: 1.2rem;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: white;
+  background: var(--el-color-primary);
+  font-size: 1rem;
 }
 .brand-sub {
   font-size: 0.78rem;
@@ -96,10 +103,9 @@ const handleLogout = async () => {
   background: var(--mabel-surface-2);
 }
 .nav-link.active {
-  color: #fff;
+  color: var(--el-color-primary);
   background: var(--el-color-primary-light-9);
   border: 1px solid var(--el-color-primary-light-8);
-  box-shadow: 0 2px 8px rgba(184, 118, 217, 0.25);
 }
 .flex-fill {
   flex: 1;
@@ -114,5 +120,11 @@ const handleLogout = async () => {
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+@media (max-width: 720px) {
+  .brand-sub, .brand > span:nth-child(2) { display: none; }
+  .navbar { padding: 0 12px; gap: 8px; }
+  .nav-links { margin-left: 0; }
+  .nav-link { padding: 6px 10px; }
 }
 </style>

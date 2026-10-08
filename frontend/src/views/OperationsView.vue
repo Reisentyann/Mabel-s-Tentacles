@@ -307,10 +307,9 @@ onUnmounted(() => {
   align-items: center;
   gap: 16px;
   padding: 10px 16px;
-  background: linear-gradient(135deg, var(--mabel-surface) 0%, #201a2c 100%);
+  background: var(--mabel-surface);
   border: 1px solid var(--mabel-border);
   border-radius: 10px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
 }
 .title-area {
   display: flex;
@@ -386,7 +385,7 @@ onUnmounted(() => {
   border-radius: 4px;
 }
 .file-path {
-  color: #c0b8d4;
+  color: var(--mabel-text);
   font-size: 0.8rem;
 }
 .params-preview {
@@ -394,11 +393,11 @@ onUnmounted(() => {
   font-size: 0.78rem;
 }
 .error-text {
-  color: #f89898;
+  color: var(--el-color-danger);
   font-size: 0.78rem;
 }
 .text-muted {
-  color: #655e77;
+  color: var(--mabel-text-muted);
 }
 
 /* 详情弹窗 */
@@ -421,7 +420,7 @@ onUnmounted(() => {
 }
 .error-content {
   font-size: 0.82rem;
-  color: #fbc4c4;
+  color: var(--el-color-danger);
   line-height: 1.5;
   word-break: break-all;
 }
@@ -439,14 +438,14 @@ onUnmounted(() => {
 }
 .json-pre {
   margin: 0;
-  background: #110f17;
+  background: var(--mabel-surface-2);
   border: 1px solid var(--mabel-border);
   padding: 12px;
   border-radius: 6px;
   font-family: Consolas, Monaco, monospace;
   font-size: 0.82rem;
   line-height: 1.5;
-  color: #cfc8de;
+  color: var(--mabel-text);
   max-height: 280px;
   overflow: auto;
 }

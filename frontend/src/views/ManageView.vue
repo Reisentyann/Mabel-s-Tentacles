@@ -1,43 +1,30 @@
 <template>
   <div class="page-shell">
-    <!-- 统计条 -->
+    <div class="page-heading">
+      <h1>文件管理</h1>
+      <p>{{ stats.count }} 个文件 · {{ formatBytes(stats.totalBytes) }}</p>
+    </div>
     <div class="stat-bar">
-      <div class="stat">
-        <span class="stat-num">{{ stats.count }}</span>
-        <span class="stat-label">文件</span>
-      </div>
-      <div class="stat">
-        <span class="stat-num">{{ formatBytes(stats.totalBytes) }}</span>
-        <span class="stat-label">总量</span>
-      </div>
-      <div class="stat">
-        <span class="stat-num">{{ stats.dirs }}</span>
-        <span class="stat-label">目录</span>
-      </div>
-      <div class="stat-tags">
-        <el-tag
-          v-for="(n, t) in stats.types"
-          :key="t"
-          size="small"
-          effect="plain"
-          class="type-tag"
-        >{{ t }} · {{ n }}</el-tag>
-      </div>
+      <el-select v-model="currentDir" filterable clearable placeholder="全部目录"
+        class="directory-filter" aria-label="筛选目录" @change="filterDirectory">
+        <el-option v-for="dir in directories" :key="dir" :label="dir" :value="dir" />
+      </el-select>
       <div class="flex-fill"></div>
 
       <el-input
         v-model="query"
-        placeholder="搜索：路径 / 标签 / 描述"
+        placeholder="搜索文件、标签或描述"
+        aria-label="搜索文件"
         clearable
         class="search-box"
         @keyup.enter="doSearch"
         @clear="clearSearch"
       >
         <template #append>
-          <el-button :icon="SearchIcon" @click="doSearch" />
+          <el-button :icon="SearchIcon" aria-label="搜索" :loading="listLoading" @click="doSearch" />
         </template>
       </el-input>
-      <el-button :icon="FilterIcon" @click="openCond">条件检索</el-button>
+      <el-button :icon="FilterIcon" @click="openCond">高级筛选</el-button>
     </div>
 
     <!-- 批量操作悬浮条（当有选中项时出现） -->
@@ -70,48 +57,12 @@
       </div>
     </transition>
 
-    <!-- 主区：树 + 表 -->
+    <!-- 文件列表 -->
     <div class="pane-row">
-      <div class="pane pane-tree">
-        <div class="pane-head">
-          <span>逻辑树（owner 键空间）</span>
-          <div class="flex-fill"></div>
-          <el-button
-            v-if="currentDir || mode !== 'all'"
-            size="small"
-            text
-            @click="resetTreeFilter"
-          >
-            根目录
-          </el-button>
-        </div>
-        <div class="pane-body">
-          <el-tree
-            ref="treeRef"
-            :data="tree"
-            :props="{ label: 'name', children: 'children' }"
-            node-key="path"
-            highlight-current
-            default-expand-all
-            @node-click="onNodeClick"
-          >
-            <template #default="{ data }">
-              <span class="tree-node">
-                <span>{{ data.type === 'dir' ? '📁' : '📄' }}</span>
-                <span class="tree-name">{{ data.name }}</span>
-                <span v-if="data.type !== 'dir'" class="tree-size">{{
-                  formatBytes(data.size_bytes)
-                }}</span>
-              </span>
-            </template>
-          </el-tree>
-          <el-empty v-if="!tree.length" description="空书房（agent 还没写文件）" :image-size="60" />
-        </div>
-      </div>
-
       <div class="pane pane-table">
         <div class="pane-head">
           <span class="pane-title">{{ headTitle }}</span>
+          <span class="result-count">{{ rows.length }} 项</span>
           <el-button
             v-if="mode === 'search' || mode === 'cond'"
             size="small"
@@ -122,37 +73,41 @@
             返回全部
           </el-button>
           <div class="flex-fill"></div>
-          <el-button size="small" text :icon="RefreshIcon" @click="refresh">刷新</el-button>
+          <el-button size="small" text :icon="RefreshIcon" :loading="listLoading" @click="refresh">刷新</el-button>
         </div>
         <div class="pane-body table-body">
           <el-table
             ref="tableRef"
-            :data="rows"
+            v-loading="listLoading"
+            :data="pagedRows"
             height="100%"
-            size="small"
+            empty-text="暂无文件，请调整筛选条件或稍后刷新"
             highlight-current-row
             row-key="path"
             @selection-change="handleSelectionChange"
+            @sort-change="sortFiles"
             @row-click="(row) => openDetail(row.path)"
           >
             <el-table-column type="selection" width="45" align="center" />
-            <el-table-column prop="path" label="路径" min-width="240" sortable show-overflow-tooltip />
-            <el-table-column prop="file_type" label="类型" width="90" align="center" sortable>
+            <el-table-column prop="path" label="文件" min-width="260" sortable="custom" show-overflow-tooltip>
+              <template #default="{ row }">
+                <div class="file-name">{{ row.name || row.path.split('/').pop() }}</div>
+                <div class="file-path">{{ row.path }}</div>
+              </template>
+            </el-table-column>
+            <el-table-column prop="file_type" label="类型" width="100" align="center" sortable="custom">
               <template #default="{ row }">
                 <el-tag size="small" effect="plain">{{ row.file_type || '-' }}</el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="size_bytes" label="大小" width="110" align="right" sortable>
+            <el-table-column prop="size_bytes" label="大小" width="110" align="right" sortable="custom">
               <template #default="{ row }">{{ formatBytes(row.size_bytes) }}</template>
             </el-table-column>
-            <el-table-column prop="updated_at" label="更新时间" width="170" sortable>
+            <el-table-column prop="updated_at" label="更新时间" width="170" sortable="custom">
               <template #default="{ row }">{{ formatDate(row.updated_at) }}</template>
             </el-table-column>
-            <el-table-column label="操作" width="240" fixed="right">
+            <el-table-column label="操作" width="190" fixed="right">
               <template #default="{ row }">
-                <el-button size="small" text type="primary" @click.stop="openDetail(row.path)">
-                  详情
-                </el-button>
                 <el-button size="small" text @click.stop="preview(row.path)">
                   预览
                 </el-button>
@@ -163,6 +118,7 @@
                   <el-button size="small" text @click.stop>更多 ▾</el-button>
                   <template #dropdown>
                     <el-dropdown-menu>
+                      <el-dropdown-item command="detail">文件详情</el-dropdown-item>
                       <el-dropdown-item command="share">分享 24h 短链</el-dropdown-item>
                       <el-dropdown-item command="move">移动 / 重命名</el-dropdown-item>
                       <el-dropdown-item command="copy">复制副本</el-dropdown-item>
@@ -176,6 +132,11 @@
               </template>
             </el-table-column>
           </el-table>
+        </div>
+        <div class="file-pagination">
+          <el-pagination v-model:current-page="page" v-model:page-size="pageSize"
+            :total="rows.length" :page-sizes="[20, 50, 100]"
+            layout="total, sizes, prev, pager, next" />
         </div>
       </div>
     </div>
@@ -251,7 +212,7 @@
         </template>
 
         <h4>
-          事实字段（cod / llm）
+           文件属性
           <span class="hint-small">点击属性标签可一键复制</span>
         </h4>
         <div v-for="g in attrGroups" :key="g.name" class="attr-group">
@@ -278,7 +239,7 @@
         </div>
         <el-empty
           v-if="!attrGroups.length"
-          description="尚无事实字段（等编排机分析落库）"
+          description="暂无文件属性"
           :image-size="50"
         />
       </div>
@@ -338,8 +299,8 @@
         </el-form-item>
         <el-form-item label="更新模式">
           <el-radio-group v-model="editForm.mode">
-            <el-radio-button value="replace">整段覆写 (replace)</el-radio-button>
-            <el-radio-button value="append">追加段落 (append)</el-radio-button>
+             <el-radio-button value="replace">替换描述</el-radio-button>
+             <el-radio-button value="append">追加描述</el-radio-button>
           </el-radio-group>
         </el-form-item>
         <el-form-item label="标签">
@@ -379,7 +340,7 @@
     </el-dialog>
 
     <!-- 移动对话框 -->
-    <el-dialog v-model="moveVisible" title="移动 / 重命名（逻辑键改）" width="480px">
+    <el-dialog v-model="moveVisible" title="移动或重命名" width="480px">
       <el-form label-width="70px">
         <el-form-item label="源">
           <el-input :model-value="moveFrom" disabled />
@@ -388,7 +349,7 @@
           <el-input v-model="moveTo" placeholder="例：~agent/书房档案/新名.txt" />
         </el-form-item>
       </el-form>
-      <p class="hint">扩展名不变 = 纯数据库键改；扩展名变化会同步搬移存储位。UUID 与描述保持不变。</p>
+      <p class="hint">请输入完整目标路径。移动后文件描述和标识保持不变。</p>
       <template #footer>
         <el-button @click="moveVisible = false">取消</el-button>
         <el-button type="primary" :loading="moving" @click="doMove">移动</el-button>
@@ -396,13 +357,13 @@
     </el-dialog>
 
     <!-- 复制对话框 -->
-    <el-dialog v-model="copyVisible" title="复制（副本归我）" width="480px">
+    <el-dialog v-model="copyVisible" title="复制文件" width="480px">
       <el-form label-width="70px">
         <el-form-item label="源">
           <el-input :model-value="copyFrom" disabled />
         </el-form-item>
         <el-form-item label="目标">
-          <el-input v-model="copyTo" placeholder="目标逻辑键" />
+           <el-input v-model="copyTo" placeholder="输入目标文件路径" />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -412,7 +373,7 @@
     </el-dialog>
 
     <!-- 条件检索对话框（索引机直查） -->
-    <el-dialog v-model="condVisible" title="条件检索（内存索引机直查）" width="760px">
+    <el-dialog v-model="condVisible" title="高级筛选" width="760px">
       <div v-if="catalogError" class="hint">{{ catalogError }}</div>
       <template v-else>
         <div v-for="(c, i) in condRows" :key="i" class="cond-item">
@@ -494,7 +455,7 @@
           </div>
         </div>
 
-        <el-button size="small" text type="primary" @click="addRow">+ 添加条件（多条件 = And 交集）</el-button>
+        <el-button size="small" text type="primary" @click="addRow">添加条件（同时满足）</el-button>
       </template>
       <template #footer>
         <div class="cond-footer">
@@ -526,7 +487,7 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onMounted, ref } from 'vue';
+import { computed, nextTick, onMounted, ref, watch } from 'vue';
 import {
   Search as SearchIcon,
   Filter as FilterIcon,
@@ -556,7 +517,7 @@ import {
 import { formatBytes, formatDate } from '../utils/format';
 import { downloadBlob as saveBlob } from '../utils/download';
 
-// ---- 树与表 ----
+// ---- 文件数据与筛选 ----
 const tree = ref([]);
 const flat = ref([]); // 全量平铺（表格底料）
 const rows = ref([]);
@@ -564,6 +525,36 @@ const currentDir = ref('');
 const mode = ref('all'); // all | dir | search | cond
 const query = ref('');
 const condTotal = ref(0);
+const tableRef = ref(null);
+const listLoading = ref(false);
+const page = ref(1);
+const pageSize = ref(20);
+const sort = ref({ prop: '', order: null });
+const directories = computed(() => {
+  const paths = [];
+  const visit = (nodes) => {
+    for (const node of nodes) {
+      if (node.type === 'dir') { paths.push(node.path); visit(node.children || []); }
+    }
+  };
+  visit(tree.value);
+  return paths.sort((a, b) => a.localeCompare(b));
+});
+const sortedRows = computed(() => {
+  const { prop, order } = sort.value;
+  if (!prop || !order) return rows.value;
+  return [...rows.value].sort((a, b) => {
+    const left = a[prop] ?? '';
+    const right = b[prop] ?? '';
+    const comparison = prop === 'size_bytes' ? Number(left) - Number(right)
+      : String(left).localeCompare(String(right), 'zh-CN', { numeric: true });
+    return order === 'ascending' ? comparison : -comparison;
+  });
+});
+const pagedRows = computed(() => sortedRows.value.slice((page.value - 1) * pageSize.value, page.value * pageSize.value));
+const sortFiles = ({ prop, order }) => { sort.value = { prop, order }; page.value = 1; clearSelection(); };
+watch([rows, pageSize], () => { page.value = 1; clearSelection(); });
+watch(page, () => clearSelection());
 
 // 表格多选
 const selectedRows = ref([]);
@@ -576,12 +567,13 @@ const handleSelectionChange = (selection) => {
 };
 
 const clearSelection = () => {
+  tableRef.value?.clearSelection();
   selectedRows.value = [];
 };
 
-const resetTreeFilter = () => {
-  currentDir.value = '';
-  mode.value = 'all';
+const filterDirectory = () => {
+  query.value = '';
+  mode.value = currentDir.value ? 'dir' : 'all';
   applyMode();
 };
 
@@ -601,16 +593,23 @@ const walk = (nodes, out) => {
 };
 
 const refresh = async () => {
-  const { data } = await getFiles();
-  tree.value = data.tree || [];
-  const out = [];
-  walk(tree.value, out);
-  flat.value = out;
-  applyMode();
+  listLoading.value = true;
+  try {
+    const { data } = await getFiles();
+    tree.value = data.tree || [];
+    const out = [];
+    walk(tree.value, out);
+    flat.value = out;
+    if (mode.value === 'search') await doSearch();
+    else if (mode.value === 'cond') await doCondSearch();
+    else applyMode();
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.error || '加载文件列表失败');
+  } finally { listLoading.value = false; }
 };
 
 const applyMode = () => {
-  if (mode.value === 'search') return; // 搜索结果由 doSearch 维护
+  if (mode.value === 'search' || mode.value === 'cond') return;
   if (mode.value === 'dir' && currentDir.value) {
     const prefix = currentDir.value + '/';
     rows.value = flat.value.filter((f) => f.path.startsWith(prefix));
@@ -619,21 +618,16 @@ const applyMode = () => {
   }
 };
 
-const onNodeClick = (data) => {
-  if (data.type === 'dir') {
-    mode.value = 'dir';
-    currentDir.value = data.path;
-    applyMode();
-  } else {
-    openDetail(data.path);
-  }
-};
-
 const doSearch = async () => {
   if (!query.value.trim()) return clearSearch();
-  const { data } = await searchFiles({ q: query.value.trim(), size: 100 });
-  rows.value = (data.items || []).map(normRow);
-  mode.value = 'search';
+  listLoading.value = true;
+  try {
+    const { data } = await searchFiles({ q: query.value.trim(), size: 100 });
+    rows.value = (data.items || []).map(normRow);
+    mode.value = 'search';
+    currentDir.value = '';
+  } catch (e) { ElMessage.error(e?.response?.data?.error || '搜索失败'); }
+  finally { listLoading.value = false; }
 };
 
 const clearSearch = () => {
@@ -728,9 +722,10 @@ const doCondSearch = async () => {
     rows.value = (data.items || []).map(normRow);
     condTotal.value = data.total ?? rows.value.length;
     mode.value = 'cond';
+    currentDir.value = '';
     condVisible.value = false;
     if (!rows.value.length) {
-      ElMessage.info('0 命中——空集是合法答案，可尝试放宽条件');
+      ElMessage.info('未找到符合条件的文件，请尝试放宽条件');
     }
   } catch (e) {
     ElMessage.error(e?.response?.data?.error || '条件检索失败');
@@ -995,6 +990,7 @@ const shareLink = async (path) => {
 };
 
 const handleRowCommand = (cmd, path) => {
+  if (cmd === 'detail') openDetail(path);
   if (cmd === 'share') shareLink(path);
   if (cmd === 'move') openMove(path);
   if (cmd === 'copy') openCopy(path);
@@ -1021,7 +1017,7 @@ const doMove = async () => {
   moving.value = true;
   try {
     await moveFile({ from: moveFrom.value, to: moveTo.value.trim() });
-    ElMessage.success('已移动（UUID 不变，键已迁移）');
+    ElMessage.success('文件已移动');
     moveVisible.value = false;
     detailVisible.value = false;
     await refresh();
@@ -1076,12 +1072,12 @@ onMounted(refresh);
   flex: none;
   display: flex;
   align-items: center;
-  gap: 18px;
-  padding: 10px 16px;
-  background: linear-gradient(135deg, var(--mabel-surface) 0%, #201a2c 100%);
+  gap: 12px;
+  padding: 14px 16px;
+  flex-wrap: wrap;
+  background: var(--mabel-surface);
   border: 1px solid var(--mabel-border);
   border-radius: 10px;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
 }
 .stat {
   display: flex;
@@ -1103,8 +1099,14 @@ onMounted(refresh);
   flex-wrap: wrap;
 }
 .search-box {
-  width: 320px;
+  width: 340px;
+  max-width: 100%;
 }
+.directory-filter { width: 240px; }
+.file-name { font-weight: 500; color: var(--mabel-text); }
+.file-path { font-size: 12px; color: var(--mabel-text-muted); overflow: hidden; text-overflow: ellipsis; }
+.result-count { font-size: 12px; font-weight: 400; }
+.file-pagination { padding: 14px 16px; border-top: 1px solid var(--mabel-border); display: flex; justify-content: flex-end; overflow: auto; }
 
 /* 批量操作悬浮条 */
 .batch-bar {
@@ -1112,10 +1114,11 @@ onMounted(refresh);
   align-items: center;
   justify-content: space-between;
   padding: 8px 16px;
-  background: rgba(42, 31, 51, 0.95);
-  border: 1px solid var(--el-color-primary);
+  background: var(--el-color-primary-light-9);
+  border: 1px solid var(--el-color-primary-light-8);
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(184, 118, 217, 0.2);
+  flex-wrap: wrap;
+  gap: 10px;
 }
 .batch-info {
   display: flex;
@@ -1124,7 +1127,7 @@ onMounted(refresh);
 }
 .batch-count {
   font-weight: 600;
-  color: var(--el-color-primary-light-3);
+  color: var(--el-color-primary);
   font-size: 0.9rem;
 }
 .batch-size {
@@ -1204,7 +1207,7 @@ onMounted(refresh);
 .desc-title {
   font-size: 0.88rem;
   margin: 8px 0 4px;
-  color: var(--el-color-primary-light-5);
+  color: var(--mabel-text);
 }
 .desc {
   font-size: 0.86rem;
@@ -1302,14 +1305,14 @@ onMounted(refresh);
   margin: 0;
   flex: 1;
   overflow: auto;
-  background: #110f17;
+  background: var(--mabel-surface-2);
   border: 1px solid var(--mabel-border);
   padding: 12px;
   border-radius: 6px;
   font-family: Consolas, Monaco, monospace;
   font-size: 0.82rem;
   line-height: 1.5;
-  color: #cfc8de;
+  color: var(--mabel-text);
   white-space: pre-wrap;
   word-break: break-all;
 }
@@ -1383,5 +1386,12 @@ onMounted(refresh);
   margin: 4px 0;
   padding-top: 4px;
   border-top: 1px dashed var(--mabel-border, #e3e7ee);
+}
+@media (max-width: 720px) {
+  .directory-filter, .search-box { width: 100%; }
+  .stat-bar > .flex-fill { display: none; }
+  .batch-actions { flex-wrap: wrap; gap: 6px; }
+  .cond-row { flex-wrap: wrap; }
+  .cond-field { width: 100%; }
 }
 </style>
