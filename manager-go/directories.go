@@ -123,86 +123,57 @@ func (m *Manager) WriteInDirectory(ctx context.Context, parentUUID, name, conten
 
 // WriteInDirectoryRequest 对尚未移动、修改或删除的上传提供可选幂等重放。
 func (m *Manager) WriteInDirectoryRequest(ctx context.Context, parentUUID, name, content, requestID string) (*WriteReceipt, error) {
-	if err := validEntryName(name); err != nil {
-		return nil, err
-	}
-	dir, err := m.LocateDirectory(ctx, parentUUID)
+	s, key, err := m.directoryIntakePath(ctx, parentUUID, name, requestID)
 	if err != nil {
 		return nil, err
-	}
-	s, err := m.directoryStore()
-	if err != nil {
-		return nil, err
-	}
-	key, err := newDirectoryFilePath(dir, name)
-	if err != nil {
-		return nil, err
-	}
-	if requestID != "" {
-		sum := sha256.Sum256([]byte(parentUUID + "\x00" + requestID))
-		key = path.Join(dir.Path, fmt.Sprintf("request-%x", sum))
 	}
 	ctx = WithDirectoryIntake(ctx, parentUUID, name)
 	r, err := m.Write(ctx, key, content)
 	if err != nil {
 		if requestID != "" && errors.Is(err, ErrKeyExists) {
-			row, e := m.store.GetMeta(ctx, key)
-			if e != nil {
-				return nil, e
-			}
-			if row == nil || row.IsDeleted {
-				return nil, fmt.Errorf("request result unavailable")
-			}
-			items, e := s.DirectoryEntries(ctx, parentUUID)
-			if e != nil {
-				return nil, e
-			}
-			matched := false
-			for _, item := range items {
-				if item.UUID == row.UUID && item.Name == name {
-					matched = true
-				}
-			}
-			if !matched {
-				return nil, fmt.Errorf("request in progress or parameters differ")
-			}
-			rf, e := m.ReadByLogic(ctx, key, 0)
-			if e != nil {
-				return nil, e
-			}
-			if string(rf.Content) != content {
-				return nil, fmt.Errorf("request parameters differ")
-			}
-			rel, e := StoragePathOf(row.UUID, key)
-			if e != nil {
-				return nil, e
-			}
-			return &WriteReceipt{UUID: row.UUID, LogicPath: key, StorageRel: rel, SizeBytes: int64(len(content))}, nil
+			return m.replayDirectoryWrite(ctx, s, parentUUID, key, name, content)
 		}
 		return nil, err
 	}
-	if _, atomic := s.(atomicDirectoryIntakeStore); !atomic {
-		if err := s.LinkDirectoryFile(ctx, parentUUID, r.UUID, name); err != nil {
-			return r, fmt.Errorf("file stored but directory link failed (uuid=%s): %w", r.UUID, err)
-		}
+	return r, linkDirectoryIntake(ctx, s, parentUUID, r.UUID, name)
+}
+
+// replayDirectoryWrite 仅返回仍属于原目录、名称与内容均一致的已发布对象。
+func (m *Manager) replayDirectoryWrite(ctx context.Context, s DirectoryStore, parentUUID, key, name, content string) (*WriteReceipt, error) {
+	row, err := m.store.GetMeta(ctx, key)
+	if err != nil {
+		return nil, err
 	}
-	return r, nil
+	if row == nil || row.IsDeleted {
+		return nil, fmt.Errorf("request result unavailable")
+	}
+	items, err := s.DirectoryEntries(ctx, parentUUID)
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		if item.UUID != row.UUID || item.Name != name {
+			continue
+		}
+		rf, err := m.ReadByLogic(ctx, key, 0)
+		if err != nil {
+			return nil, err
+		}
+		if string(rf.Content) != content {
+			return nil, fmt.Errorf("request parameters differ")
+		}
+		rel, err := StoragePathOf(row.UUID, key)
+		if err != nil {
+			return nil, err
+		}
+		return &WriteReceipt{UUID: row.UUID, LogicPath: key, StorageRel: rel, SizeBytes: int64(len(content))}, nil
+	}
+	return nil, fmt.Errorf("request in progress or parameters differ")
 }
 
 // ImportInDirectory 将本地文件复制到指定目录并保留显示名称。
 func (m *Manager) ImportInDirectory(ctx context.Context, parentUUID, name, source string) (*ImportReceipt, error) {
-	if err := validEntryName(name); err != nil {
-		return nil, err
-	}
-	dir, err := m.LocateDirectory(ctx, parentUUID)
-	if err != nil {
-		return nil, err
-	}
-	s, err := m.directoryStore()
-	if err != nil {
-		return nil, err
-	}
-	key, err := newDirectoryFilePath(dir, name)
+	s, key, err := m.directoryIntakePath(ctx, parentUUID, name, "")
 	if err != nil {
 		return nil, err
 	}
@@ -211,12 +182,39 @@ func (m *Manager) ImportInDirectory(ctx context.Context, parentUUID, name, sourc
 	if err != nil {
 		return nil, err
 	}
-	if _, atomic := s.(atomicDirectoryIntakeStore); !atomic {
-		if err := s.LinkDirectoryFile(ctx, parentUUID, r.UUID, name); err != nil {
-			return r, fmt.Errorf("file stored but directory link failed (uuid=%s): %w", r.UUID, err)
-		}
+	return r, linkDirectoryIntake(ctx, s, parentUUID, r.UUID, name)
+}
+
+// directoryIntakePath 校验目录项并生成唯一键；请求重放使用确定性的键。
+func (m *Manager) directoryIntakePath(ctx context.Context, parentUUID, name, requestID string) (DirectoryStore, string, error) {
+	if err := validEntryName(name); err != nil {
+		return nil, "", err
 	}
-	return r, nil
+	s, err := m.directoryStore()
+	if err != nil {
+		return nil, "", err
+	}
+	dir, err := s.DirectoryByUUID(ctx, parentUUID)
+	if err != nil {
+		return nil, "", err
+	}
+	if requestID != "" {
+		sum := sha256.Sum256([]byte(parentUUID + "\x00" + requestID))
+		return s, path.Join(dir.Path, fmt.Sprintf("request-%x", sum)), nil
+	}
+	key, err := newDirectoryFilePath(dir, name)
+	return s, key, err
+}
+
+// linkDirectoryIntake 仅为旧存储补充关联；原子入库已在占位事务中完成。
+func linkDirectoryIntake(ctx context.Context, s DirectoryStore, parentUUID, uuid, name string) error {
+	if _, atomic := s.(atomicDirectoryIntakeStore); atomic {
+		return nil
+	}
+	if err := s.LinkDirectoryFile(ctx, parentUUID, uuid, name); err != nil {
+		return fmt.Errorf("file stored but directory link failed (uuid=%s): %w", uuid, err)
+	}
+	return nil
 }
 
 // CopyInDirectory 复制源文件内容，并由占位事务固定目录和复制谱系。
@@ -261,11 +259,11 @@ func (m *Manager) CopyInDirectory(ctx context.Context, sourceUUID, parentUUID, n
 
 // ListDirectory 列出目录的直接子项。
 func (m *Manager) ListDirectory(ctx context.Context, uuid string) ([]DirectoryEntry, error) {
-	if _, err := m.LocateDirectory(ctx, uuid); err != nil {
-		return nil, err
-	}
 	s, err := m.directoryStore()
 	if err != nil {
+		return nil, err
+	}
+	if _, err := s.DirectoryByUUID(ctx, uuid); err != nil {
 		return nil, err
 	}
 	return s.DirectoryEntries(ctx, uuid)

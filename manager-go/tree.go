@@ -68,36 +68,18 @@ func (m *Manager) LogicPaths(ctx context.Context) ([]string, error) {
 }
 
 func insertLogicNode(root *LogicNode, p string, size int64, updated time.Time) {
-	segs := strings.Split(p, "/")
-	cur := root
-	for i, seg := range segs {
-		if cur.Children == nil {
-			cur.Children = []*LogicNode{}
-		}
-		var next *LogicNode
-		for _, c := range cur.Children {
-			if c.Name == seg {
-				next = c
-				break
-			}
-		}
-		if next == nil {
-			next = &LogicNode{Name: seg, Path: strings.Join(segs[:i+1], "/")}
-			if i < len(segs)-1 {
-				next.Type = "dir"
-			}
-			cur.Children = append(cur.Children, next)
-		}
-		cur = next
-	}
-	if len(segs) > 0 {
-		cur.Type = "file"
-		cur.SizeBytes = size
-		cur.UpdatedAt = float64(updated.UnixNano()) / 1e9
-	}
+	node := ensureLogicNode(root, p)
+	node.Type = "file"
+	node.SizeBytes = size
+	node.UpdatedAt = float64(updated.UnixNano()) / 1e9
 }
 
 func insertLogicDir(root *LogicNode, p string) {
+	ensureLogicNode(root, p)
+}
+
+// ensureLogicNode 复用文件与目录的路径遍历，已有文件节点不会被目录覆盖。
+func ensureLogicNode(root *LogicNode, p string) *LogicNode {
 	cur := root
 	parts := strings.Split(p, "/")
 	for i, seg := range parts {
@@ -117,6 +99,7 @@ func insertLogicDir(root *LogicNode, p string) {
 		}
 		cur = next
 	}
+	return cur
 }
 
 // sortLogicChildren 使目录在前，同类节点按名称排序。

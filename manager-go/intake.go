@@ -41,7 +41,7 @@ type ImportReceipt struct {
 // Write 新文件入库口：Reserve 原子占位 → uuid 派生物理路径 →
 // 落盘。描述/落库/喂索引归编排机事件流（调用方提交），本口只管"文件在哪
 // +内容落盘"。同逻辑键（包括软删、幽灵、占位行）拒绝；更新使用 Modify。
-func (m *Manager) Write(ctx context.Context, logicPath, content string) (receipt *WriteReceipt, resultErr error) {
+func (m *Manager) Write(ctx context.Context, logicPath, content string) (*WriteReceipt, error) {
 	if err := validLogicPath(logicPath); err != nil {
 		return nil, err
 	}
@@ -51,6 +51,51 @@ func (m *Manager) Write(ctx context.Context, logicPath, content string) (receipt
 	if err := m.ensureFilePathAvailable(ctx, logicPath); err != nil {
 		return nil, err
 	}
+	return m.storeNewFile(ctx, logicPath, int64(len(content)), func(abs string) error {
+		if err := publishNewFile(abs, strings.NewReader(content)); err != nil {
+			return fmt.Errorf("write file: %w", err)
+		}
+		return nil
+	})
+}
+
+// ImportFile 将本地普通文件流式复制到新 UUID 的物理路径并发布。
+// 源文件保持原样，目标逻辑键必须未占用。
+func (m *Manager) ImportFile(ctx context.Context, logicPath, sourcePath string) (*ImportReceipt, error) {
+	if err := validLogicPath(logicPath); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(sourcePath) == "" {
+		return nil, errors.New("import file: source path is empty")
+	}
+
+	info, err := os.Lstat(sourcePath)
+	if err != nil {
+		return nil, fmt.Errorf("stat source file: %w", err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return nil, errors.New("import file: symbolic links are not accepted")
+	}
+	if !info.Mode().IsRegular() {
+		return nil, fmt.Errorf("import file: source is not a regular file")
+	}
+
+	r, err := m.storeNewFile(ctx, logicPath, info.Size(), func(abs string) error {
+		if err := transferImportedFile(sourcePath, abs); err != nil {
+			return fmt.Errorf("store imported file: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &ImportReceipt{UUID: r.UUID, LogicPath: r.LogicPath, StorageRel: r.StorageRel, SizeBytes: r.SizeBytes}, nil
+}
+
+// storeNewFile 统一占位、物理发布与状态确认。publish 只有完整发布成功才返回 nil。
+// 发布前失败归档占位；发布后确认失败保留 pending，供启动恢复。
+// 来源校验和各入口的逻辑路径占用规则由调用方执行。
+func (m *Manager) storeNewFile(ctx context.Context, logicPath string, size int64, publish func(string) error) (_ *WriteReceipt, resultErr error) {
 	uuid, err := m.store.ReserveMeta(ctx, logicPath)
 	if err != nil {
 		return nil, fmt.Errorf("reserve meta: %w", err)
@@ -72,71 +117,14 @@ func (m *Manager) Write(ctx context.Context, logicPath, content string) (receipt
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		return nil, fmt.Errorf("create directory: %w", err)
 	}
-	if err := publishNewFile(abs, strings.NewReader(content)); err != nil {
-		return nil, fmt.Errorf("write file: %w", err)
+	if err := publish(abs); err != nil {
+		return nil, err
 	}
 	stored = true
 	if err := m.store.CompleteIntake(ctx, logicPath, uuid); err != nil {
 		return nil, fmt.Errorf("confirm stored file: %w", err)
 	}
-	return &WriteReceipt{UUID: uuid, LogicPath: logicPath, StorageRel: rel, SizeBytes: int64(len(content))}, nil
-}
-
-// ImportFile 将本地普通文件流式复制到新 UUID 的物理路径并发布。
-// 源文件保持原样，目标逻辑键必须未占用。
-func (m *Manager) ImportFile(ctx context.Context, logicPath, sourcePath string) (receipt *ImportReceipt, resultErr error) {
-	if err := validLogicPath(logicPath); err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(sourcePath) == "" {
-		return nil, errors.New("import file: source path is empty")
-	}
-
-	info, err := os.Lstat(sourcePath)
-	if err != nil {
-		return nil, fmt.Errorf("stat source file: %w", err)
-	}
-	if info.Mode()&os.ModeSymlink != 0 {
-		return nil, errors.New("import file: symbolic links are not accepted")
-	}
-	if !info.Mode().IsRegular() {
-		return nil, fmt.Errorf("import file: source is not a regular file")
-	}
-
-	uuid, err := m.store.ReserveMeta(ctx, logicPath)
-	if err != nil {
-		return nil, fmt.Errorf("reserve meta: %w", err)
-	}
-	stored := false
-	defer func() {
-		if !stored {
-			m.recoverFailedIntake(ctx, logicPath, uuid, &resultErr)
-		}
-	}()
-	rel, err := StoragePathOf(uuid, logicPath)
-	if err != nil {
-		return nil, err
-	}
-	targetAbs, err := m.resolve(rel)
-	if err != nil {
-		return nil, err
-	}
-	if err := os.MkdirAll(filepath.Dir(targetAbs), 0o755); err != nil {
-		return nil, fmt.Errorf("create import directory: %w", err)
-	}
-	if err := transferImportedFile(sourcePath, targetAbs); err != nil {
-		return nil, fmt.Errorf("store imported file: %w", err)
-	}
-	stored = true
-	if err := m.store.CompleteIntake(ctx, logicPath, uuid); err != nil {
-		return nil, fmt.Errorf("confirm stored file: %w", err)
-	}
-	return &ImportReceipt{
-		UUID:       uuid,
-		LogicPath:  logicPath,
-		StorageRel: rel,
-		SizeBytes:  info.Size(),
-	}, nil
+	return &WriteReceipt{UUID: uuid, LogicPath: logicPath, StorageRel: rel, SizeBytes: size}, nil
 }
 
 // transferImportedFile 流式复制源文件，排他发布目标并保留源文件。

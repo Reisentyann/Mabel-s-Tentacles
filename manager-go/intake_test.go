@@ -228,6 +228,62 @@ func TestFailedIntakeReleasesName(t *testing.T) {
 	}
 }
 
+type unconfirmedIntakeStore struct {
+	*fakeStore
+	failConfirmation bool
+}
+
+func (s *unconfirmedIntakeStore) CompleteIntake(ctx context.Context, key, uuid string) error {
+	if s.failConfirmation {
+		return fmt.Errorf("confirmation unavailable")
+	}
+	return s.fakeStore.CompleteIntake(ctx, key, uuid)
+}
+
+// 已发布内容的确认失败必须保留 UUID 和 pending，恢复后可正常读取。
+func TestIntakeConfirmationFailureIsRecoverable(t *testing.T) {
+	for _, importing := range []bool{false, true} {
+		t.Run(fmt.Sprint(importing), func(t *testing.T) {
+			st := &unconfirmedIntakeStore{fakeStore: newFakeStore(), failConfirmation: true}
+			root := t.TempDir()
+			m := manager.New(st, root, nil, nil, manager.DownloadConfig{})
+			ctx := context.Background()
+			source := filepath.Join(t.TempDir(), "source.txt")
+			if err := os.WriteFile(source, []byte("payload"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			var err error
+			if importing {
+				_, err = m.ImportFile(ctx, "saved.txt", source)
+			} else {
+				_, err = m.Write(ctx, "saved.txt", "payload")
+			}
+			if err == nil {
+				t.Fatal("expected confirmation error")
+			}
+			uuid := st.uuids["saved.txt"]
+			if uuid == "" || st.pending["saved.txt"].UUID != uuid {
+				t.Fatal("published reservation was archived", st.pending)
+			}
+			if _, err := m.ReadByLogic(ctx, "saved.txt", 0); !errors.Is(err, manager.ErrPending) {
+				t.Fatalf("unconfirmed read: %v", err)
+			}
+			st.failConfirmation = false
+			completed, archived, err := m.RecoverPendingIntakes(ctx)
+			if err != nil || completed != 1 || archived != 0 {
+				t.Fatalf("recovery: completed=%d archived=%d err=%v", completed, archived, err)
+			}
+			r, err := m.ReadByLogic(ctx, "saved.txt", 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if r.UUID != uuid || string(r.Content) != "payload" {
+				t.Fatalf("recovered content: %+v", r)
+			}
+		})
+	}
+}
+
 func TestRecoverPendingIntakes(t *testing.T) {
 	m, st, _, dir := newTestManager(t)
 	for _, tc := range []struct {
