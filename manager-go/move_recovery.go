@@ -10,6 +10,15 @@ import (
 	"os"
 )
 
+// MoveOperation 是与元数据移动同事务保存的恢复记录。
+type MoveOperation struct{ UUID, From, To, ParentUUID, Name string }
+
+// MoveRecoveryStore 提供移动记录的枚举与发布确认。
+type MoveRecoveryStore interface {
+	ListPendingMoves(context.Context) ([]MoveOperation, error)
+	CompleteMove(ctx context.Context, uuid, target string) error
+}
+
 // finishStorageMove 保留旧目录项作为恢复证据；目标存在必须是同一文件。
 func (m *Manager) finishStorageMove(op MoveOperation) error {
 	oldAbs, err := m.storageAbs(op.UUID, op.From)

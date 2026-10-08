@@ -1,15 +1,13 @@
-// 文件：manager-go/placement.go —— 位置域：路径解析（uuid → 逻辑路径；移动归 intake）
-// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
-
-// placement 域职责：文件在哪。
-// 其他组件（索引机消费者、HTTP、MCP 工具）凭 uuid 问路径——只有这里回答。
-// 移动是显式操作，正主在 intake 域（MCP move_file）：物理位随派生规则 +
-// 元数据唯一键迁移 + 谱系边，绝无后台自动归档（agent 的路径预期不容破坏）。
+// 文件：manager-go/placement.go —— UUID 位置派生与逻辑路径校验
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 package manager
 
 import (
 	"context"
+	"fmt"
+	"path"
+	"strings"
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/common"
 )
@@ -32,6 +30,58 @@ func (m *Manager) Resolve(ctx context.Context, uuid string) (string, error) {
 	return ref.Path, nil
 }
 
-// Move 显式移动：正主落地 intake.go 的 Manager.Move——物理随机化后
-// "移动 = 逻辑键改"（uuid 不变则物理位由派生规则决定，ext 不变连盘都
-// 不用碰）。本域职责收窄为路径解析（resolve / Resolve），移动/入库归 intake。
+// StoragePathOf 派生物理相对路径 <uuid前2位>/<uuid><ext>，返回正斜杠形式。
+func StoragePathOf(uuid, logicPath string) (string, error) {
+	if len(uuid) < 2 {
+		return "", fmt.Errorf("storage path: bad uuid %q", uuid)
+	}
+	return path.Join(uuid[:2], uuid+path.Ext(logicPath)), nil
+}
+
+// StorageAbs 派生并校验 dataDir 内的文件绝对路径。
+func (m *Manager) StorageAbs(uuid, logicPath string) (string, error) {
+	rel, err := StoragePathOf(uuid, logicPath)
+	if err != nil {
+		return "", err
+	}
+	return m.resolve(rel)
+}
+
+func (m *Manager) storageAbs(uuid, logicPath string) (string, error) {
+	return m.StorageAbs(uuid, logicPath)
+}
+
+// validLogicPath 拒绝空路径、绝对路径、盘符和 . / .. / 空段。
+func validLogicPath(p string) error {
+	if p == "" || strings.HasPrefix(p, "/") || strings.HasPrefix(p, `\`) {
+		return ErrInvalidPath
+	}
+	if strings.Contains(p, ":") {
+		return fmt.Errorf("security error: path cannot contain drive letters")
+	}
+	for _, seg := range strings.Split(p, "/") {
+		if seg == "" || seg == "." || seg == ".." || strings.Contains(seg, `\`) {
+			return ErrInvalidPath
+		}
+	}
+	return nil
+}
+
+func validEntryName(name string) error {
+	if err := validLogicPath(name); err != nil {
+		return err
+	}
+	if strings.Contains(name, "/") {
+		return ErrInvalidPath
+	}
+	return nil
+}
+
+func logicPrefixes(p string) []string {
+	parts := strings.Split(p, "/")
+	prefixes := make([]string, len(parts))
+	for i := range parts {
+		prefixes[i] = strings.Join(parts[:i+1], "/")
+	}
+	return prefixes
+}

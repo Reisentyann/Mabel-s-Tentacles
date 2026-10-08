@@ -26,7 +26,6 @@ package manager
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -53,21 +52,6 @@ type ReadFile struct {
 	FileRef
 	Content []byte
 }
-
-// 哨兵错误：调用方凭 errors.Is 区分"查无 / 软删 / 幽灵"与底层 IO 错误，
-// 不做字符串匹配。
-var (
-	// ErrNotFound DB 无此 uuid 的行（组件货币铸造失败，uuid 从何而来需排查）。
-	ErrNotFound = errors.New("manager: uuid not found")
-	// ErrDeleted 行已软删（回收站文件不供取内容；Locate 仍照报位置）。
-	ErrDeleted = errors.New("manager: file soft-deleted")
-	// ErrGhost 行在、盘上文件已消失（幽灵元数据，T2 对账 3 轮软删收编中）。
-	ErrGhost   = errors.New("manager: file gone on disk")
-	ErrPending = errors.New("manager: file intake not published")
-)
-
-// errNoFetch 已退役（取件实现批次 2026-09-06 落地：Locate/LocateMany/
-// Open/Read 全链路 + buffer LRU）。
 
 // Locate 凭 uuid 取位置（单个）。软删行照报（IsDeleted=true，回收站可
 // 追溯）；DB 无行 → ErrNotFound；不做盘上存在性检查（盘偏差归 Open 的
@@ -161,16 +145,7 @@ func (m *Manager) ReadByLogic(ctx context.Context, logicPath string, limit int64
 	if err != nil {
 		return nil, err
 	}
-	defer of.Content.Close()
-	var r io.Reader = of.Content
-	if limit > 0 {
-		r = io.LimitReader(of.Content, limit)
-	}
-	content, err := io.ReadAll(r)
-	if err != nil {
-		return nil, fmt.Errorf("read: %w", err)
-	}
-	return &ReadFile{FileRef: of.FileRef, Content: content}, nil
+	return readOpenedFile(of, limit)
 }
 
 // StreamByLogic 下载专用口：物理直流，不查缓存不入缓存（buffer 立场：
@@ -275,6 +250,11 @@ func (m *Manager) Read(ctx context.Context, uuid string, limit int64) (*ReadFile
 	if err != nil {
 		return nil, err
 	}
+	return readOpenedFile(of, limit)
+}
+
+// readOpenedFile 聚合内容并关闭流，UUID 与逻辑路径入口共享限读语义。
+func readOpenedFile(of *OpenedFile, limit int64) (*ReadFile, error) {
 	defer of.Content.Close()
 
 	var r io.Reader = of.Content
