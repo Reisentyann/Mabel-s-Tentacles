@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/cmd/server/main.go —— 服务入口：装配 config/logging/repo/search/api/mcp + 优雅关停 + 不安全默认值告警
-// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 package main
 
@@ -86,10 +86,6 @@ func main() {
 		slog.Error("init orchestrator failed", "error", err)
 		os.Exit(1)
 	}
-	if err := orch.RebuildIndex(ctx); err != nil {
-		slog.Warn("index rebuild failed, search degrades to SQL until next restart", "error", err)
-	}
-	orch.Start(ctx)
 
 	// 管理机（updater 域：T2/T3）：sink 同为 idx 实例，重分析喂食随之点亮；
 	// 下载票据配置在此解析（download_base_url 优先，回退 server.base_url）
@@ -105,6 +101,17 @@ func main() {
 		Secret:  cfg.Security.SecretKey,
 		BaseURL: dlBase,
 	})
+	// 仅收敛上次进程未确认的入库：确认盘上已完成文件，或归档空占位释放名称。
+	// 不做轮询，下一次启动可安全重复执行。
+	if completed, archived, err := mgr.RecoverPendingIntakes(ctx); err != nil {
+		slog.Warn("intake recovery failed", "completed", completed, "archived", archived, "error", err)
+	} else if completed != 0 || archived != 0 {
+		slog.Info("intake recovery complete", "completed", completed, "archived", archived)
+	}
+	if err := orch.RebuildIndex(ctx); err != nil {
+		slog.Warn("index rebuild failed, search degrades to SQL until next restart", "error", err)
+	}
+	orch.Start(ctx)
 
 	// MCP server。通道鉴权双轨：master key（.env，管家）/ 外部 key
 	// （agent_keys 表，绑定用户）；空 key = 开发放行（上方已大红 WARN）

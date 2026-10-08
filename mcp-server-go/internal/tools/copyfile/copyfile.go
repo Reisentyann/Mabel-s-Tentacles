@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/copyfile/copyfile.go —— MCP 工具 copy_file：内容 + 元数据一起复制（KindCopy 事件喂索引）
-// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 package copyfile
 
@@ -22,7 +22,7 @@ func init() {
 
 func register(s *server.MCPServer, deps tools.Deps) {
 	tool := mcp.NewTool("copy_file",
-		mcp.WithDescription("Copy a file (content and metadata) to a new path. Lineage is tracked (copied_from)."),
+		mcp.WithDescription("Copy a file (content and metadata) to an unused path. Existing paths, including soft-deleted files, are rejected without overwriting. Lineage is tracked (copied_from)."),
 		mcp.WithString("source_path",
 			mcp.Description("Source file path, relative to workspace or ~username/path. Also accepts 'source'."),
 		),
@@ -82,6 +82,8 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			return tools.ResultError(rerr.Error()), nil
 		}
 		if _, err := deps.Manager.Write(ctx, dst, string(content)); err != nil {
+			slog.Error("copy_file failed", "tool", "copy_file", "source", src, "target", dst, "session", sessionID, "error", err, "duration", time.Since(start).String())
+			tools.RecordOperation(ctx, deps.Store, sessionID, "copy_file", dst, "failed", err.Error(), map[string]any{"source": src})
 			return tools.ResultError(err.Error()), nil
 		}
 

@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -30,6 +31,8 @@ type fakeStore struct {
 	missing     map[string]int
 	softDeleted map[string]bool
 	refs        map[string]*manager.FileRef
+	pending     map[string]manager.IntakeOperation
+	dirs        map[string]bool
 }
 
 func newFakeStore() *fakeStore {
@@ -40,6 +43,8 @@ func newFakeStore() *fakeStore {
 		missing:     map[string]int{},
 		softDeleted: map[string]bool{},
 		refs:        map[string]*manager.FileRef{},
+		pending:     map[string]manager.IntakeOperation{},
+		dirs:        map[string]bool{},
 	}
 }
 
@@ -92,15 +97,65 @@ func (s *fakeStore) UpsertMeta(ctx context.Context, rec manager.MetaRecord) (str
 	return uuid, nil
 }
 
-// ReserveMeta 占位行（intake 域）：幂等拿 uuid，与 UpsertMeta 共用 uuid 池。
+func (s *fakeStore) ArchiveFailedIntake(ctx context.Context, key, uuid string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if s.uuids[key] != uuid {
+		return fmt.Errorf("reservation changed")
+	}
+	_, err := s.MoveMeta(ctx, key, "旧内容/失败入库/"+uuid+"/"+filepath.Base(key))
+	delete(s.pending, key)
+	return err
+}
+
+func (s *fakeStore) CompleteIntake(ctx context.Context, key, uuid string) error {
+	item, ok := s.pending[key]
+	if !ok || item.UUID != uuid {
+		return fmt.Errorf("reservation changed")
+	}
+	delete(s.pending, key)
+	return nil
+}
+
+func (s *fakeStore) ListPendingIntakes(ctx context.Context) ([]manager.IntakeOperation, error) {
+	items := make([]manager.IntakeOperation, 0, len(s.pending))
+	for _, item := range s.pending {
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+func (s *fakeStore) CreateDirectory(ctx context.Context, path string) error {
+	if s.dirs[path] {
+		return manager.ErrDirectoryExists
+	}
+	s.dirs[path] = true
+	return nil
+}
+
+func (s *fakeStore) ListDirectoryPaths(ctx context.Context) ([]string, error) {
+	paths := make([]string, 0, len(s.dirs))
+	for path := range s.dirs {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	return paths, nil
+}
+
+func (s *fakeStore) DirectoryExists(ctx context.Context, path string) (bool, error) {
+	return s.dirs[path], nil
+}
+
+// ReserveMeta 占位行（intake 域）：重名拒绝，与 UpsertMeta 共用 uuid 池。
 func (s *fakeStore) ReserveMeta(ctx context.Context, logicPath string) (string, error) {
-	if uuid, ok := s.uuids[logicPath]; ok {
-		s.missing[logicPath] = 0
-		return uuid, nil
+	if _, ok := s.uuids[logicPath]; ok {
+		return "", manager.ErrKeyExists
 	}
 	if _, err := s.UpsertMeta(ctx, manager.MetaRecord{Path: logicPath}); err != nil {
 		return "", err
 	}
+	s.pending[logicPath] = manager.IntakeOperation{LogicPath: logicPath, UUID: s.uuids[logicPath]}
 	return s.uuids[logicPath], nil
 }
 

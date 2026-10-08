@@ -89,9 +89,48 @@ func (a *ManagerStore) MarkMissing(ctx context.Context, path string) (int, error
 	return a.st.MarkMissingRound(ctx, path)
 }
 
+func (a *ManagerStore) ArchiveFailedIntake(ctx context.Context, logicPath, uuid string) error {
+	return a.st.ArchiveFailedIntake(ctx, logicPath, uuid)
+}
+
+func (a *ManagerStore) CompleteIntake(ctx context.Context, logicPath, uuid string) error {
+	return a.st.CompleteIntake(ctx, logicPath, uuid)
+}
+
+func (a *ManagerStore) ListPendingIntakes(ctx context.Context) ([]manager.IntakeOperation, error) {
+	return a.st.ListPendingIntakes(ctx)
+}
+
+func (a *ManagerStore) CreateDirectory(ctx context.Context, logicPath string) error {
+	return a.st.CreateDirectory(ctx, logicPath)
+}
+func (a *ManagerStore) ListDirectoryPaths(ctx context.Context) ([]string, error) {
+	return a.st.ListDirectoryPaths(ctx)
+}
+func (a *ManagerStore) DirectoryExists(ctx context.Context, logicPath string) (bool, error) {
+	return a.st.DirectoryExists(ctx, logicPath)
+}
+
+func (a *ManagerStore) DirectoryByUUID(ctx context.Context, id string) (*manager.DirectoryRef, error) {
+	return a.st.DirectoryByUUID(ctx, id)
+}
+func (a *ManagerStore) DirectoryByPath(ctx context.Context, p string) (*manager.DirectoryRef, error) {
+	return a.st.DirectoryByPath(ctx, p)
+}
+func (a *ManagerStore) LinkDirectoryFile(ctx context.Context, parent, file, name string) error {
+	return a.st.LinkDirectoryFile(ctx, parent, file, name)
+}
+func (a *ManagerStore) DirectoryEntries(ctx context.Context, id string) ([]manager.DirectoryEntry, error) {
+	return a.st.DirectoryEntries(ctx, id)
+}
+
 // ReserveMeta 占位行直通（uuid 生成权归 DB）。
 func (a *ManagerStore) ReserveMeta(ctx context.Context, logicPath string) (string, error) {
-	return a.st.ReserveMeta(ctx, logicPath)
+	uuid, err := a.st.ReserveMeta(ctx, logicPath)
+	if errors.Is(err, ErrKeyExists) {
+		return "", manager.ErrKeyExists
+	}
+	return uuid, err
 }
 
 // MoveMeta 键改直通（哨兵翻译：pgx.ErrNoRows → manager ErrNotFound/

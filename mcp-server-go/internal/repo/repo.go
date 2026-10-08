@@ -10,11 +10,13 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	manager "github.com/Reisentyann/Mabel-s-Tentacles/manager-go"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 )
 
 // Store 是数据访问层接口，便于 mock 测试与替换实现。
 type Store interface {
+	manager.DirectoryStore
 	// 用户
 	GetUserByUsername(ctx context.Context, username string) (*User, error)
 	GetUserByID(ctx context.Context, id int64) (*User, error)
@@ -74,9 +76,15 @@ type Store interface {
 	// manager updater 的幽灵存续状态；Upsert 即文件存在证据，会清零）。
 	MarkMissingRound(ctx context.Context, filePath string) (rounds int, err error)
 	// ReserveMeta 入库占位行（manager intake 域 Write 的支撑）：按逻辑键
-	// 幂等拿 uuid——存在即复用（missing_rounds 清零），不存在则落最小占位行
+	// 原子创建——存在（含软删）返回 ErrKeyExists，不存在则落最小占位行
 	// （其余列走 DDL 默认值）。uuid 生成权归 DB（gen_random_uuid）。
 	ReserveMeta(ctx context.Context, logicPath string) (string, error)
+	CompleteIntake(ctx context.Context, logicPath, uuid string) error
+	ArchiveFailedIntake(ctx context.Context, logicPath, uuid string) error
+	ListPendingIntakes(ctx context.Context) ([]manager.IntakeOperation, error)
+	CreateDirectory(ctx context.Context, logicPath string) error
+	ListDirectoryPaths(ctx context.Context) ([]string, error)
+	DirectoryExists(ctx context.Context, logicPath string) (bool, error)
 	// MoveMetadata 逻辑键改（manager intake 域 Move 的支撑，文件管理域
 	// 2026-09-08）：from 行键改 to + moved_from 记谱系，返回行 uuid。
 	// 无行/软删 → pgx.ErrNoRows；to 占用 → ErrKeyExists（UNIQUE 兜底并发）。
@@ -272,6 +280,22 @@ var migrations = []string{
 		created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_short_links_exp ON short_links (expires_at)`,
+	`CREATE TABLE IF NOT EXISTS intake_operations (
+		uuid UUID PRIMARY KEY, file_path TEXT UNIQUE NOT NULL,
+		status TEXT NOT NULL CHECK (status IN ('reserved', 'stored', 'archived')),
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_intake_operations_pending ON intake_operations (status) WHERE status = 'reserved'`,
+	`CREATE TABLE IF NOT EXISTS logical_directories (
+		file_path TEXT PRIMARY KEY, is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`,
+	`ALTER TABLE logical_directories ADD COLUMN IF NOT EXISTS uuid UUID NOT NULL DEFAULT gen_random_uuid()`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS logical_directories_uuid ON logical_directories(uuid)`,
+	`CREATE TABLE IF NOT EXISTS directory_files (
+		file_uuid UUID PRIMARY KEY REFERENCES file_metadata(uuid),
+		parent_uuid UUID NOT NULL REFERENCES logical_directories(uuid), name TEXT NOT NULL
+	)`,
 }
 
 func New(ctx context.Context, dsn string, maxConns int32) (Store, error) {

@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/api/metadata.go —— 元数据端点：搜索 / 查看元数据 / 描述（编排机同步入口）/ 复制（KindCopy 事件）
-// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 package api
 
@@ -10,7 +10,9 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
+	manager "github.com/Reisentyann/Mabel-s-Tentacles/manager-go"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
@@ -215,6 +217,7 @@ type copyRequest struct {
 
 // copyFile 复制文件内容 + 元数据。
 func (s *Server) copyFile(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	var req copyRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -229,6 +232,10 @@ func (s *Server) copyFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 授权必须先于读取和目标落盘。
+	if !s.canActFile(w, r, req.Source, "copy-read", false) {
+		return
+	}
 	// 物理复制走管理机（读源 + 入库目标：逻辑键 → uuid 派生随机物理路径）
 	if s.manager == nil {
 		writeError(w, http.StatusInternalServerError, "manager not wired")
@@ -246,12 +253,12 @@ func (s *Server) copyFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if _, err := s.manager.Write(r.Context(), req.Target, string(content)); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	// 源文件读授权：看不到的文件不允许复制（404 隐藏存在性）
-	if !s.canActFile(w, r, req.Source, "copy-read", false) {
+		slog.Error("copy file failed", "method", r.Method, "path", r.URL.Path, "user", principalOf(r).Subject(), "source", req.Source, "target", req.Target, "error", err, "duration", time.Since(start).String())
+		status := http.StatusInternalServerError
+		if errors.Is(err, manager.ErrKeyExists) {
+			status = http.StatusConflict
+		}
+		writeError(w, status, err.Error())
 		return
 	}
 

@@ -7,8 +7,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"path"
 	"time"
 
+	manager "github.com/Reisentyann/Mabel-s-Tentacles/manager-go"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -415,17 +418,132 @@ func (s *pgxStore) listMetadataPage(ctx context.Context, sincePath string, limit
 	return items, rows.Err()
 }
 
-// ReserveMeta 入库占位行：按逻辑键幂等拿 uuid（manager intake 域——
-// uuid 先于盘写存在，物理路径由它派生）。最小 INSERT（scope/attributes/
-// visibility 等走 DDL 默认值），冲突即复用既有 uuid；写入即存在证据，
-// missing_rounds 清零。
+// ReserveMeta 原子占用新逻辑键；包含软删除行在内的重名均拒绝，且不修改旧行。
+// UUID 先于盘写存在；唯一约束保证并发创建只有一个调用取得占位权。
 func (s *pgxStore) ReserveMeta(ctx context.Context, logicPath string) (string, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback(ctx)
 	var uuid string
-	err := s.pool.QueryRow(ctx,
+	err = tx.QueryRow(ctx,
 		`INSERT INTO file_metadata (file_path) VALUES ($1)
-		 ON CONFLICT (file_path) DO UPDATE SET missing_rounds = 0, updated_at = NOW()
+		 ON CONFLICT (file_path) DO NOTHING
 		 RETURNING uuid`, logicPath).Scan(&uuid)
-	return uuid, err
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrKeyExists
+	}
+	if err != nil {
+		return "", err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO intake_operations (uuid, file_path, status) VALUES ($1, $2, 'reserved')`, uuid, logicPath); err != nil {
+		return "", err
+	}
+	return uuid, tx.Commit(ctx)
+}
+
+func (s *pgxStore) CompleteIntake(ctx context.Context, logicPath, uuid string) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE intake_operations SET status='stored', updated_at=NOW() WHERE file_path=$1 AND uuid=$2 AND status='reserved'`, logicPath, uuid)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("intake reservation changed: %s", uuid)
+	}
+	return nil
+}
+
+func (s *pgxStore) ListPendingIntakes(ctx context.Context) ([]manager.IntakeOperation, error) {
+	rows, err := s.pool.Query(ctx, `SELECT file_path, uuid FROM intake_operations WHERE status='reserved' ORDER BY created_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []manager.IntakeOperation{}
+	for rows.Next() {
+		var item manager.IntakeOperation
+		if err := rows.Scan(&item.LogicPath, &item.UUID); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *pgxStore) CreateDirectory(ctx context.Context, logicPath string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, logicPath); err != nil {
+		return err
+	}
+	var occupied bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM file_metadata WHERE file_path=$1)`, logicPath).Scan(&occupied); err != nil {
+		return err
+	}
+	if occupied {
+		return ErrKeyExists
+	}
+	tag, err := tx.Exec(ctx, `INSERT INTO logical_directories (file_path) VALUES ($1) ON CONFLICT (file_path) DO NOTHING`, logicPath)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrKeyExists
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *pgxStore) ListDirectoryPaths(ctx context.Context) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT file_path FROM logical_directories WHERE is_deleted=FALSE ORDER BY file_path`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	paths := []string{}
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err != nil {
+			return nil, err
+		}
+		paths = append(paths, path)
+	}
+	return paths, rows.Err()
+}
+
+func (s *pgxStore) DirectoryExists(ctx context.Context, logicPath string) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM logical_directories WHERE file_path=$1 AND is_deleted=FALSE)`, logicPath).Scan(&exists)
+	return exists, err
+}
+
+// ArchiveFailedIntake 条件更新防止归档其他请求；失败记录软删保留，物理位置不变。
+func (s *pgxStore) ArchiveFailedIntake(ctx context.Context, logicPath, uuid string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	archivePath := "旧内容/失败入库/" + uuid + "/" + path.Base(logicPath)
+	tag, err := tx.Exec(ctx, `UPDATE file_metadata SET file_path=$3, is_deleted=TRUE
+	 WHERE file_path=$1 AND uuid=$2 AND checksum IS NULL`, logicPath, uuid, archivePath)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("failed intake reservation changed: %s", uuid)
+	}
+	tag, err = tx.Exec(ctx, `UPDATE intake_operations SET file_path=$3, status='archived', updated_at=NOW() WHERE file_path=$1 AND uuid=$2 AND status='reserved'`, logicPath, uuid, archivePath)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("intake operation changed: %s", uuid)
+	}
+	return tx.Commit(ctx)
 }
 
 // MarkMissingRound 盘上缺失计数 +1，返回累计轮次（manager updater 的幽灵存续：

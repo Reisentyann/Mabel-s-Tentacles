@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/writefile/writefile.go —— MCP 工具 write_file：写文件 + 内联描述字段随编排机事件异步落库
-// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 package writefile
 
@@ -24,7 +24,7 @@ func init() {
 
 func register(s *server.MCPServer, deps tools.Deps) {
 	tool := mcp.NewTool("write_file",
-		mcp.WithDescription("Write generated content to a file. Pass title/description/tags so the file can be easily found later via search. Use this when creating new files or overwriting existing ones."),
+		mcp.WithDescription("Create a new file. Existing paths, including soft-deleted files, are rejected without changing their content or metadata. Choose another path on conflict; use modify_file or patch_file to intentionally update an existing file. Pass title/description/tags for search."),
 		mcp.WithString("file_path",
 			mcp.Description("Path of the file to write, relative to your workspace. Also accepts 'path'."),
 		),
@@ -100,12 +100,12 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		}
 		receipt, err := deps.Manager.Write(ctx, key, content)
 		if err != nil {
-			slog.Error("write_file failed", "path", key, "session", sessionID, "error", err, "duration", time.Since(start).String())
+			slog.Error("write_file failed", "tool", "write_file", "path", key, "bytes", len(content), "session", sessionID, "error", err, "duration", time.Since(start).String())
 			tools.RecordOperation(ctx, deps.Store, sessionID, "write_file", key, "failed", err.Error(), params)
 			return tools.ResultError(err.Error()), nil
 		}
 
-		slog.Info("write_file ok", "path", key, "bytes", len(content), "uuid", receipt.UUID, "session", sessionID, "duration", time.Since(start).String())
+		slog.Info("write_file ok", "tool", "write_file", "path", key, "bytes", len(content), "uuid", receipt.UUID, "session", sessionID, "duration", time.Since(start).String())
 
 		// 编排机异步接管 T1（盘写成功即回，agent 不等描述）：agent 顺带
 		// 描述字段随事件走，执行器单次 Upsert 落库并喂索引——旧的双 upsert 已灭。

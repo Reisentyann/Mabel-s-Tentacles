@@ -51,6 +51,13 @@ type MetaRecord struct {
 	Attributes json.RawMessage
 }
 
+// IntakeOperation 是跨数据库和文件系统的新文件入库状态。reserved 表示 UUID
+// 已取得但尚未确认落盘；stored 表示内容已在派生位置确认可取。
+type IntakeOperation struct {
+	LogicPath string
+	UUID      string
+}
+
 // Store manager 所需的最小存储面（依赖倒置，io.Reader 模式）：updater + fetch 域批次。
 // mcp-server-go 的 repo 实现满足签名后由装配层注入（repo/manager_adapter.go），
 // manager 不 import 任何兄弟模块——同级模块只允许被上层 require，
@@ -82,10 +89,19 @@ type Store interface {
 	GetMetaByUUIDs(ctx context.Context, uuids []string) (map[string]*FileRef, error)
 	// ReverseCopiedFrom 反查以 path 为复制来源的文件，供 lineage Related 构造入边。
 	ReverseCopiedFrom(ctx context.Context, path string) ([]MetaRow, error)
-	// ReserveMeta 入库占位行：按逻辑键幂等拿 uuid（存在即复用，写入即
-	// 文件存在证据——missing_rounds 清零）。intake 域 Write 的支撑：
+	// ReserveMeta 原子创建占位行：重名（包括软删除行）返回 ErrKeyExists，
+	// 不修改旧行。并发调用仅一个成功。intake 域 Write 的支撑：
 	// uuid 生成权归 DB，盘写发生在 uuid 之后（物理路径由它派生）。
 	ReserveMeta(ctx context.Context, logicPath string) (string, error)
+	// CompleteIntake 将已成功落盘的本次占位发布为可取状态。
+	CompleteIntake(ctx context.Context, logicPath, uuid string) error
+	// ArchiveFailedIntake 仅归档本次 UUID 对应的占位，保留扩展名与物理位置，释放原名称。
+	ArchiveFailedIntake(ctx context.Context, logicPath, uuid string) error
+	// ListPendingIntakes 返回尚未确认落盘的有限状态记录，供启动恢复。
+	ListPendingIntakes(ctx context.Context) ([]IntakeOperation, error)
+	CreateDirectory(ctx context.Context, logicPath string) error
+	ListDirectoryPaths(ctx context.Context) ([]string, error)
+	DirectoryExists(ctx context.Context, logicPath string) (bool, error)
 	// MoveMeta 逻辑键改（intake 域 Move 的支撑，文件管理域 2026-09-08）：
 	// from 行键改 to + moved_from 记谱系，返回该行 uuid。无行 / 软删行 /
 	// to 已占用分别返回对应哨兵错误。owner 键空间隔离下键改即完成"移动"。

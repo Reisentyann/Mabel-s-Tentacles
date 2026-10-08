@@ -56,6 +56,9 @@ func Register(mux *http.ServeMux, cfg *config.Config, st repo.Store, orch *core.
 	mux.Handle("DELETE /api/files", s.requireAuth(http.HandlerFunc(s.deleteFile)))
 	mux.Handle("POST /api/files/delete", s.requireAuth(http.HandlerFunc(s.deleteFile)))
 	mux.Handle("POST /api/files/analyze", s.requireAuth(http.HandlerFunc(s.analyzeFile)))
+	mux.Handle("GET /api/directories/{uuid}", s.requireAuth(http.HandlerFunc(s.directoryList)))
+	mux.Handle("GET /api/directories/{uuid}/zip", s.requireAuth(http.HandlerFunc(s.directoryExport)))
+	mux.Handle("POST /api/directories/{uuid}/import", s.requireAdmin(http.HandlerFunc(s.directoryImport)))
 
 	// admin 专属（权限批次 2026-09-06）：全库扫描与账号/组/钥匙管理
 	mux.Handle("POST /api/files/backfill", s.requireAdmin(http.HandlerFunc(s.backfillFile)))

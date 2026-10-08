@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/readfile/readfile.go —— MCP 工具 read_file：读文件（1MB 截断防上下文撑爆）
-// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 package readfile
 
@@ -34,9 +34,27 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		mcp.WithString("path",
 			mcp.Description("Alias for file_path."),
 		),
+		mcp.WithString("uuid", mcp.Description("Stable file UUID returned by search or upload. Preferred over a mutable path.")),
 	)
 
 	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		if id := req.GetString("uuid", ""); id != "" {
+			if deps.Manager == nil {
+				return tools.ResultError("manager not wired"), nil
+			}
+			ref, err := deps.Manager.Locate(ctx, id)
+			if err != nil {
+				return tools.ResultError(err.Error()), nil
+			}
+			if denied, reason := tools.CanFile(ctx, deps.Store, ref.Path, false); denied {
+				return tools.Deny(ctx, "read_file", ref.Path, reason), nil
+			}
+			r, err := deps.Manager.Read(ctx, id, maxReadSize)
+			if err != nil {
+				return tools.ResultError(err.Error()), nil
+			}
+			return tools.Result(map[string]any{"success": true, "uuid": id, "path": r.Path, "content": string(r.Content), "size": len(r.Content), "truncated": r.SizeBytes > maxReadSize}), nil
+		}
 		path, err := tools.GetFilePath(req)
 		if err != nil {
 			return tools.ResultError("invalid file_path: " + err.Error()), nil

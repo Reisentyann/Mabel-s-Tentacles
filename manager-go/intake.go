@@ -1,12 +1,12 @@
 // 文件：manager-go/intake.go —— 入库域：文本写入与外部文件导入（逻辑键 + uuid 派生物理随机路径）
-// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 // intake 域职责（2026-09-08 架构决策落地：物理路径防猜 + 文件 IO 主权收归管理机）：
 //
 //   - agent 只给逻辑路径（"小说/第一章.txt"——组织语言，DB 唯一键），
 //     物理存储路径由本域从 uuid 纯派生（<uuid前2位>/<uuid><ext>），
 //     盘面只有随机名——存储位置不可猜测，逻辑视图只在 DB
-//   - uuid 生成仍归 DB（gen_random_uuid）：Reserve 落占位行幂等拿 uuid，
+//   - uuid 生成仍归 DB（gen_random_uuid）：Reserve 原子创建占位行拿 uuid，
 //     盘写发生在 uuid 之后（物理路径需要它派生）
 //   - 物理路径不存库（纯派生零冗余）；Move 因此变纯 DB 键改——
 //     uuid 不变则物理文件根本不用搬
@@ -38,6 +38,7 @@ const maxIntakeBytes = describer.MaxFullBytes
 
 // ErrInvalidPath 逻辑路径非法（空 / 前导分隔符 / 盘符 / ..段 / 空段）。
 var ErrInvalidPath = errors.New("manager: invalid logic path")
+var ErrDirectoryExists = errors.New("manager: directory already exists")
 
 // WriteReceipt 入库回执：uuid（后续操作凭证）+ 逻辑键 + 物理相对路径
 // （审计/排障用，agent 场景不依赖它）。
@@ -100,20 +101,29 @@ func validLogicPath(p string) error {
 	return nil
 }
 
-// Write 文件入库唯一口：Reserve 占位行（幂等拿 uuid）→ uuid 派生物理路径 →
+// Write 新文件入库口：Reserve 原子占位 → uuid 派生物理路径 →
 // 落盘。描述/落库/喂索引归编排机事件流（调用方提交），本口只管"文件在哪
-// +内容落盘"。同逻辑键重写 = 覆写（占位行复用既有 uuid，物理路径不变）。
-func (m *Manager) Write(ctx context.Context, logicPath, content string) (*WriteReceipt, error) {
+// +内容落盘"。同逻辑键（包括软删、幽灵、占位行）拒绝；更新使用 Modify。
+func (m *Manager) Write(ctx context.Context, logicPath, content string) (receipt *WriteReceipt, resultErr error) {
 	if err := validLogicPath(logicPath); err != nil {
 		return nil, err
 	}
 	if len(content) > maxIntakeBytes {
 		return nil, fmt.Errorf("security error: file content exceeds 5MB limit")
 	}
+	if err := m.ensureFilePathAvailable(ctx, logicPath); err != nil {
+		return nil, err
+	}
 	uuid, err := m.store.ReserveMeta(ctx, logicPath)
 	if err != nil {
 		return nil, fmt.Errorf("reserve meta: %w", err)
 	}
+	stored := false
+	defer func() {
+		if !stored {
+			m.recoverFailedIntake(ctx, logicPath, uuid, &resultErr)
+		}
+	}()
 	rel, err := StoragePathOf(uuid, logicPath)
 	if err != nil {
 		return nil, err
@@ -125,8 +135,12 @@ func (m *Manager) Write(ctx context.Context, logicPath, content string) (*WriteR
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		return nil, fmt.Errorf("create directory: %w", err)
 	}
-	if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
+	if err := publishNewFile(abs, strings.NewReader(content)); err != nil {
 		return nil, fmt.Errorf("write file: %w", err)
+	}
+	stored = true
+	if err := m.store.CompleteIntake(ctx, logicPath, uuid); err != nil {
+		return nil, fmt.Errorf("confirm stored file: %w", err)
 	}
 	return &WriteReceipt{UUID: uuid, LogicPath: logicPath, StorageRel: rel, SizeBytes: int64(len(content))}, nil
 }
@@ -135,10 +149,10 @@ func (m *Manager) Write(ctx context.Context, logicPath, content string) (*WriteR
 // 物理路径 → 迁移或复制文件。调用方只负责提供逻辑路径与源文件路径，
 // 不得自行 ReserveMeta、拼接 data 目录或直接写物理盘。
 //
-// 同卷且目标不存在时优先 Rename，避免大文件重复读写；跨卷或目标已存在
-// 时退化为流式覆盖。跨卷回退不会删除源文件，便于下载任务保留断点与审计
+// 逻辑键必须未占用。同卷且目标不存在时优先 Rename，避免大文件重复读写；
+// 跨卷时退化为排他创建并流式复制。跨卷回退不会删除源文件，便于下载任务保留断点与审计
 // 证据；成功 Rename 的源路径则由操作系统完成移动。
-func (m *Manager) ImportFile(ctx context.Context, logicPath, sourcePath string) (*ImportReceipt, error) {
+func (m *Manager) ImportFile(ctx context.Context, logicPath, sourcePath string) (receipt *ImportReceipt, resultErr error) {
 	if err := validLogicPath(logicPath); err != nil {
 		return nil, err
 	}
@@ -161,6 +175,12 @@ func (m *Manager) ImportFile(ctx context.Context, logicPath, sourcePath string) 
 	if err != nil {
 		return nil, fmt.Errorf("reserve meta: %w", err)
 	}
+	stored := false
+	defer func() {
+		if !stored {
+			m.recoverFailedIntake(ctx, logicPath, uuid, &resultErr)
+		}
+	}()
 	rel, err := StoragePathOf(uuid, logicPath)
 	if err != nil {
 		return nil, err
@@ -175,6 +195,10 @@ func (m *Manager) ImportFile(ctx context.Context, logicPath, sourcePath string) 
 	if err := transferImportedFile(sourcePath, targetAbs); err != nil {
 		return nil, fmt.Errorf("store imported file: %w", err)
 	}
+	stored = true
+	if err := m.store.CompleteIntake(ctx, logicPath, uuid); err != nil {
+		return nil, fmt.Errorf("confirm stored file: %w", err)
+	}
 	return &ImportReceipt{
 		UUID:       uuid,
 		LogicPath:  logicPath,
@@ -183,48 +207,85 @@ func (m *Manager) ImportFile(ctx context.Context, logicPath, sourcePath string) 
 	}, nil
 }
 
-// transferImportedFile 先尝试同卷移动；目标已存在或跨卷时流式覆盖。
+// RecoverPendingIntakes 收敛服务中断期间留下的入库状态：盘上有完整普通文件
+// 则确认发布，盘上不存在或不是普通文件则归档占位并释放原名称。
+func (m *Manager) RecoverPendingIntakes(ctx context.Context) (completed, archived int, err error) {
+	items, err := m.store.ListPendingIntakes(ctx)
+	if err != nil {
+		return 0, 0, fmt.Errorf("list pending intakes: %w", err)
+	}
+	for _, item := range items {
+		if err := ctx.Err(); err != nil {
+			return completed, archived, err
+		}
+		abs, err := m.storageAbs(item.UUID, item.LogicPath)
+		if err != nil {
+			return completed, archived, err
+		}
+		info, statErr := os.Lstat(abs)
+		if statErr == nil && info.Mode().IsRegular() {
+			if err := m.store.CompleteIntake(ctx, item.LogicPath, item.UUID); err != nil {
+				return completed, archived, err
+			}
+			completed++
+			continue
+		}
+		if statErr != nil && !errors.Is(statErr, os.ErrNotExist) {
+			return completed, archived, statErr
+		}
+		if err := m.store.ArchiveFailedIntake(ctx, item.LogicPath, item.UUID); err != nil {
+			return completed, archived, err
+		}
+		archived++
+	}
+	return completed, archived, nil
+}
+
+// recoverFailedIntake 失败记录归档而非删除，UUID 与扩展名不变，部分内容仍可对账。
+func (m *Manager) recoverFailedIntake(ctx context.Context, logicPath, uuid string, resultErr *error) {
+	if *resultErr == nil {
+		return
+	}
+	recoveryCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	if err := m.store.ArchiveFailedIntake(recoveryCtx, logicPath, uuid); err != nil {
+		*resultErr = errors.Join(*resultErr, fmt.Errorf("archive failed intake (path remains reserved): %w", err))
+	}
+}
+
+// transferImportedFile 先尝试同卷移动；目标存在拒绝，跨卷时排他创建。
 // 不在回退路径删除源文件：临时下载产物可继续作为断点与审计证据。
 func transferImportedFile(sourcePath, targetPath string) error {
-	sourceInfo, err := os.Stat(sourcePath)
-	if err != nil {
-		return err
-	}
-
-	targetInfo, err := os.Lstat(targetPath)
-	if err == nil {
-		if targetInfo.Mode()&os.ModeSymlink != 0 {
-			return errors.New("import file: target is a symbolic link")
-		}
-		if targetStat, statErr := os.Stat(targetPath); statErr == nil && os.SameFile(sourceInfo, targetStat) {
-			return nil
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-
-	if errors.Is(err, os.ErrNotExist) {
-		if err := os.Rename(sourcePath, targetPath); err == nil {
-			return nil
-		}
-	}
-
 	in, err := os.Open(sourcePath)
 	if err != nil {
 		return err
 	}
 	defer in.Close()
 
-	out, err := os.OpenFile(targetPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+	return publishNewFile(targetPath, in)
+}
+
+// publishNewFile 正式路径只在完整写入并同步后出现。硬链接发布排他且不覆盖，
+// 临时文件保留作证据；不支持硬链接的文件系统明确失败，不降级到非原子覆盖。
+func publishNewFile(targetPath string, src io.Reader) error {
+	out, err := os.OpenFile(targetPath+".partial", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
-	_, copyErr := io.Copy(out, in)
-	closeErr := out.Close()
-	if copyErr != nil {
-		return copyErr
+	_, copyErr := io.Copy(out, src)
+	var syncErr error
+	if copyErr == nil {
+		syncErr = out.Sync()
 	}
-	return closeErr
+	closeErr := out.Close()
+	if err := errors.Join(copyErr, syncErr, closeErr); err != nil {
+		return err
+	}
+	if err := os.Link(targetPath+".partial", targetPath); err != nil {
+		return fmt.Errorf("publish file: %w", err)
+	}
+	// 临时目录项仅作为写入证据，不参与读取和启动发布判断。
+	return nil
 }
 
 // Modify 修改既有文件（append / overwrite）。行必须已在（无行 = 文件不存在，
@@ -245,6 +306,9 @@ func (m *Manager) Modify(ctx context.Context, logicPath, content, mode string) e
 	}
 	if row == nil {
 		return fmt.Errorf("error: file '%s' does not exist", logicPath)
+	}
+	if row.IsDeleted {
+		return ErrDeleted
 	}
 	abs, err := m.storageAbs(row.UUID, logicPath)
 	if err != nil {
@@ -267,9 +331,65 @@ func (m *Manager) Modify(ctx context.Context, logicPath, content, mode string) e
 	return nil
 }
 
-// ErrKeyExists 目标逻辑键已被占用（Move 拒绝覆盖既有文件——键空间唯一性
+// CreateDirectory 创建逻辑空目录。目录只存于元数据；物理 dataDir 始终只保存 UUID 文件。
+func (m *Manager) CreateDirectory(ctx context.Context, logicPath string) error {
+	if err := validLogicPath(logicPath); err != nil {
+		return err
+	}
+	for _, prefix := range logicPrefixes(logicPath) {
+		if row, err := m.store.GetMeta(ctx, prefix); err != nil {
+			return fmt.Errorf("get meta: %w", err)
+		} else if row != nil {
+			return ErrKeyExists
+		}
+	}
+	if exists, err := m.store.DirectoryExists(ctx, logicPath); err != nil {
+		return fmt.Errorf("get directory: %w", err)
+	} else if exists {
+		return ErrDirectoryExists
+	}
+	for _, prefix := range logicPrefixes(logicPath) {
+		err := m.store.CreateDirectory(ctx, prefix)
+		if err != nil && !errors.Is(err, ErrDirectoryExists) {
+			return err
+		}
+	}
+	return nil
+}
+
+func (m *Manager) ensureFilePathAvailable(ctx context.Context, logicPath string) error {
+	for _, prefix := range logicPrefixes(logicPath) {
+		if prefix == logicPath {
+			exists, err := m.store.DirectoryExists(ctx, prefix)
+			if err != nil {
+				return fmt.Errorf("get directory: %w", err)
+			}
+			if exists {
+				return ErrKeyExists
+			}
+			continue
+		}
+		if row, err := m.store.GetMeta(ctx, prefix); err != nil {
+			return fmt.Errorf("get meta: %w", err)
+		} else if row != nil {
+			return fmt.Errorf("manager: path parent is a file: %s", prefix)
+		}
+	}
+	return nil
+}
+
+func logicPrefixes(p string) []string {
+	parts := strings.Split(p, "/")
+	prefixes := make([]string, len(parts))
+	for i := range parts {
+		prefixes[i] = strings.Join(parts[:i+1], "/")
+	}
+	return prefixes
+}
+
+// ErrKeyExists 目标逻辑键已被占用（Write/ImportFile/Move 拒绝覆盖——键空间唯一性
 // 由 DB UNIQUE 兜底，本哨兵是人话口径）。
-var ErrKeyExists = errors.New("manager: logic key already exists")
+var ErrKeyExists = errors.New("manager: logic key already exists; choose another path, or use modify_file/patch_file to update an existing file")
 
 // MoveReceipt 键改回执：uuid + 原键 + 新键 + 物理位是否随 ext 变化搬移。
 type MoveReceipt struct {
@@ -378,6 +498,13 @@ func (m *Manager) LogicTree(ctx context.Context) ([]*LogicNode, error) {
 			insertLogicNode(root, r.Path, r.SizeBytes, r.UpdatedAt)
 		}
 	}
+	dirs, err := m.store.ListDirectoryPaths(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("logic directory scan: %w", err)
+	}
+	for _, dir := range dirs {
+		insertLogicDir(root, dir)
+	}
 	return sortLogicChildren(root.Children), nil
 }
 
@@ -429,6 +556,27 @@ func insertLogicNode(root *LogicNode, p string, size int64, updated time.Time) {
 		cur.Type = "file"
 		cur.SizeBytes = size
 		cur.UpdatedAt = float64(updated.UnixNano()) / 1e9
+	}
+}
+
+func insertLogicDir(root *LogicNode, p string) {
+	cur := root
+	for i, seg := range strings.Split(p, "/") {
+		var next *LogicNode
+		for _, child := range cur.Children {
+			if child.Name == seg {
+				next = child
+				break
+			}
+		}
+		if next == nil {
+			next = &LogicNode{Name: seg, Path: strings.Join(strings.Split(p, "/")[:i+1], "/"), Type: "dir"}
+			cur.Children = append(cur.Children, next)
+		}
+		if next.Type != "file" {
+			next.Type = "dir"
+		}
+		cur = next
 	}
 }
 
