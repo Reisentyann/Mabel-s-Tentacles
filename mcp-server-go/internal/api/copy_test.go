@@ -33,6 +33,8 @@ func (s *copyConflictStore) ReserveMeta(context.Context, string) (string, error)
 
 func (s *copyConflictStore) DirectoryExists(context.Context, string) (bool, error) { return false, nil }
 
+func (s *copyConflictStore) IsIntakePending(context.Context, string) (bool, error) { return false, nil }
+
 func TestCopyConflictAndAuthorization(t *testing.T) {
 	for _, tc := range []struct {
 		name    string

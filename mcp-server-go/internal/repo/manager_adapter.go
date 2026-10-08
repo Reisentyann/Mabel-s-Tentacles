@@ -66,8 +66,12 @@ func (a *ManagerStore) GetMeta(ctx context.Context, path string) (*manager.MetaR
 }
 
 func (a *ManagerStore) UpsertMeta(ctx context.Context, rec manager.MetaRecord) (string, error) {
-	ft, mt := service.InferFileMeta(rec.Path)
-	ext := service.InferExtension(rec.Path)
+	name := rec.Name
+	if name == "" {
+		name = rec.Path
+	}
+	ft, mt := service.InferFileMeta(name)
+	ext := service.InferExtension(name)
 	size, cs := rec.SizeBytes, rec.Checksum
 	uuid, err := a.st.UpsertMetadata(ctx, &FileMetadata{
 		FilePath:   rec.Path,
@@ -83,6 +87,17 @@ func (a *ManagerStore) UpsertMeta(ctx context.Context, rec manager.MetaRecord) (
 		return "", fmt.Errorf("upsert metadata: %w", err)
 	}
 	return uuid, nil
+}
+
+func (a *ManagerStore) AnalysisName(ctx context.Context, uuid string) (string, error) {
+	return a.st.AnalysisName(ctx, uuid)
+}
+
+func (a *ManagerStore) ListPendingMoves(ctx context.Context) ([]manager.MoveOperation, error) {
+	return a.st.ListPendingMoves(ctx)
+}
+func (a *ManagerStore) CompleteMove(ctx context.Context, uuid, to string) error {
+	return a.st.CompleteMove(ctx, uuid, to)
 }
 
 func (a *ManagerStore) MarkMissing(ctx context.Context, path string) (int, error) {
@@ -101,6 +116,14 @@ func (a *ManagerStore) ListPendingIntakes(ctx context.Context) ([]manager.Intake
 	return a.st.ListPendingIntakes(ctx)
 }
 
+func (a *ManagerStore) IsIntakePending(ctx context.Context, uuid string) (bool, error) {
+	return a.st.IsIntakePending(ctx, uuid)
+}
+
+func (a *ManagerStore) ResetMissing(ctx context.Context, uuid string) error {
+	return a.st.ResetMissing(ctx, uuid)
+}
+
 func (a *ManagerStore) CreateDirectory(ctx context.Context, logicPath string) error {
 	return a.st.CreateDirectory(ctx, logicPath)
 }
@@ -114,6 +137,8 @@ func (a *ManagerStore) DirectoryExists(ctx context.Context, logicPath string) (b
 func (a *ManagerStore) DirectoryByUUID(ctx context.Context, id string) (*manager.DirectoryRef, error) {
 	return a.st.DirectoryByUUID(ctx, id)
 }
+
+func (a *ManagerStore) AtomicDirectoryIntake() {}
 func (a *ManagerStore) DirectoryByPath(ctx context.Context, p string) (*manager.DirectoryRef, error) {
 	return a.st.DirectoryByPath(ctx, p)
 }

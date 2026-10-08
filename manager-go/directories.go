@@ -7,7 +7,9 @@ import (
 	"archive/zip"
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -26,6 +28,20 @@ type DirectoryEntry struct {
 	UUID string `json:"uuid"`
 	Name string `json:"name"`
 	Kind string `json:"kind"`
+}
+
+type directoryIntakeKey struct{}
+
+// DirectoryIntake 在数据库占位事务中固定目录及展示名称。
+type DirectoryIntake struct{ ParentUUID, Name string }
+
+func DirectoryIntakeFrom(ctx context.Context) (DirectoryIntake, bool) {
+	v, ok := ctx.Value(directoryIntakeKey{}).(DirectoryIntake)
+	return v, ok
+}
+
+func WithDirectoryIntake(ctx context.Context, parentUUID, name string) context.Context {
+	return context.WithValue(ctx, directoryIntakeKey{}, DirectoryIntake{parentUUID, name})
 }
 
 // DirectoryStore 是可选能力，避免旧存储实现被迫实现目录上传。
@@ -95,6 +111,11 @@ func newDirectoryFilePath(dir *DirectoryRef, name string) (string, error) {
 }
 
 func (m *Manager) WriteInDirectory(ctx context.Context, parentUUID, name, content string) (*WriteReceipt, error) {
+	return m.WriteInDirectoryRequest(ctx, parentUUID, name, content, "")
+}
+
+// WriteInDirectoryRequest 对尚未移动、修改或删除的上传提供可选幂等重放。
+func (m *Manager) WriteInDirectoryRequest(ctx context.Context, parentUUID, name, content, requestID string) (*WriteReceipt, error) {
 	if err := validEntryName(name); err != nil {
 		return nil, err
 	}
@@ -110,12 +131,53 @@ func (m *Manager) WriteInDirectory(ctx context.Context, parentUUID, name, conten
 	if err != nil {
 		return nil, err
 	}
+	if requestID != "" {
+		sum := sha256.Sum256([]byte(parentUUID + "\x00" + requestID))
+		key = path.Join(dir.Path, fmt.Sprintf("request-%x", sum))
+	}
+	ctx = context.WithValue(ctx, directoryIntakeKey{}, DirectoryIntake{parentUUID, name})
 	r, err := m.Write(ctx, key, content)
 	if err != nil {
+		if requestID != "" && errors.Is(err, ErrKeyExists) {
+			row, e := m.store.GetMeta(ctx, key)
+			if e != nil {
+				return nil, e
+			}
+			if row == nil || row.IsDeleted {
+				return nil, fmt.Errorf("request result unavailable")
+			}
+			items, e := s.DirectoryEntries(ctx, parentUUID)
+			if e != nil {
+				return nil, e
+			}
+			matched := false
+			for _, item := range items {
+				if item.UUID == row.UUID && item.Name == name {
+					matched = true
+				}
+			}
+			if !matched {
+				return nil, fmt.Errorf("request in progress or parameters differ")
+			}
+			rf, e := m.ReadByLogic(ctx, key, 0)
+			if e != nil {
+				return nil, e
+			}
+			if string(rf.Content) != content {
+				return nil, fmt.Errorf("request parameters differ")
+			}
+			rel, e := StoragePathOf(row.UUID, key)
+			if e != nil {
+				return nil, e
+			}
+			return &WriteReceipt{UUID: row.UUID, LogicPath: key, StorageRel: rel, SizeBytes: int64(len(content))}, nil
+		}
 		return nil, err
 	}
-	if err := s.LinkDirectoryFile(ctx, parentUUID, r.UUID, name); err != nil {
-		return r, fmt.Errorf("file stored but directory link failed (uuid=%s): %w", r.UUID, err)
+	if _, atomic := s.(interface{ AtomicDirectoryIntake() }); !atomic {
+		if err := s.LinkDirectoryFile(ctx, parentUUID, r.UUID, name); err != nil {
+			return r, fmt.Errorf("file stored but directory link failed (uuid=%s): %w", r.UUID, err)
+		}
 	}
 	return r, nil
 }
@@ -136,12 +198,15 @@ func (m *Manager) ImportInDirectory(ctx context.Context, parentUUID, name, sourc
 	if err != nil {
 		return nil, err
 	}
+	ctx = context.WithValue(ctx, directoryIntakeKey{}, DirectoryIntake{parentUUID, name})
 	r, err := m.ImportFile(ctx, key, source)
 	if err != nil {
 		return nil, err
 	}
-	if err := s.LinkDirectoryFile(ctx, parentUUID, r.UUID, name); err != nil {
-		return r, fmt.Errorf("file stored but directory link failed (uuid=%s): %w", r.UUID, err)
+	if _, atomic := s.(interface{ AtomicDirectoryIntake() }); !atomic {
+		if err := s.LinkDirectoryFile(ctx, parentUUID, r.UUID, name); err != nil {
+			return r, fmt.Errorf("file stored but directory link failed (uuid=%s): %w", r.UUID, err)
+		}
 	}
 	return r, nil
 }
@@ -158,6 +223,8 @@ func (m *Manager) ListDirectory(ctx context.Context, uuid string) ([]DirectoryEn
 }
 
 func (m *Manager) ModifyByUUID(ctx context.Context, uuid, content, mode string) error {
+	m.mutation.Lock()
+	defer m.mutation.Unlock()
 	r, err := m.Locate(ctx, uuid)
 	if err != nil {
 		return err
@@ -165,7 +232,7 @@ func (m *Manager) ModifyByUUID(ctx context.Context, uuid, content, mode string) 
 	if r.IsDeleted {
 		return ErrDeleted
 	}
-	return m.Modify(ctx, r.Path, content, mode)
+	return m.modifyRef(ctx, r, content, mode)
 }
 
 type ImportEntryResult struct {

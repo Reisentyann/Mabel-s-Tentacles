@@ -32,6 +32,7 @@ type fakeStore struct {
 	softDeleted map[string]bool
 	refs        map[string]*manager.FileRef
 	pending     map[string]manager.IntakeOperation
+	moves       map[string]manager.MoveOperation
 	dirs        map[string]bool
 }
 
@@ -44,6 +45,7 @@ func newFakeStore() *fakeStore {
 		softDeleted: map[string]bool{},
 		refs:        map[string]*manager.FileRef{},
 		pending:     map[string]manager.IntakeOperation{},
+		moves:       map[string]manager.MoveOperation{},
 		dirs:        map[string]bool{},
 	}
 }
@@ -134,6 +136,28 @@ func (s *fakeStore) CreateDirectory(ctx context.Context, path string) error {
 	return nil
 }
 
+func (s *fakeStore) IsIntakePending(ctx context.Context, uuid string) (bool, error) {
+	if _, ok := s.moves[uuid]; ok {
+		return true, nil
+	}
+	for _, item := range s.pending {
+		if item.UUID == uuid {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (s *fakeStore) ResetMissing(ctx context.Context, uuid string) error {
+	for p, row := range s.rows {
+		if row.UUID == uuid {
+			s.missing[p] = 0
+			row.MissingRounds = 0
+		}
+	}
+	return nil
+}
+
 func (s *fakeStore) ListDirectoryPaths(ctx context.Context) ([]string, error) {
 	paths := make([]string, 0, len(s.dirs))
 	for path := range s.dirs {
@@ -171,6 +195,9 @@ func (s *fakeStore) MoveMeta(ctx context.Context, from, to string) (string, erro
 		return "", manager.ErrKeyExists
 	}
 	uuid := r.UUID
+	if filepath.Ext(from) != filepath.Ext(to) {
+		s.moves[uuid] = manager.MoveOperation{UUID: uuid, From: from, To: to}
+	}
 	delete(s.rows, from)
 	delete(s.uuids, from)
 	delete(s.missing, from)
@@ -184,6 +211,21 @@ func (s *fakeStore) MoveMeta(ctx context.Context, from, to string) (string, erro
 func (s *fakeStore) MarkMissing(ctx context.Context, path string) (int, error) {
 	s.missing[path]++
 	return s.missing[path], nil
+}
+
+func (s *fakeStore) ListPendingMoves(context.Context) ([]manager.MoveOperation, error) {
+	ops := []manager.MoveOperation{}
+	for _, op := range s.moves {
+		ops = append(ops, op)
+	}
+	return ops, nil
+}
+func (s *fakeStore) CompleteMove(ctx context.Context, uuid, to string) error {
+	if op, ok := s.moves[uuid]; !ok || op.To != to {
+		return fmt.Errorf("move changed")
+	}
+	delete(s.moves, uuid)
+	return nil
 }
 
 func (s *fakeStore) SoftDeleteMeta(ctx context.Context, path string) error {
@@ -395,6 +437,21 @@ func TestBackfillFreshNotStale(t *testing.T) {
 	}
 	if len(sink.feeds) != feedsBefore {
 		t.Fatalf("sink feeds = %d, want %d (fresh file must not be re-analyzed)", len(sink.feeds), feedsBefore)
+	}
+}
+
+func TestBackfillPresentResetsMissingWithoutAnalysis(t *testing.T) {
+	m, st, _, _ := newTestManager(t)
+	ctx := context.Background()
+	intakeFile(t, m, "present.txt", "fresh")
+	if _, err := m.AnalyzeFile(ctx, "present.txt"); err != nil {
+		t.Fatal(err)
+	}
+	st.missing["present.txt"] = 2
+	st.rows["present.txt"].MissingRounds = 2
+	n, err := m.Backfill(ctx, 1)
+	if err != nil || n != 0 || st.missing["present.txt"] != 0 {
+		t.Fatalf("analyzed=%d missing=%d err=%v", n, st.missing["present.txt"], err)
 	}
 }
 

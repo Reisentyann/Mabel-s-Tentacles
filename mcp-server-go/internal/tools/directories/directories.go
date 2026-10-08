@@ -18,7 +18,7 @@ func init() { tools.Register(register) }
 func register(s *server.MCPServer, deps tools.Deps) {
 	for _, op := range []string{"list_directory", "create_child_directory", "write_directory_file"} {
 		op := op
-		tool := mcp.NewTool(op, mcp.WithDescription("Operate on a directory by UUID. Same-name uploads are independent files; use returned UUID to retrieve."), mcp.WithString("directory_uuid", mcp.Required()), mcp.WithString("name"), mcp.WithString("content"))
+		tool := mcp.NewTool(op, mcp.WithDescription("Operate on a directory by UUID. Same-name uploads are independent files; use returned UUID to retrieve."), mcp.WithString("directory_uuid", mcp.Required()), mcp.WithString("name"), mcp.WithString("content"), mcp.WithString("request_id", mcp.Description("Optional idempotency key for text uploads; reuse on retry before editing, moving or deleting the result.")))
 		s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if deps.Manager == nil {
 				return tools.ResultError("manager not wired"), nil
@@ -70,7 +70,7 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			if err != nil {
 				return tools.ResultError(err.Error()), nil
 			}
-			r, err := deps.Manager.WriteInDirectory(ctx, id, name, content)
+			r, err := deps.Manager.WriteInDirectoryRequest(ctx, id, name, content, req.GetString("request_id", ""))
 			if err != nil {
 				return tools.ResultError(err.Error()), nil
 			}

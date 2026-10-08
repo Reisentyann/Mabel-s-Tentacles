@@ -97,6 +97,11 @@ func (m *Manager) Audit(ctx context.Context) (*AuditReport, error) {
 		return nil, fmt.Errorf("audit physical scan: %w", err)
 	}
 	for _, rel := range files {
+		if strings.HasSuffix(rel, ".partial") {
+			if _, owned := known[strings.TrimSuffix(rel, ".partial")]; owned {
+				continue
+			}
+		}
 		if _, ok := known[rel]; !ok {
 			report.Orphans = append(report.Orphans, rel)
 		}

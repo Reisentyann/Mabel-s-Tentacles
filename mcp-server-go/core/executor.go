@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/core/executor.go —— 统一执行器：盘上读 → describer.Analyze → 读旧合并 → 顶层列推导 → 单次 Upsert → 喂索引
-// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 package core
 
@@ -68,6 +68,30 @@ func (o *Orchestrator) execute(ctx context.Context, ev Event) (*Report, error) {
 		return &Report{UUID: meta.UUID, Visibility: ev.Visibility}, nil
 	}
 	old := describer.AttrsFromJSON(meta.Attributes)
+	name := ev.Path
+	if s, ok := o.opts.Store.(interface {
+		AnalysisName(context.Context, string) (string, error)
+	}); ok {
+		var err error
+		name, err = s.AnalysisName(ctx, meta.UUID)
+		if err != nil {
+			return nil, fmt.Errorf("analysis name: %w", err)
+		}
+		if name == "" {
+			name = ev.Path
+		}
+	}
+	if s, ok := o.opts.Store.(interface {
+		IsIntakePending(context.Context, string) (bool, error)
+	}); ok {
+		pending, err := s.IsIntakePending(ctx, meta.UUID)
+		if err != nil {
+			return nil, err
+		}
+		if pending {
+			return nil, manager.ErrPending
+		}
+	}
 
 	storageRel, err := manager.StoragePathOf(meta.UUID, ev.Path)
 	if err != nil {
@@ -93,9 +117,9 @@ func (o *Orchestrator) execute(ctx context.Context, ev Event) (*Report, error) {
 		return nil, fmt.Errorf("checksum: %w", err)
 	}
 
-	fileType, mimeType := service.InferFileMeta(ev.Path)
+	fileType, mimeType := service.InferFileMeta(name)
 	results := describer.Analyze(describer.Input{
-		Path:    ev.Path,
+		Path:    name,
 		Head:    head,
 		Size:    info.Size(),
 		MTime:   info.ModTime(),
@@ -116,14 +140,17 @@ func (o *Orchestrator) execute(ctx context.Context, ev Event) (*Report, error) {
 	size := info.Size()
 	visibility := ev.Visibility
 	if visibility == "" && ev.Kind == KindWrite {
-		visibility = "public"
+		visibility = meta.Visibility
+		if visibility == "" {
+			visibility = "public"
+		}
 	}
 	upsert := &repo.FileMetadata{
 		FilePath:   ev.Path,
 		Scope:      service.InferScope(ev.Path),
 		FileType:   &fileType,
 		MimeType:   &mimeType,
-		Extension:  common.StrPtr(service.InferExtension(ev.Path)),
+		Extension:  common.StrPtr(service.InferExtension(name)),
 		SizeBytes:  &size,
 		Checksum:   &cs,
 		SessionID:  common.StrPtr(ev.SessionID),

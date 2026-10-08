@@ -21,6 +21,17 @@ type directoryTestStore struct {
 	links map[string][]manager.DirectoryEntry
 }
 
+func (s *directoryTestStore) AnalysisName(ctx context.Context, uuid string) (string, error) {
+	for _, items := range s.links {
+		for _, item := range items {
+			if item.UUID == uuid {
+				return item.Name, nil
+			}
+		}
+	}
+	return "", nil
+}
+
 func (s *directoryTestStore) DirectoryByUUID(ctx context.Context, id string) (*manager.DirectoryRef, error) {
 	return s.DirectoryByPath(ctx, id)
 }
@@ -114,6 +125,10 @@ func TestSameNameUUIDDirectoryExport(t *testing.T) {
 	if a.UUID == b.UUID {
 		t.Fatal("same-name files share identity")
 	}
+	report, err := m.Audit(ctx)
+	if err != nil || len(report.Orphans) != 0 {
+		t.Fatalf("normal intake audit=%+v err=%v", report, err)
+	}
 	for id, want := range map[string]string{a.UUID: "first", b.UUID: "second"} {
 		r, err := m.Read(ctx, id, 0)
 		if err != nil || string(r.Content) != want {
@@ -172,5 +187,34 @@ func TestRecoveryDoesNotPublishPartial(t *testing.T) {
 	}
 	if _, err := os.Stat(abs); !os.IsNotExist(err) {
 		t.Fatal("partial was published")
+	}
+}
+
+func TestDirectoryRequestReplay(t *testing.T) {
+	st := &directoryTestStore{fakeStore: newFakeStore(), links: map[string][]manager.DirectoryEntry{}}
+	st.dirs["~alice"] = true
+	m := manager.New(st, t.TempDir(), nil, nil, manager.DownloadConfig{})
+	ctx := context.Background()
+	a, err := m.WriteInDirectoryRequest(ctx, "~alice", "a.txt", "hello", "r1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := m.WriteInDirectoryRequest(ctx, "~alice", "a.txt", "hello", "r1")
+	if err != nil || a.UUID != b.UUID {
+		t.Fatalf("replay=%v err=%v", b, err)
+	}
+	for _, tc := range []struct{ name, content string }{{"b.go", "hello"}, {"a.txt", "changed"}} {
+		if _, err := m.WriteInDirectoryRequest(ctx, "~alice", tc.name, tc.content, "r1"); err == nil {
+			t.Fatal("parameter mismatch accepted")
+		}
+	}
+	if len(st.links["~alice"]) != 1 {
+		t.Fatal("retry created duplicate")
+	}
+	if _, err := m.AnalyzeFile(ctx, a.LogicPath); err != nil {
+		t.Fatal(err)
+	}
+	if st.ups[a.LogicPath].Name != "a.txt" {
+		t.Fatalf("analysis lost display name: %+v", st.ups[a.LogicPath])
 	}
 }

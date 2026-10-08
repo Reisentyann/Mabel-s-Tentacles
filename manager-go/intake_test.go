@@ -291,6 +291,110 @@ func TestIntakeModifyModes(t *testing.T) {
 	}
 }
 
+func TestModifyPreservesOriginalSnapshotAndRejectsGhost(t *testing.T) {
+	m, st, _, dir := newTestManager(t)
+	ctx := context.Background()
+	r, err := m.Write(ctx, "modify.txt", "old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.refs[r.UUID] = &manager.FileRef{UUID: r.UUID, Path: r.LogicPath}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := m.ModifyByUUID(canceled, r.UUID, "canceled", "overwrite"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancel err=%v", err)
+	}
+	if _, err := m.Read(ctx, r.UUID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.ModifyByUUID(ctx, r.UUID, "new", "overwrite"); err != nil {
+		t.Fatal(err)
+	}
+	rf, err := m.Read(ctx, r.UUID, 0)
+	if err != nil || string(rf.Content) != "new" {
+		t.Fatalf("read=%+v err=%v", rf, err)
+	}
+	abs := filepath.Join(dir, filepath.FromSlash(r.StorageRel))
+	b, err := os.ReadFile(abs + ".partial")
+	if err != nil || string(b) != "old" {
+		t.Fatalf("original snapshot=%q err=%v", b, err)
+	}
+	if err := os.Rename(abs, abs+".saved"); err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"append", "overwrite"} {
+		if err := m.ModifyByUUID(ctx, r.UUID, "x", mode); !errors.Is(err, manager.ErrGhost) {
+			t.Fatalf("mode=%s err=%v", mode, err)
+		}
+	}
+	if _, err := os.Stat(abs); !os.IsNotExist(err) {
+		t.Fatal("ghost recreated")
+	}
+}
+
+type uuidOnlyModifyStore struct{ *fakeStore }
+
+func (s *uuidOnlyModifyStore) GetMeta(context.Context, string) (*manager.MetaRow, error) {
+	return nil, errors.New("UUID modification must not resolve path again")
+}
+
+func TestModifyUUIDDoesNotResolvePathAgain(t *testing.T) {
+	m, st, _, dir := newTestManager(t)
+	ctx := context.Background()
+	r, err := m.Write(ctx, "uuid.txt", "old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.refs[r.UUID] = &manager.FileRef{UUID: r.UUID, Path: r.LogicPath}
+	m = manager.New(&uuidOnlyModifyStore{st}, dir, nil, nil, manager.DownloadConfig{})
+	if err := m.ModifyByUUID(ctx, r.UUID, "new", "overwrite"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(r.StorageRel)))
+	if err != nil || string(b) != "new" {
+		t.Fatalf("content=%q err=%v", b, err)
+	}
+}
+
+func TestPendingIntakeCannotBeReadOrModified(t *testing.T) {
+	m, st, _, dir := newTestManager(t)
+	ctx := context.Background()
+	uuid, err := st.ReserveMeta(ctx, "pending.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.refs[uuid] = &manager.FileRef{UUID: uuid, Path: "pending.txt"}
+	abs := storedAbs(t, st, dir, "pending.txt")
+	if err := os.MkdirAll(filepath.Dir(abs), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(abs, []byte("complete but unconfirmed"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	for _, read := range []func() error{
+		func() error { _, err := m.Open(ctx, uuid); return err },
+		func() error { _, err := m.OpenByLogic(ctx, "pending.txt"); return err },
+		func() error { _, err := m.StreamByLogic(ctx, "pending.txt"); return err },
+		func() error { return m.ModifyByUUID(ctx, uuid, "new", "overwrite") },
+	} {
+		if err := read(); !errors.Is(err, manager.ErrPending) {
+			t.Fatalf("pending err=%v", err)
+		}
+	}
+	if _, err := m.Backfill(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := st.pending["pending.txt"]; !ok {
+		t.Fatal("backfill published pending intake")
+	}
+	if err := st.CompleteIntake(ctx, "pending.txt", uuid); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Read(ctx, uuid, 0); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // TestIntakeValidLogicPath 逻辑键校验：拒空 / 前导分隔符 / 盘符 /
 // ..、.、空段；正常多段通过。
 func TestIntakeValidLogicPath(t *testing.T) {
@@ -465,8 +569,8 @@ func TestMoveExtChangeRename(t *testing.T) {
 		t.Fatalf("new storage missing: %v", err)
 	}
 	oldRel, _ := manager.StoragePathOf(r.UUID, "笔记.txt")
-	if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(oldRel))); !os.IsNotExist(err) {
-		t.Fatal("old storage must be gone after rename")
+	if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(oldRel))); err != nil {
+		t.Fatal("old storage must remain as recovery evidence", err)
 	}
 	_ = st
 }

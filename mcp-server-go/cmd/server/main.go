@@ -103,6 +103,12 @@ func main() {
 	})
 	// 仅收敛上次进程未确认的入库：确认盘上已完成文件，或归档空占位释放名称。
 	// 不做轮询，下一次启动可安全重复执行。
+	if completed, err := mgr.RecoverPendingMoves(ctx); err != nil {
+		slog.Error("recover pending moves failed", "error", err)
+		return
+	} else {
+		slog.Info("pending moves recovered", "completed", completed)
+	}
 	if completed, archived, err := mgr.RecoverPendingIntakes(ctx); err != nil {
 		slog.Warn("intake recovery failed", "completed", completed, "archived", archived, "error", err)
 	} else if completed != 0 || archived != 0 {

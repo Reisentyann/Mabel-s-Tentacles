@@ -32,7 +32,7 @@ func TestReserveMetaPostgres(t *testing.T) {
 	_, err = pool.Exec(ctx, `CREATE TEMP TABLE file_metadata (
 		file_path text UNIQUE NOT NULL, uuid uuid DEFAULT gen_random_uuid(),
 		missing_rounds integer DEFAULT 0, updated_at timestamptz DEFAULT now(),
-		is_deleted boolean DEFAULT false, checksum text, title text, attributes jsonb DEFAULT '{}')`)
+		is_deleted boolean DEFAULT false, checksum text, title text, owner_id text, visibility text default 'public', moved_from text, attributes jsonb DEFAULT '{}')`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,6 +48,9 @@ func TestReserveMetaPostgres(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := &pgxStore{pool: pool}
+	if _, err := pool.Exec(ctx, `CREATE TEMP TABLE move_operations(uuid uuid primary key,source_path text,target_path text,status text,updated_at timestamptz default now())`); err != nil {
+		t.Fatal(err)
+	}
 	a := NewManagerStore(st)
 	uuid, err := a.ReserveMeta(ctx, "~alice/note.txt")
 	if err != nil || uuid == "" {
@@ -117,8 +120,71 @@ func TestReserveMetaPostgres(t *testing.T) {
 	if err := a.LinkDirectoryFile(ctx, d.UUID, uuid, "note.txt"); err != nil {
 		t.Fatal(err)
 	}
+	if _, err := pool.Exec(ctx, `UPDATE file_metadata SET is_deleted=false WHERE uuid=$1`, uuid); err != nil {
+		t.Fatal(err)
+	}
 	items, err := a.DirectoryEntries(ctx, d.UUID)
 	if err != nil || len(items) < 1 {
 		t.Fatalf("entries=%v err=%v", items, err)
+	}
+	atomicCtx := manager.WithDirectoryIntake(ctx, d.UUID, "same.txt")
+	newID, err := a.ReserveMeta(atomicCtx, "~alice/atomic.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var linked, private bool
+	if err := pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM directory_files WHERE file_uuid=$1 AND parent_uuid=$2),EXISTS(SELECT 1 FROM file_metadata WHERE uuid=$1 AND owner_id='alice' AND visibility='private')`, newID, d.UUID).Scan(&linked, &private); err != nil || !linked || !private {
+		t.Fatalf("linked=%v private=%v err=%v", linked, private, err)
+	}
+	items, err = a.DirectoryEntries(ctx, d.UUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range items {
+		if item.UUID == newID {
+			t.Fatal("reserved file exposed")
+		}
+	}
+	if err := a.CompleteIntake(ctx, "~alice/atomic.txt", newID); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.CreateDirectory(ctx, "~alice/dest"); err != nil {
+		t.Fatal(err)
+	}
+	dest, err := a.DirectoryByPath(ctx, "~alice/dest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.MoveMeta(ctx, "~alice/atomic.txt", "~alice/dest/moved.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.MoveMeta(ctx, "~alice/dest/moved.txt", "~alice/dest/moved.md"); err != nil {
+		t.Fatal(err)
+	}
+	if pending, err := a.IsIntakePending(ctx, newID); err != nil || !pending {
+		t.Fatalf("move pending=%v err=%v", pending, err)
+	}
+	moves, err := a.ListPendingMoves(ctx)
+	if err != nil || len(moves) != 1 || moves[0].From != "~alice/dest/moved.txt" || moves[0].To != "~alice/dest/moved.md" {
+		t.Fatalf("moves=%+v err=%v", moves, err)
+	}
+	if err := a.CompleteMove(ctx, newID, "~alice/dest/moved.md"); err != nil {
+		t.Fatal(err)
+	}
+	if pending, err := a.IsIntakePending(ctx, newID); err != nil || pending {
+		t.Fatalf("completed move pending=%v err=%v", pending, err)
+	}
+	items, err = a.DirectoryEntries(ctx, d.UUID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range items {
+		if item.UUID == newID {
+			t.Fatal("moved file still in source directory")
+		}
+	}
+	items, err = a.DirectoryEntries(ctx, dest.UUID)
+	if err != nil || len(items) != 1 || items[0].UUID != newID || items[0].Name != "moved.md" {
+		t.Fatalf("destination=%v err=%v", items, err)
 	}
 }

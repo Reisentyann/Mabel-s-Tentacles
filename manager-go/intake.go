@@ -291,6 +291,17 @@ func publishNewFile(targetPath string, src io.Reader) error {
 // Modify 修改既有文件（append / overwrite）。行必须已在（无行 = 文件不存在，
 // 修改入口不是创建入口——与旧 SafeModify 语义一致，文案沿用）。
 func (m *Manager) Modify(ctx context.Context, logicPath, content, mode string) error {
+	m.mutation.Lock()
+	defer m.mutation.Unlock()
+	ref, err := m.locateByLogic(ctx, logicPath)
+	if err != nil {
+		return err
+	}
+	return m.modifyRef(ctx, ref, content, mode)
+}
+
+func (m *Manager) modifyRef(ctx context.Context, ref *FileRef, content, mode string) error {
+	logicPath := ref.Path
 	if err := validLogicPath(logicPath); err != nil {
 		return err
 	}
@@ -300,34 +311,65 @@ func (m *Manager) Modify(ctx context.Context, logicPath, content, mode string) e
 	if mode != "append" && mode != "overwrite" {
 		return fmt.Errorf("error: invalid mode '%s', must be 'append' or 'overwrite'", mode)
 	}
-	row, err := m.store.GetMeta(ctx, logicPath)
-	if err != nil {
-		return fmt.Errorf("get meta: %w", err)
-	}
-	if row == nil {
-		return fmt.Errorf("error: file '%s' does not exist", logicPath)
-	}
-	if row.IsDeleted {
+	if ref.IsDeleted {
 		return ErrDeleted
 	}
-	abs, err := m.storageAbs(row.UUID, logicPath)
+	if err := m.requirePublished(ctx, ref.UUID); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	abs, err := m.storageAbs(ref.UUID, logicPath)
 	if err != nil {
 		return err
 	}
-	if mode == "overwrite" {
-		if err := os.WriteFile(abs, []byte(content), 0o644); err != nil {
-			return fmt.Errorf("overwrite file: %w", err)
-		}
-		return nil
-	}
-	f, err := os.OpenFile(abs, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	in, err := os.Open(abs)
 	if err != nil {
-		return fmt.Errorf("open file: %w", err)
+		if os.IsNotExist(err) {
+			return ErrGhost
+		}
+		return fmt.Errorf("open original: %w", err)
 	}
-	defer f.Close()
-	if _, err := f.WriteString(content); err != nil {
-		return fmt.Errorf("append file: %w", err)
+	info, err := in.Stat()
+	if err != nil {
+		in.Close()
+		return err
 	}
+	if !info.Mode().IsRegular() {
+		in.Close()
+		return fmt.Errorf("modify requires regular file")
+	}
+	out, err := os.CreateTemp(filepath.Dir(abs), ".modify-*")
+	if err != nil {
+		in.Close()
+		return err
+	}
+	// 未发布暂存文件保留供对账，正式文件不截断。
+	if mode == "append" {
+		_, err = io.Copy(out, in)
+	}
+	closeErr := in.Close()
+	if err == nil {
+		_, err = io.WriteString(out, content)
+	}
+	if err == nil {
+		err = out.Chmod(info.Mode().Perm())
+	}
+	if err == nil {
+		err = out.Sync()
+	}
+	err = errors.Join(err, closeErr, out.Close())
+	if err != nil {
+		return fmt.Errorf("prepare modification: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := replaceFile(out.Name(), abs); err != nil {
+		return fmt.Errorf("publish modification: %w", err)
+	}
+	m.buf.drop(ref.UUID)
 	return nil
 }
 
@@ -410,6 +452,8 @@ type MoveReceipt struct {
 //   - 无行 / 软删行拒（ErrNotFound / ErrDeleted 哨兵）；目标占用拒
 //     （ErrKeyExists）
 func (m *Manager) Move(ctx context.Context, from, to string) (*MoveReceipt, error) {
+	m.mutation.Lock()
+	defer m.mutation.Unlock()
 	if err := validLogicPath(from); err != nil {
 		return nil, err
 	}
@@ -431,6 +475,28 @@ func (m *Manager) Move(ctx context.Context, from, to string) (*MoveReceipt, erro
 	}
 
 	// 键改（谱系 + uuid 回执归 Store 一手落——repo 侧 UNIQUE 兜底并发竞态）
+	if err := m.requirePublished(ctx, row.UUID); err != nil {
+		return nil, err
+	}
+	if err := m.ensureFilePathAvailable(ctx, to); err != nil {
+		return nil, err
+	}
+	if path.Ext(from) != path.Ext(to) {
+		if _, ok := m.store.(MoveRecoveryStore); !ok {
+			return nil, fmt.Errorf("manager: recoverable extension move unavailable")
+		}
+		abs, err := m.storageAbs(row.UUID, from)
+		if err != nil {
+			return nil, err
+		}
+		info, err := os.Lstat(abs)
+		if err != nil {
+			return nil, err
+		}
+		if !info.Mode().IsRegular() {
+			return nil, fmt.Errorf("move source is not regular")
+		}
+	}
 	uuid, err := m.store.MoveMeta(ctx, from, to)
 	if err != nil {
 		return nil, err
@@ -447,26 +513,14 @@ func (m *Manager) Move(ctx context.Context, from, to string) (*MoveReceipt, erro
 	}
 	moved := oldRel != newRel
 	if moved {
-		oldAbs, rerr := m.resolve(oldRel)
-		if rerr != nil {
-			return nil, rerr
+		if err := m.finishStorageMove(MoveOperation{UUID: uuid, From: from, To: to}); err != nil {
+			return nil, fmt.Errorf("move pending recovery: %w", err)
 		}
-		newAbs, rerr := m.resolve(newRel)
-		if rerr != nil {
-			return nil, rerr
-		}
-		if err := os.MkdirAll(filepath.Dir(newAbs), 0o755); err != nil {
-			return nil, fmt.Errorf("create directory: %w", err)
-		}
-		if err := os.Rename(oldAbs, newAbs); err != nil {
-			// 键改已落库而盘 rename 失败：回滚键改保一致（行是事实源，
-			// 盘位由行派生——行不改则盘位口径不漂）
-			if _, rbErr := m.store.MoveMeta(ctx, to, from); rbErr != nil {
-				return nil, fmt.Errorf("rename %w (rollback failed: %v)", err, rbErr)
-			}
-			return nil, fmt.Errorf("rename file: %w", err)
+		if err := m.store.(MoveRecoveryStore).CompleteMove(ctx, uuid, to); err != nil {
+			return nil, fmt.Errorf("confirm move: %w", err)
 		}
 	}
+	m.buf.drop(uuid)
 	return &MoveReceipt{UUID: uuid, From: from, To: to, StorageMove: moved}, nil
 }
 

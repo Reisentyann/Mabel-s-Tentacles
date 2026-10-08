@@ -19,6 +19,7 @@ package manager
 import (
 	"context"
 	"encoding/json"
+	"sync"
 	"time"
 )
 
@@ -46,6 +47,7 @@ type MetaRow struct {
 // file_type / mime_type / extension / scope 等顶层列的推导归装配层适配器。
 type MetaRecord struct {
 	Path       string
+	Name       string // 显示名称用于类型推导，Path 仍是持久化键。
 	SizeBytes  int64
 	Checksum   string
 	Attributes json.RawMessage
@@ -56,6 +58,13 @@ type MetaRecord struct {
 type IntakeOperation struct {
 	LogicPath string
 	UUID      string
+}
+
+type MoveOperation struct{ UUID, From, To string }
+
+type MoveRecoveryStore interface {
+	ListPendingMoves(context.Context) ([]MoveOperation, error)
+	CompleteMove(context.Context, string, string) error
 }
 
 // Store manager 所需的最小存储面（依赖倒置，io.Reader 模式）：updater + fetch 域批次。
@@ -99,6 +108,8 @@ type Store interface {
 	ArchiveFailedIntake(ctx context.Context, logicPath, uuid string) error
 	// ListPendingIntakes 返回尚未确认落盘的有限状态记录，供启动恢复。
 	ListPendingIntakes(ctx context.Context) ([]IntakeOperation, error)
+	IsIntakePending(ctx context.Context, uuid string) (bool, error)
+	ResetMissing(ctx context.Context, uuid string) error
 	CreateDirectory(ctx context.Context, logicPath string) error
 	ListDirectoryPaths(ctx context.Context) ([]string, error)
 	DirectoryExists(ctx context.Context, logicPath string) (bool, error)
@@ -118,6 +129,7 @@ type IndexSink interface {
 
 // Manager 管理机。依赖按域逐步扩展。
 type Manager struct {
+	mutation sync.Mutex // 单实例修改与移动串行。
 	store    Store
 	dataDir  string                   // 文件系统根（updater 读盘 / placement 改名）
 	sink     IndexSink                // 索引喂食钩子（可空：索引机批次前为 nil）

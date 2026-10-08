@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/core/orchestrator_test.go —— 编排机骨架测试：执行器管线 / 队列生命周期 / Describe 闸门 / 检索降级 / 索引重建
-// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 package core
 
@@ -28,14 +28,30 @@ import (
 
 // memStore Store 最小面的内存实现（近似 COALESCE 语义：指针 nil 不覆盖）。
 type memStore struct {
-	mu   sync.Mutex
-	rows map[string]*repo.FileMetadata
-	ups  int // Upsert 次数（KindMove 零触发断言用）
+	mu    sync.Mutex
+	rows  map[string]*repo.FileMetadata
+	names map[string]string
+	ups   int // Upsert 次数（KindMove 零触发断言用）
 }
 
 func newMemStore() *memStore {
-	return &memStore{rows: map[string]*repo.FileMetadata{}}
+	return &memStore{rows: map[string]*repo.FileMetadata{}, names: map[string]string{}}
 }
+
+func (s *memStore) AnalysisName(_ context.Context, uuid string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for p, row := range s.rows {
+		if row.UUID == uuid {
+			if name := s.names[p]; name != "" {
+				return name, nil
+			}
+			return p, nil
+		}
+	}
+	return "", nil
+}
+func (s *memStore) IsIntakePending(context.Context, string) (bool, error) { return false, nil }
 
 // upserts 累计 Upsert 次数（KindMove 早退断言：move 不得触发重分析落库）。
 func (s *memStore) upserts() int {
@@ -427,6 +443,32 @@ func TestExecutePipeline(t *testing.T) {
 	}
 	if feeds[0].new == nil || feeds[0].new["cod-text-language"] != "zh" {
 		t.Fatal("feed new attrs missing cod-text-language")
+	}
+}
+
+func TestExecuteUsesDirectoryDisplayNameAndPreservesVisibility(t *testing.T) {
+	dir := t.TempDir()
+	ms := newMemStore()
+	intakeSeed(t, ms, dir, "opaque-key", "A short plain text document.")
+	ms.names["opaque-key"] = "report.txt"
+	ms.row(t, "opaque-key").Visibility = "private"
+	o, err := New(Options{DataDir: dir, Store: ms})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := o.execute(context.Background(), Event{Kind: KindWrite, Path: "opaque-key"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := ms.row(t, "opaque-key")
+	if row.Visibility != "private" {
+		t.Fatalf("visibility=%q", row.Visibility)
+	}
+	if row.Extension == nil || *row.Extension != ".txt" {
+		t.Fatalf("extension=%v", row.Extension)
+	}
+	if !strings.Contains(strings.Join(report.Families, ","), "text") {
+		t.Fatalf("display-name routing families=%v", report.Families)
 	}
 }
 

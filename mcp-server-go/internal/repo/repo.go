@@ -82,6 +82,11 @@ type Store interface {
 	CompleteIntake(ctx context.Context, logicPath, uuid string) error
 	ArchiveFailedIntake(ctx context.Context, logicPath, uuid string) error
 	ListPendingIntakes(ctx context.Context) ([]manager.IntakeOperation, error)
+	IsIntakePending(ctx context.Context, uuid string) (bool, error)
+	ResetMissing(ctx context.Context, uuid string) error
+	AnalysisName(ctx context.Context, uuid string) (string, error)
+	ListPendingMoves(context.Context) ([]manager.MoveOperation, error)
+	CompleteMove(context.Context, string, string) error
 	CreateDirectory(ctx context.Context, logicPath string) error
 	ListDirectoryPaths(ctx context.Context) ([]string, error)
 	DirectoryExists(ctx context.Context, logicPath string) (bool, error)
@@ -286,6 +291,10 @@ var migrations = []string{
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
 	`CREATE INDEX IF NOT EXISTS idx_intake_operations_pending ON intake_operations (status) WHERE status = 'reserved'`,
+	`CREATE TABLE IF NOT EXISTS move_operations (
+	 uuid UUID PRIMARY KEY, source_path TEXT NOT NULL, target_path TEXT NOT NULL,
+	 status TEXT NOT NULL CHECK(status IN ('pending','completed')), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`,
 	`CREATE TABLE IF NOT EXISTS logical_directories (
 		file_path TEXT PRIMARY KEY, is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

@@ -1,5 +1,5 @@
 // 文件：manager-go/fetch.go —— 取件域：uuid 兑换处（Locate/LocateMany 出位置，Open/Read 出内容；软删/幽灵/批量语义钉死）
-// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 // fetch 域职责：uuid 的兑换。调用方（编排机 / MCP 工具 / HTTP）持
 // indexer.Query 产出的 uuid 集合来问管理机——进 uuid，出位置或文件本体。
@@ -62,7 +62,8 @@ var (
 	// ErrDeleted 行已软删（回收站文件不供取内容；Locate 仍照报位置）。
 	ErrDeleted = errors.New("manager: file soft-deleted")
 	// ErrGhost 行在、盘上文件已消失（幽灵元数据，T2 对账 3 轮软删收编中）。
-	ErrGhost = errors.New("manager: file gone on disk")
+	ErrGhost   = errors.New("manager: file gone on disk")
+	ErrPending = errors.New("manager: file intake not published")
 )
 
 // errNoFetch 已退役（取件实现批次 2026-09-06 落地：Locate/LocateMany/
@@ -79,7 +80,21 @@ func (m *Manager) Locate(ctx context.Context, uuid string) (*FileRef, error) {
 	if ref == nil {
 		return nil, ErrNotFound
 	}
+	if err := m.requirePublished(ctx, uuid); err != nil {
+		return nil, err
+	}
 	return ref, nil
+}
+
+func (m *Manager) requirePublished(ctx context.Context, uuid string) error {
+	pending, err := m.store.IsIntakePending(ctx, uuid)
+	if err != nil {
+		return fmt.Errorf("check intake state: %w", err)
+	}
+	if pending {
+		return ErrPending
+	}
+	return nil
 }
 
 // LocateMany 凭 uuid 集合批量取位置。缺失的 uuid 不入返回 map（不报错，
@@ -95,6 +110,22 @@ func (m *Manager) LocateMany(ctx context.Context, uuids []string) (map[string]*F
 	if refs == nil {
 		refs = map[string]*FileRef{}
 	}
+	pending, err := m.store.ListPendingIntakes(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("locate many intake states: %w", err)
+	}
+	for _, item := range pending {
+		delete(refs, item.UUID)
+	}
+	if s, ok := m.store.(MoveRecoveryStore); ok {
+		ops, err := s.ListPendingMoves(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, op := range ops {
+			delete(refs, op.UUID)
+		}
+	}
 	return refs, nil
 }
 
@@ -103,6 +134,8 @@ func (m *Manager) LocateMany(ctx context.Context, uuids []string) (map[string]*F
 // 定位：本口服务 agent 反复读（read_file / 检索取件）；HTTP 下载端点走
 // StreamByLogic 直流（下载大流量一次性，入缓只添污染——buffer.go 立场 2026-09-08）。
 func (m *Manager) Open(ctx context.Context, uuid string) (*OpenedFile, error) {
+	m.mutation.Lock()
+	defer m.mutation.Unlock()
 	ref, err := m.Locate(ctx, uuid)
 	if err != nil {
 		return nil, err
@@ -113,6 +146,8 @@ func (m *Manager) Open(ctx context.Context, uuid string) (*OpenedFile, error) {
 // OpenByLogic 凭逻辑路径取整个文件（read_file 工具的入口；uuid 口的姊妹）。
 // 哨兵语义与 Open 一致。
 func (m *Manager) OpenByLogic(ctx context.Context, logicPath string) (*OpenedFile, error) {
+	m.mutation.Lock()
+	defer m.mutation.Unlock()
 	ref, err := m.locateByLogic(ctx, logicPath)
 	if err != nil {
 		return nil, err
@@ -142,6 +177,8 @@ func (m *Manager) ReadByLogic(ctx context.Context, logicPath string, limit int64
 // 下载是大流量一次性，入缓只添磁盘读写与 LRU 污染）。哨兵语义与
 // OpenByLogic 一致；Content 为 *os.File，调用方负责 Close。
 func (m *Manager) StreamByLogic(ctx context.Context, logicPath string) (*OpenedFile, error) {
+	m.mutation.Lock()
+	defer m.mutation.Unlock()
 	ref, err := m.locateByLogic(ctx, logicPath)
 	if err != nil {
 		return nil, err
@@ -171,6 +208,9 @@ func (m *Manager) locateByLogic(ctx context.Context, logicPath string) (*FileRef
 	}
 	if row == nil {
 		return nil, ErrNotFound
+	}
+	if err := m.requirePublished(ctx, row.UUID); err != nil {
+		return nil, err
 	}
 	return &FileRef{
 		UUID:      row.UUID,

@@ -1,5 +1,5 @@
 // 文件：manager-go/updater.go —— 更新回填域：T2 启动后台回填 + T3 手动重分析（字典第 10 节三触发器）
-// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 // updater 域职责：让存量元数据跟上引擎演进。
 // 执行器唯一路径：读文件 → describer.Analyze → MergeResults → Upsert → 喂食索引机。
@@ -15,6 +15,7 @@ package manager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -92,6 +93,12 @@ func (m *Manager) Backfill(ctx context.Context, batch int) (int, error) {
 			}
 
 			// 盘上缺失：计数（3 轮 → 软删除）；存在：清零由 UpsertMeta 语义承担
+			if err := m.requirePublished(ctx, row.UUID); err != nil {
+				if errors.Is(err, ErrPending) {
+					continue
+				}
+				return analyzed, err
+			}
 			abs, serr := m.storageAbs(row.UUID, row.Path)
 			var info os.FileInfo
 			if serr == nil {
@@ -125,6 +132,9 @@ func (m *Manager) Backfill(ctx context.Context, batch int) (int, error) {
 				continue
 			}
 
+			if err := m.store.ResetMissing(ctx, row.UUID); err != nil {
+				return analyzed, fmt.Errorf("reset missing: %w", err)
+			}
 			if analyzed >= batch {
 				continue // 达本轮上限：只做上面的缺失检查，不重分析
 			}
@@ -151,6 +161,12 @@ func (m *Manager) Backfill(ctx context.Context, batch int) (int, error) {
 // attrs → MergeResults → Upsert → 喂索引。T1 写路径（RecordFileMeta）
 // 内容在手不走这里。
 func (m *Manager) analyze(ctx context.Context, row MetaRow) (*AnalyzeReport, error) {
+	if row.IsDeleted {
+		return nil, ErrDeleted
+	}
+	if err := m.requirePublished(ctx, row.UUID); err != nil {
+		return nil, err
+	}
 	path := row.Path
 	abs, err := m.storageAbs(row.UUID, path)
 	if err != nil {
@@ -173,12 +189,16 @@ func (m *Manager) analyze(ctx context.Context, row MetaRow) (*AnalyzeReport, err
 		return nil, fmt.Errorf("checksum: %w", err)
 	}
 
+	name, err := m.analysisName(ctx, row.UUID, path)
+	if err != nil {
+		return nil, fmt.Errorf("analysis name: %w", err)
+	}
 	results := describer.Analyze(describer.Input{
-		Path:    path,
+		Path:    name,
 		Head:    head,
 		Size:    info.Size(),
 		MTime:   info.ModTime(),
-		ExtMime: m.extMimeOf(path),
+		ExtMime: m.extMimeOf(name),
 	}, func() ([]byte, error) {
 		return common.ReadLimited(abs, describer.MaxFullBytes)
 	})
@@ -196,6 +216,7 @@ func (m *Manager) analyze(ctx context.Context, row MetaRow) (*AnalyzeReport, err
 
 	uuid, err := m.store.UpsertMeta(ctx, MetaRecord{
 		Path:       path,
+		Name:       name,
 		SizeBytes:  info.Size(),
 		Checksum:   cs,
 		Attributes: describer.JSONFromAttrs(merged),
@@ -215,6 +236,21 @@ func (m *Manager) analyze(ctx context.Context, row MetaRow) (*AnalyzeReport, err
 		}
 	}
 	return report, nil
+}
+
+func (m *Manager) analysisName(ctx context.Context, uuid, fallback string) (string, error) {
+	if s, ok := m.store.(interface {
+		AnalysisName(context.Context, string) (string, error)
+	}); ok {
+		name, err := s.AnalysisName(ctx, uuid)
+		if err != nil {
+			return "", err
+		}
+		if name != "" {
+			return name, nil
+		}
+	}
+	return fallback, nil
 }
 
 // stale 陈旧判定（IsStale 四条件，快慢两段，字段字典 10.2）：
