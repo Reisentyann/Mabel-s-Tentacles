@@ -1,5 +1,5 @@
 // 文件：indexer-go/mem_test.go —— 索引机单元测试：三型桶查询 / And-Or 组合 / Update diff 幂等 / Rebuild / 脏值 / 并发 / Stats 自省
-// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
 
 package indexer
 
@@ -376,6 +376,26 @@ func TestUpdateDiff(t *testing.T) {
 	ix.Update("u2", nil, map[string]any{"cod-text-language": "zh"})
 	if got := mustQuery(t, ix, eq("cod-text-language", "zh"), false); !reflect.DeepEqual(got, []string{"u2"}) {
 		t.Fatalf("重复喂食后 zh → %v", got)
+	}
+}
+
+func TestUpdateUsesOwnedSnapshot(t *testing.T) {
+	ix := New()
+	first := map[string]any{"k": "A", "tags": []any{"one"}}
+	ix.Update("u", nil, first)
+	first["k"] = "changed"
+	first["tags"].([]any)[0] = "changed"
+	if got, err := ix.Query(Leaf("tags", OpContains, "one")); err != nil || len(got) != 1 {
+		t.Fatalf("snapshot aliased: %v %v", got, err)
+	}
+	ix.Update("u", nil, map[string]any{"k": "B"})
+	ix.Update("u", map[string]any{"k": "A"}, map[string]any{"k": "C"})
+	if got, err := ix.Query(Leaf("k", OpEq, "B")); err != nil || len(got) != 0 {
+		t.Fatalf("stale value remains: %v %v", got, err)
+	}
+	ix.Update("u", nil, nil)
+	if got, err := ix.Query(Leaf("k", OpEq, "C")); err != nil || len(got) != 0 {
+		t.Fatalf("remove failed: %v %v", got, err)
 	}
 }
 

@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/movefile/movefile.go —— MCP 工具 move_file：逻辑键改（管理机 Move；文件管理域 2026-09-08）
-// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
 
 package movefile
 
@@ -9,12 +9,10 @@ import (
 	"strings"
 	"time"
 
-	manager "github.com/Reisentyann/Mabel-s-Tentacles/manager-go"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/authz"
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
 )
 
@@ -117,29 +115,15 @@ func register(s *server.MCPServer, deps tools.Deps) {
 
 		// 键改走管理机（intake 域 Move：uuid 不变零重分析，ext 变则物理位
 		// 随派生规则 rename；谱系 moved_from 记原键）
-		var receipt *manager.MoveReceipt
-		var err error
-		if fileUUID != "" {
-			receipt, err = deps.Manager.MoveByUUID(ctx, fileUUID, req.GetString("directory_uuid", ""), req.GetString("name", ""))
-		} else {
-			receipt, err = deps.Manager.Move(ctx, src, dst)
+		if deps.Orch == nil {
+			return tools.ResultError("orchestrator not wired"), nil
 		}
+		receipt, err := deps.Orch.MoveFile(ctx, deps.Manager, src, dst, fileUUID, req.GetString("directory_uuid", ""), req.GetString("name", ""), sessionID, tools.Actor(ctx))
 		if err != nil {
 			slog.Error("move_file failed", "tool", "move_file", "user", tools.Actor(ctx).Name, "from", src, "to", dst, "session", sessionID, "error", err, "duration", time.Since(start).String())
 			tools.RecordOperation(ctx, deps.Store, sessionID, "move_file", src, "failed", err.Error(), params)
 			return tools.ResultError(err.Error()), nil
 		}
-
-		// 编排机事件仅记账（KindMove 执行器早退：描述/索引零触发）
-		if deps.Orch != nil {
-			deps.Orch.Submit(core.Event{
-				Kind:      core.KindMove,
-				Path:      receipt.To,
-				SessionID: sessionID,
-				Actor:     tools.Actor(ctx),
-			})
-		}
-
 		slog.Info("move_file ok", "tool", "move_file", "user", tools.Actor(ctx).Name, "from", receipt.From, "to", receipt.To, "uuid", receipt.UUID, "storage_move", receipt.StorageMove, "session", sessionID, "duration", time.Since(start).String())
 		tools.RecordOperation(ctx, deps.Store, sessionID, "move_file", dst, "success", "", params)
 		return tools.Result(map[string]any{

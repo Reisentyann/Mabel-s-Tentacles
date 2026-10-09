@@ -1,5 +1,5 @@
 // 文件：manager-go/move_recovery.go —— 扩展名移动恢复：排他发布目标并确认持久化移动记录
-// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
 
 package manager
 

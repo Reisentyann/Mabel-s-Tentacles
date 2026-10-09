@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/core/executor.go —— 统一执行器：盘上读 → describer.Analyze → 读旧合并 → 顶层列推导 → 单次 Upsert → 喂索引
-// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
 
 package core
 
@@ -46,12 +46,28 @@ type Report struct {
 // 文件已删除等竞态：stat 失败返回错误，调用方按容灾立场丢弃
 // （管理机 T2 幽灵计数轮次兜底）。
 func (o *Orchestrator) execute(ctx context.Context, ev Event) (*Report, error) {
+	o.updateMu.Lock()
+	defer o.updateMu.Unlock()
+	return o.executeUnlocked(ctx, ev)
+}
+
+func (o *Orchestrator) executeUnlocked(ctx context.Context, ev Event) (*Report, error) {
 	// KindMove 早退（文件管理域 2026-09-08）：键已由管理机 Move 改好——
 	// uuid / 内容 / 描述 / 归属全不变，索引键（uuid）不动，统一描述管线
 	// 零触发（intake 域设计红利：Move = 纯 DB 键改）。事件仅记账
 	//（lifecycle 日志归 orchestrator 统一记录，谱系 moved_from 在行内）。
 	if ev.Kind == KindMove {
 		return &Report{UUID: "", Visibility: ev.Visibility}, nil
+	}
+	if ev.Kind == KindAnalyze {
+		meta, err := o.opts.Store.GetMetadata(ctx, ev.Path)
+		if err != nil {
+			return nil, err
+		}
+		if meta == nil || meta.IsDeleted {
+			return nil, fmt.Errorf("file unavailable for analysis")
+		}
+		ev.Path = meta.FilePath
 	}
 	// 占位行先行（write/copy 工具层经管理机 Reserve）：行必有 uuid——
 	// 物理路径由 uuid 派生（intake 域口径，agent 只见逻辑键）。

@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/core/describe.go —— 同步描述入口：LLMStore 闸门 + 单次 Upsert + 喂索引（describe_file 与 HTTP describe 的唯一实现）
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
 
 package core
 
@@ -42,6 +42,8 @@ type DescribeResult struct {
 // null 墓碑删除、审计戳）→ 单次 Upsert → 喂索引（补上原实现缺的喂食洞：
 // llm-* 是可索引字段，改了不喂即索引漂移）。
 func (o *Orchestrator) Describe(ctx context.Context, req DescribeRequest, sessionID string) (*DescribeResult, error) {
+	o.updateMu.Lock()
+	defer o.updateMu.Unlock()
 	start := time.Now()
 
 	// 读旧：attrs（llm 合并基底 + sink diff 旧值侧）与旧描述（append 拼接）。

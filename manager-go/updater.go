@@ -1,5 +1,5 @@
 // 文件：manager-go/updater.go —— 更新回填域：T2 启动后台回填 + T3 手动重分析（字典第 10 节三触发器）
-// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
 
 // updater 域职责：让存量元数据跟上引擎演进。
 // 执行器唯一路径：读文件 → describer.Analyze → MergeResults → Upsert → 喂食索引机。
@@ -118,9 +118,6 @@ func (m *Manager) Backfill(ctx context.Context, batch int) (int, error) {
 							continue
 						}
 						softDeleted++
-						// 软删联动：索引同步卸载（new=nil 整体移除语义）——
-						// 免 Mounts 虚高拖到重启 Rebuild 才清；查询正确性另有
-						// 取件侧 IsDeleted 双保险，这里是计数卫生
 						if m.sink != nil {
 							m.sink.Update(row.UUID, describer.AttrsFromJSON(row.Attributes), nil)
 						}

@@ -1,11 +1,10 @@
 // 文件：mcp-server-go/core/delete.go —— 同步软删除入口：更新 DB is_deleted=true + 从索引机移除
-// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
 
 package core
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"time"
@@ -29,16 +28,11 @@ func (o *Orchestrator) Delete(ctx context.Context, path, sessionID string) error
 		return errors.New("file is already deleted")
 	}
 
-	if err := o.opts.Store.SoftDeleteMetadata(ctx, path); err != nil {
-		slog.Error("soft delete failed", "path", path, "session", sessionID, "error", err)
+	if err := o.runMaintenance(ctx, meta.UUID, Event{Kind: Kind("delete"), Path: path, SessionID: sessionID}, func() error {
+		return o.opts.Store.SoftDeleteMetadata(ctx, path)
+	}); err != nil {
+		slog.Error("soft delete maintenance failed", "path", path, "uuid", meta.UUID, "session", sessionID, "error", err)
 		return err
-	}
-
-	if o.opts.Sink != nil && len(meta.Attributes) > 0 {
-		var oldAttrs map[string]any
-		if err := json.Unmarshal(meta.Attributes, &oldAttrs); err == nil && len(oldAttrs) > 0 {
-			o.opts.Sink.Update(meta.UUID, oldAttrs, nil)
-		}
 	}
 
 	slog.Info("file soft deleted", "path", path, "uuid", meta.UUID, "session", sessionID, "duration", time.Since(start).String())

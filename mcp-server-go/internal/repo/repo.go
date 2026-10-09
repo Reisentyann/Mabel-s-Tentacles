@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/repo/repo.go —— 数据访问接口 Store + pgx 连接池实现（可 mock）
-// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
 
 package repo
 
@@ -17,6 +17,7 @@ import (
 // Store 是数据访问层接口，便于 mock 测试与替换实现。
 type Store interface {
 	manager.DirectoryStore
+	repoMaintenanceStore
 	// 用户
 	GetUserByUsername(ctx context.Context, username string) (*User, error)
 	GetUserByID(ctx context.Context, id int64) (*User, error)
@@ -101,6 +102,13 @@ type Store interface {
 	GetShortLink(ctx context.Context, code string) (*service.ShortLink, error)
 
 	Close()
+}
+
+type repoMaintenanceStore interface {
+	PrepareMaintenance(context.Context, string, string, string, string) (int64, error)
+	FinishMaintenance(context.Context, int64, string, string) error
+	PendingMaintenance(context.Context, int) ([]MaintenanceJob, error)
+	RecoverMaintenanceClaims(context.Context) error
 }
 
 type pgxStore struct {
@@ -311,6 +319,15 @@ var migrations = []string{
 		file_uuid UUID PRIMARY KEY REFERENCES file_metadata(uuid),
 		parent_uuid UUID NOT NULL REFERENCES logical_directories(uuid), name TEXT NOT NULL
 	)`,
+	`CREATE TABLE IF NOT EXISTS metadata_maintenance_jobs (
+		id BIGSERIAL PRIMARY KEY, uuid UUID NOT NULL, kind TEXT NOT NULL,
+		session_id TEXT NOT NULL DEFAULT '', actor TEXT NOT NULL DEFAULT '',
+		status TEXT NOT NULL CHECK(status IN ('prepared','ready','processing','retry','done','cancelled')),
+		attempts INT NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '',
+		next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`,
+	`CREATE INDEX IF NOT EXISTS metadata_maintenance_pending ON metadata_maintenance_jobs(id) WHERE status NOT IN ('done','cancelled')`,
 }
 
 func New(ctx context.Context, dsn string, maxConns int32) (Store, error) {

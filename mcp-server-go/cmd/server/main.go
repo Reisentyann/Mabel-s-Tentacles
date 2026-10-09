@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/cmd/server/main.go —— 服务入口：装配 config/logging/repo/search/api/mcp + 优雅关停 + 不安全默认值告警
-// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
 
 package main
 
@@ -94,7 +94,7 @@ func main() {
 	if dlBase == "" {
 		dlBase = cfg.Server.BaseURL
 	}
-	mgr := manager.New(repo.NewManagerStore(st), cfg.DataDir, idx, func(p string) string {
+	mgr := manager.New(repo.NewManagerStore(st), cfg.DataDir, orch.ManagerIndexSink(), func(p string) string {
 		_, mt := service.InferFileMeta(p)
 		return mt
 	}, manager.DownloadConfig{
@@ -117,7 +117,15 @@ func main() {
 	if err := orch.RebuildIndex(ctx); err != nil {
 		slog.Warn("index rebuild failed, search degrades to SQL until next restart", "error", err)
 	}
+	if err := orch.RecoverMaintenanceClaims(ctx); err != nil {
+		slog.Error("maintenance claim recovery failed", "error", err)
+		return
+	}
+	if err := orch.RetryMaintenance(ctx, 100); err != nil {
+		slog.Warn("maintenance recovery failed", "error", err)
+	}
 	orch.Start(ctx)
+	go maintenanceLoop(ctx, orch)
 
 	// MCP server。通道鉴权双轨：master key（.env，管家）/ 外部 key
 	// （agent_keys 表，绑定用户）；空 key = 开发放行（上方已大红 WARN）
@@ -158,6 +166,21 @@ func main() {
 	// 编排机排空在途事件（尽力而为：ctx 已取消的落库失败按容灾立场丢弃，
 	// 盘上文件是事实源，T2 对账兜底重建）
 	orch.Stop()
+}
+
+func maintenanceLoop(ctx context.Context, orch *core.Orchestrator) {
+	t := time.NewTicker(time.Minute)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if err := orch.RetryMaintenance(ctx, 100); err != nil {
+				slog.Warn("maintenance retry round failed", "error", err)
+			}
+		}
+	}
 }
 
 // backfillLoop T2 轮询驱动：启动先跑一轮，之后按 interval 反复调用

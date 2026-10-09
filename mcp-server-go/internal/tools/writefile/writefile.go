@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/writefile/writefile.go —— MCP 工具 write_file：写文件 + 内联描述字段随编排机事件异步落库
-// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
 
 package writefile
 
@@ -111,23 +111,14 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		// 描述字段随事件走，执行器单次 Upsert 落库并喂索引——旧的双 upsert 已灭。
 		// Actor/Visibility 为归属与可见性打标（两级模型：缺省 public 共享，
 		// 私密是显式选择）。
-		// 事件可丢（容灾铁律 2）：队列满由 Submit 内部 WARN + T2 对账兜底。
+		// 初次描述仍使用既有异步事件链。
 		if deps.Orch != nil {
 			deps.Orch.Submit(core.Event{
-				Kind:       core.KindWrite,
-				Path:       key,
-				SessionID:  sessionID,
-				Actor:      tools.Actor(ctx),
+				Kind: core.KindWrite, Path: key, SessionID: sessionID, Actor: tools.Actor(ctx),
 				Visibility: req.GetString("visibility", ""),
-				Agent: &core.AgentMeta{
-					Title:       common.StrPtr(title),
-					Description: common.StrPtr(description),
-					Tags:        tags,
-					FileType:    common.StrPtr(fileType),
-				},
+				Agent:      &core.AgentMeta{Title: common.StrPtr(title), Description: common.StrPtr(description), Tags: tags, FileType: common.StrPtr(fileType)},
 			})
 		}
-
 		tools.RecordOperation(ctx, deps.Store, sessionID, "write_file", key, "success", "", params)
 		result := map[string]any{"success": true, "uuid": receipt.UUID}
 		// 下载地址（2026-09-08）：message 里的链接用代码框包裹——聊天

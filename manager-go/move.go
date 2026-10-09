@@ -1,5 +1,5 @@
 // 文件：manager-go/move.go —— 逻辑路径与 UUID 移动、物理发布确认
-// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
 
 package manager
 

@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/core/orchestrator.go —— 编排机门面：生命周期事件 + 异步队列 + worker 池（三机之上的统一编排层骨架）
-// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
 
 // Package core 是编排机：把描述机（describer-go，字节进事实出）/ 索引机
 // （indexer-go，条件→uuid）/ 管理机（manager-go，位置与谱系）的编排，
@@ -133,13 +133,14 @@ type Options struct {
 
 // Orchestrator 编排机。
 type Orchestrator struct {
-	opts   Options
-	queue  chan Event
-	mu     sync.RWMutex // 保护 closed：Submit 持读锁非阻塞发送 / Stop 持写锁关闭，杜绝向已闭通道发送
-	closed bool
-	wg     sync.WaitGroup
-	startO sync.Once
-	stopO  sync.Once
+	updateMu sync.Mutex // 串行元数据读改写、维护与索引发布（单实例）。
+	opts     Options
+	queue    chan Event
+	mu       sync.RWMutex // 保护 closed：Submit 持读锁非阻塞发送 / Stop 持写锁关闭，杜绝向已闭通道发送
+	closed   bool
+	wg       sync.WaitGroup
+	startO   sync.Once
+	stopO    sync.Once
 
 	submitted atomic.Int64
 	processed atomic.Int64

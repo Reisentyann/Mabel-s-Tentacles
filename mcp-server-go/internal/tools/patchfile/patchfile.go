@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/patchfile/patchfile.go —— MCP 工具 patch_file：基于唯一锚点文本的微创局部替换
-// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
 
 package patchfile
 
@@ -13,7 +13,6 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
 )
 
@@ -105,17 +104,14 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		// 唯一匹配，执行单次安全替换
 		patched := strings.Replace(original, oldString, newString, 1)
 
-		if err := deps.Manager.Modify(ctx, key, patched, "overwrite"); err != nil {
+		if deps.Orch == nil {
+			return tools.ResultError("orchestrator not wired"), nil
+		}
+		if err := deps.Orch.ModifyFile(ctx, deps.Manager, key, patched, "overwrite", sessionID, tools.Actor(ctx)); err != nil {
 			slog.Error("patch_file modify failed", "path", key, "session", sessionID, "error", err, "duration", time.Since(start).String())
 			tools.RecordOperation(ctx, deps.Store, sessionID, "patch_file", key, "failed", err.Error(), params)
 			return tools.ResultError("failed to write patched content: " + err.Error()), nil
 		}
-
-		// 触发异步元数据刷新
-		if deps.Orch != nil {
-			deps.Orch.Submit(core.Event{Kind: core.KindModify, Path: key, SessionID: sessionID, Actor: tools.Actor(ctx)})
-		}
-
 		slog.Info("patch_file ok", "path", key, "session", sessionID, "duration", time.Since(start).String())
 		tools.RecordOperation(ctx, deps.Store, sessionID, "patch_file", key, "success", "", params)
 		return tools.Result(map[string]any{"success": true, "message": "Successfully patched " + key}), nil

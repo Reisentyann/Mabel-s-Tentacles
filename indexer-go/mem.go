@@ -1,5 +1,5 @@
 // 文件：indexer-go/mem.go —— 索引机进程内内存实现：字段级独立桶 + RWMutex 并发保护 + Stats 自省
-// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
 
 // Package indexer 的 mem.go 是进程内内存实现：field → 桶。
 // DB 是唯一事实源，本实现是派生缓存——可丢弃可重建（Rebuild），
@@ -250,8 +250,8 @@ func (m *memIndexer) Catalog() []FieldInfo {
 	return out
 }
 
-// Update 写路径喂食：old/new 为该文件变更前后的 attributes（读-改-写
-// 时由编排方各取一份，Upsert 后调用）。逐字段 diff：
+// Update 写路径喂食：Upsert 后提交完整 new 快照；old 仅为兼容参数。
+// 使用索引自身现态逐字段 diff 并隔离输入引用：
 //   - 键消失或值变 → 从旧桶移除
 //   - 新增或值变 → 挂入新桶（数组字段值变全量重挂：旧元素逐一移除、新元素逐一挂入）
 //   - new 为 nil/空 = 整体移除（文件删除路径）
@@ -262,6 +262,9 @@ func (m *memIndexer) Update(uuid string, old, new map[string]any) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// The stored snapshot is authoritative; caller old may be stale or absent.
+	old = m.attrs[uuid]
+	new = cloneAttrs(new)
 	for f, ov := range old {
 		if sameValue(ov, new[f]) {
 			continue // 值没动：不碰桶（new 缺键时 new[f]=nil，与 nil 旧值等价跳过）
@@ -292,6 +295,7 @@ func (m *memIndexer) Rebuild(all map[string]map[string]any) error {
 	m.buckets = map[string]bucket{}
 	m.attrs = map[string]map[string]any{}
 	for uuid, attrs := range all {
+		attrs = cloneAttrs(attrs)
 		for f, v := range attrs {
 			m.mount(f, uuid, v)
 		}
@@ -300,6 +304,35 @@ func (m *memIndexer) Rebuild(all map[string]map[string]any) error {
 		}
 	}
 	return nil
+}
+
+// cloneAttrs isolates JSON-shaped snapshots from subsequent caller mutations.
+func cloneAttrs(attrs map[string]any) map[string]any {
+	if attrs == nil {
+		return nil
+	}
+	out := make(map[string]any, len(attrs))
+	for key, value := range attrs {
+		out[key] = cloneAttrValue(value)
+	}
+	return out
+}
+
+func cloneAttrValue(value any) any {
+	switch v := value.(type) {
+	case map[string]any:
+		return cloneAttrs(v)
+	case []any:
+		out := make([]any, len(v))
+		for i, el := range v {
+			out[i] = cloneAttrValue(el)
+		}
+		return out
+	case []string:
+		return append([]string(nil), v...)
+	default:
+		return value
+	}
 }
 
 // mount 将 uuid 的单字段值挂入桶；桶不存在则按首个值的类型建桶

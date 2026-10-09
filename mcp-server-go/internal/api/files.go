@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/api/files.go —— 文件端点：可见性裁剪的目录树 / 单文件下载（自证：静态 token 或 JWT）/ zip 打包
-// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
 
 package api
 
@@ -284,7 +284,7 @@ func (s *Server) downloadZip(w http.ResponseWriter, r *http.Request) {
 
 // moveFile 逻辑键改（文件管理域的 HTTP 面，前端管理页用；与 MCP move_file
 // 工具同一份 manager.Move 正主）。键透传（前端树显示的就是全键 ~owner/…），
-// 写授权按源行 owner 矩阵判；KindMove 事件仅记账（执行器早退零重分析）。
+// 写授权按源行 owner 矩阵判；编排机持久登记移动维护任务并更新名称属性。
 func (s *Server) moveFile(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		From string `json:"from"`
@@ -311,19 +311,15 @@ func (s *Server) moveFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	receipt, err := s.manager.Move(r.Context(), body.From, body.To)
+	if s.orch == nil {
+		writeError(w, http.StatusServiceUnavailable, "orchestrator unavailable")
+		return
+	}
+	receipt, err := s.orch.MoveFile(r.Context(), s.manager, body.From, body.To, "", "", "", "", core.Actor{Name: principalOf(r).Name})
 	if err != nil {
 		slog.Error("move file failed", "from", body.From, "to", body.To, "error", err)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
-	}
-	if s.orch != nil {
-		s.orch.Submit(core.Event{
-			Kind:      core.KindMove,
-			Path:      receipt.To,
-			SessionID: "",
-			Actor:     core.Actor{Name: principalOf(r).Name},
-		})
 	}
 	slog.Info("move file ok", "from", body.From, "to", body.To, "uuid", receipt.UUID, "user", principalOf(r).Subject())
 	writeJSON(w, http.StatusOK, map[string]any{

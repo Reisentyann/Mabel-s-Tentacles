@@ -1,5 +1,5 @@
 // 文件：indexer-go/indexer.go —— 索引机接口与类型：字段条件 → uuid 纯查询 + Stats 自省（架构设计.md 第 3 节）
-// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
 
 // Package indexer 是字段索引机：纯查询服务——输入字段条件，输出文件 uuid 集合
 // （docs/架构设计.md 第 3 节）。uuid 是组件间货币，管理机凭 uuid 取件。
@@ -75,8 +75,8 @@ type Indexer interface {
 	// Query 按布尔表达式求 uuid 集合（And/Or/Not 任意嵌套，见 expr.go）。
 	// 空表达式返回空集（不报错）。
 	Query(expr Expr) ([]string, error)
-	// Update 写路径喂食：old/new 为该文件变更前后的 attributes，
-	// 实现负责逐字段 diff（旧桶移除、新桶挂入）。幂等：重复喂食结果恒等。
+	// Update 写路径喂食：new 为完整属性快照，old 保留调用兼容性。
+	// 内存实现以自身现态做 diff 并复制输入，避免过期 old 和外部修改产生残留。
 	// new 为 nil/空 = 整体移除（文件删除路径）。
 	Update(uuid string, old, new map[string]any)
 	// Rebuild 全量重建（服务启动时从 DB 载入 uuid→attributes）。

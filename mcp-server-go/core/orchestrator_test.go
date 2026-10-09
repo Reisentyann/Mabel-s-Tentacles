@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/core/orchestrator_test.go —— 编排机骨架测试：执行器管线 / 队列生命周期 / Describe 闸门 / 检索降级 / 索引重建
-// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
 
 package core
 
@@ -28,14 +28,69 @@ import (
 
 // memStore Store 最小面的内存实现（近似 COALESCE 语义：指针 nil 不覆盖）。
 type memStore struct {
-	mu    sync.Mutex
-	rows  map[string]*repo.FileMetadata
-	names map[string]string
-	ups   int // Upsert 次数（KindMove 零触发断言用）
+	mu        sync.Mutex
+	rows      map[string]*repo.FileMetadata
+	names     map[string]string
+	ups       int // Upsert 次数（KindMove 零触发断言用）
+	jobs      map[int64]repo.MaintenanceJob
+	jobStates map[int64]string
+	nextJob   int64
 }
 
 func newMemStore() *memStore {
-	return &memStore{rows: map[string]*repo.FileMetadata{}, names: map[string]string{}}
+	return &memStore{rows: map[string]*repo.FileMetadata{}, names: map[string]string{}, jobs: map[int64]repo.MaintenanceJob{}, jobStates: map[int64]string{}}
+}
+
+func (s *memStore) PrepareMaintenance(_ context.Context, uuid, kind, session, user string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextJob++
+	id := s.nextJob
+	s.jobs[id] = repo.MaintenanceJob{ID: id, UUID: uuid, Kind: kind, Session: session, User: user}
+	s.jobStates[id] = "prepared"
+	return id, nil
+}
+func (s *memStore) FinishMaintenance(_ context.Context, id int64, status, message string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	j := s.jobs[id]
+	if status == "retry" {
+		j.Attempts++
+	}
+	if status == "done" || status == "cancelled" {
+		delete(s.jobs, id)
+		delete(s.jobStates, id)
+	} else {
+		s.jobs[id] = j
+		s.jobStates[id] = status
+	}
+	return nil
+}
+func (s *memStore) PendingMaintenance(_ context.Context, limit int) ([]repo.MaintenanceJob, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := []repo.MaintenanceJob{}
+	for _, j := range s.jobs {
+		if s.jobStates[j.ID] != "ready" && s.jobStates[j.ID] != "retry" {
+			continue
+		}
+		s.jobStates[j.ID] = "processing"
+		out = append(out, j)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+func (s *memStore) RecoverMaintenanceClaims(context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, state := range s.jobStates {
+		if state == "processing" || state == "prepared" {
+			s.jobStates[id] = "ready"
+		}
+	}
+	return nil
 }
 
 func (s *memStore) AnalysisName(_ context.Context, uuid string) (string, error) {
@@ -255,6 +310,23 @@ func (m *memIndex) Query(expr indexer.Expr) ([]string, error) {
 	m.expr = expr
 	m.queries++
 	return m.hits, nil
+}
+
+func (m *memIndex) Update(uuid string, old, next map[string]any) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.rebuilt == nil {
+		m.rebuilt = map[string]map[string]any{}
+	}
+	if len(next) == 0 {
+		delete(m.rebuilt, uuid)
+		return
+	}
+	cp := map[string]any{}
+	for k, v := range next {
+		cp[k] = v
+	}
+	m.rebuilt[uuid] = cp
 }
 
 func (m *memIndex) Catalog() []indexer.FieldInfo {
@@ -979,5 +1051,148 @@ func TestRebuildIndex(t *testing.T) {
 	}
 	if err := o2.RebuildIndex(ctx); err == nil {
 		t.Fatal("expected error without index source")
+	}
+}
+
+func TestDurableMaintenanceRefreshesCurrentUUIDState(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := newMemStore()
+	idx := &memIndex{}
+	o, err := New(Options{DataDir: dir, Store: store, Sink: idx})
+	if err != nil {
+		t.Fatal(err)
+	}
+	uuid := intakeSeed(t, store, dir, "old.txt", "hello")
+	if err := o.NotifyMaintenance(ctx, uuid, string(KindModify), "old.txt", "s1", Actor{Name: "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	all, _ := idx.snapshot()
+	if len(all) != 1 || all[uuid]["cod-basic-name-pattern"] != "plain" {
+		t.Fatalf("indexed attrs = %#v", all)
+	}
+	if len(store.jobs) != 0 {
+		t.Fatalf("completed job remains: %#v", store.jobs)
+	}
+	feed := managerIndexSink{orch: o}
+	feed.Update(uuid, nil, map[string]any{"cod-basic-name-pattern": "manual"})
+	all, _ = idx.snapshot()
+	if all[uuid]["cod-basic-name-pattern"] != "plain" {
+		t.Fatalf("adapter did not read DB snapshot: %#v", all[uuid])
+	}
+
+	// Worker restart semantics: an already prepared task re-reads latest DB path.
+	store.rename(t, "old.txt", "screenshot.txt")
+	id, err := store.PrepareMaintenance(ctx, uuid, string(KindMove), "s2", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.FinishMaintenance(ctx, id, "ready", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.RetryMaintenance(ctx, 10); err != nil {
+		t.Fatal(err)
+	}
+	all, _ = idx.snapshot()
+	if all[uuid]["cod-basic-name-pattern"] != "screenshot" {
+		t.Fatalf("rename attrs = %#v", all[uuid])
+	}
+	if _, ok := store.jobs[id]; ok {
+		t.Fatal("successful recovery job remains")
+	}
+}
+
+func TestMaintenanceJobsForDeletedUUID(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := newMemStore()
+	idx := &memIndex{}
+	o, err := New(Options{DataDir: dir, Store: store, Sink: idx})
+	if err != nil {
+		t.Fatal(err)
+	}
+	uuid := intakeSeed(t, store, dir, "retry.txt", "body")
+	job, err := store.PrepareMaintenance(ctx, uuid, "modify", "s1", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.PrepareMaintenance(ctx, uuid, "move", "s2", "alice"); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.RecoverMaintenanceClaims(ctx); err != nil {
+		t.Fatal(err)
+	}
+	store.rows["retry.txt"].IsDeleted = true
+	if err := o.RetryMaintenance(ctx, 10); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.jobs[job]; ok {
+		t.Fatal("deleted object maintenance should complete after index removal")
+	}
+}
+
+func TestDeleteMaintenanceDoesNotDeadlock(t *testing.T) {
+	ctx := context.Background()
+	store := newMemStore()
+	ix := indexer.New()
+	uuid, err := store.UpsertMetadata(ctx, &repo.FileMetadata{FilePath: "delete.txt", Attributes: describer.JSONFromAttrs(map[string]any{"k": "v"})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ix.Update(uuid, nil, map[string]any{"k": "v"})
+	o, err := New(Options{DataDir: t.TempDir(), Store: store, Sink: ix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- o.Delete(ctx, "delete.txt", "s") }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("delete deadlocked")
+	}
+	got, err := ix.Query(indexer.Leaf("k", indexer.OpEq, "v"))
+	if err != nil || len(got) != 0 {
+		t.Fatalf("deleted index mount remains: %v %v", got, err)
+	}
+}
+
+func TestMaintenanceFailureRetryReadsCurrentFile(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := newMemStore()
+	ix := indexer.New()
+	uuid, err := store.UpsertMetadata(ctx, &repo.FileMetadata{FilePath: "retry.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := New(Options{DataDir: dir, Store: store, Sink: ix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = o.NotifyMaintenance(ctx, uuid, "modify", "retry.txt", "s", Actor{Name: "alice"})
+	if err == nil || len(store.jobs) != 1 {
+		t.Fatalf("failure lost task: %v %#v", err, store.jobs)
+	}
+	var id int64
+	for key, job := range store.jobs {
+		id = key
+		if job.Attempts != 1 {
+			t.Fatalf("attempts=%d", job.Attempts)
+		}
+	}
+	intakeSeed(t, store, dir, "retry.txt", "current content")
+	if err := o.RetryMaintenance(ctx, 10); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.jobs[id]; ok {
+		t.Fatal("retry did not complete")
+	}
+	got, err := ix.Query(indexer.Leaf("cod-basic-textish", indexer.OpEq, true))
+	if err != nil || len(got) != 1 || got[0] != uuid {
+		t.Fatalf("current file not indexed: %v %v", got, err)
 	}
 }

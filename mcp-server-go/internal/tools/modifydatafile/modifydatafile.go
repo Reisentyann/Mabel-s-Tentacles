@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/modifydatafile/modifydatafile.go —— MCP 工具 modify_data_file：append/overwrite + 编排机事件异步刷新元数据
-// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
 
 package modifydatafile
 
@@ -11,7 +11,6 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
-	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
 )
 
@@ -54,18 +53,14 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			if deps.Manager == nil {
 				return tools.ResultError("manager not wired"), nil
 			}
-			if err := deps.Manager.Modify(ctx, key, content, mode); err != nil {
+			if deps.Orch == nil {
+				return tools.ResultError("orchestrator not wired"), nil
+			}
+			if err := deps.Orch.ModifyFile(ctx, deps.Manager, key, content, mode, sessionID, tools.Actor(ctx)); err != nil {
 				slog.Error(toolName+" failed", "path", key, "mode", mode, "session", sessionID, "error", err, "duration", time.Since(start).String())
 				tools.RecordOperation(ctx, deps.Store, sessionID, toolName, key, "failed", err.Error(), params)
 				return tools.ResultError(err.Error()), nil
 			}
-
-			// 元数据刷新走编排机事件（异步）：worker 盘上重读终态重算
-			// size/checksum/描述（后写胜出），此处不再整读文件，agent 即写即回
-			if deps.Orch != nil {
-				deps.Orch.Submit(core.Event{Kind: core.KindModify, Path: key, SessionID: sessionID, Actor: tools.Actor(ctx)})
-			}
-
 			slog.Info(toolName+" ok", "path", key, "mode", mode, "session", sessionID, "duration", time.Since(start).String())
 			tools.RecordOperation(ctx, deps.Store, sessionID, toolName, key, "success", "", params)
 			return tools.Result(map[string]any{"success": true, "message": "Successfully modified " + key + " in " + mode + " mode"}), nil
