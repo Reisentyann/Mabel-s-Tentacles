@@ -95,7 +95,7 @@ CREATE INDEX IF NOT EXISTS idx_operations_created_at ON operations (created_at D
 -- 文件元数据表（描述/标签/属性/软删除）
 CREATE TABLE IF NOT EXISTS file_metadata (
     id               BIGSERIAL PRIMARY KEY,
-    uuid             UUID NOT NULL DEFAULT gen_random_uuid(),
+    uuid             UUID NOT NULL UNIQUE DEFAULT gen_random_uuid(),
     file_path        TEXT UNIQUE NOT NULL,
     scope            TEXT NOT NULL DEFAULT 'global',
     owner_id         TEXT,
