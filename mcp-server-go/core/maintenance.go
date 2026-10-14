@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/core/maintenance.go —— 文件修改与移动门面：先记录意图、维护文件、统一分析并恢复重试
-// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 package core
 
@@ -14,11 +14,16 @@ import (
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
 )
 
-type managerIndexSink struct{ orch *Orchestrator }
+type managerIndexSink struct {
+	orch   *Orchestrator
+	locked bool
+}
 
 func (s managerIndexSink) Update(uuid string, old, next map[string]any) {
-	s.orch.updateMu.Lock()
-	defer s.orch.updateMu.Unlock()
+	if !s.locked {
+		s.orch.updateMu.Lock()
+		defer s.orch.updateMu.Unlock()
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	rows, err := s.orch.opts.Store.GetMetadataByUUIDs(ctx, []string{uuid})
@@ -48,6 +53,41 @@ func (s managerIndexSink) Update(uuid string, old, next map[string]any) {
 // ManagerIndexSink adapts manager T2/T3 updates through the orchestrator's
 // single serialization point; manager-go remains unaware of the indexer.
 func (o *Orchestrator) ManagerIndexSink() manager.IndexSink { return managerIndexSink{orch: o} }
+
+// BindManager 为管理机注入逐文件 DB 读改写与索引发布的串行临界区钩子（持 updateMu）。
+// 绑定后，T2/T3 无论从何处调用，其 GetMeta->MergeResults->UpsertMeta->sink.Update
+// 都与编排机的 execute/Describe/runMaintenance 互斥且不会重入死锁。
+func (o *Orchestrator) BindManager(mgr *manager.Manager) {
+	if mgr == nil {
+		return
+	}
+	mgr.SetMetaUpdateRunner(func(fn func() error) error {
+		o.updateMu.Lock()
+		defer o.updateMu.Unlock()
+		return fn()
+	})
+}
+
+// ManagerIndexSinkBound 返回已假定外层由 BindManager 持 updateMu 的索引适配器（避免重入死锁）。
+func (o *Orchestrator) ManagerIndexSinkBound() manager.IndexSink {
+	return managerIndexSink{orch: o, locked: true}
+}
+
+// AnalyzeFile T3 编排门面：委托管理机执行单文件重分析（由 BindManager 保护逐文件读改写临界区）。
+func (o *Orchestrator) AnalyzeFile(ctx context.Context, mgr *manager.Manager, path string) (*manager.AnalyzeReport, error) {
+	if mgr == nil {
+		return nil, fmt.Errorf("manager not wired")
+	}
+	return mgr.AnalyzeFile(ctx, path)
+}
+
+// Backfill T2 编排门面：委托管理机执行一轮批量回填（由 BindManager 逐文件保护读改写临界区，不长时间独占整轮锁）。
+func (o *Orchestrator) Backfill(ctx context.Context, mgr *manager.Manager, batch int) (int, error) {
+	if mgr == nil {
+		return 0, fmt.Errorf("manager not wired")
+	}
+	return mgr.Backfill(ctx, batch)
+}
 
 // runMaintenance 串行保护维护、分析、人工标注及恢复。单实例限定。
 func (o *Orchestrator) runMaintenance(ctx context.Context, uuid string, ev Event, change func() error) error {

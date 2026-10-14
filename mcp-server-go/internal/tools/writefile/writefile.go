@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/writefile/writefile.go —— MCP 工具 write_file：写文件 + 内联描述字段随编排机事件异步落库
-// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 package writefile
 
@@ -109,10 +109,14 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		slog.Info("write_file ok", "tool", "write_file", "path", key, "bytes", len(content), "uuid", receipt.UUID, "session", sessionID, "duration", time.Since(start).String())
 
 		// 持久化维护意图：盘写成功后先落库记录，进程重启后由 RetryMaintenance 接手。
-		// 与后续 Submit 不冲突：Submit 是异步快路径，PrepareMaintenance 是持久兜底。
+		// 与后续 Submit 绑定 jobID：worker 正常执行完置 done，失败或丢弃置 retry/ready。
+		var jobID int64
 		if ms, ok := deps.Store.(repo.MaintenanceStore); ok {
-			if _, perr := ms.PrepareMaintenance(ctx, receipt.UUID, "write", sessionID, tools.Actor(ctx).Name); perr != nil {
+			id, perr := ms.PrepareMaintenance(ctx, receipt.UUID, "write", sessionID, tools.Actor(ctx).Name)
+			if perr != nil {
 				slog.Warn("write_file prepare maintenance failed", "tool", "write_file", "path", key, "uuid", receipt.UUID, "session", sessionID, "error", perr)
+			} else {
+				jobID = id
 			}
 		}
 
@@ -123,10 +127,14 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		// 初次描述仍使用既有异步事件链。
 		if deps.Orch != nil {
 			deps.Orch.Submit(core.Event{
-				Kind: core.KindWrite, Path: key, SessionID: sessionID, Actor: tools.Actor(ctx),
+				Kind: core.KindWrite, Path: key, UUID: receipt.UUID, MaintenanceJobID: jobID, SessionID: sessionID, Actor: tools.Actor(ctx),
 				Visibility: req.GetString("visibility", ""),
 				Agent:      &core.AgentMeta{Title: common.StrPtr(title), Description: common.StrPtr(description), Tags: tags, FileType: common.StrPtr(fileType)},
 			})
+		} else if jobID > 0 {
+			if ms, ok := deps.Store.(repo.MaintenanceStore); ok {
+				_ = ms.FinishMaintenance(ctx, jobID, "ready", "orchestrator not wired")
+			}
 		}
 		tools.RecordOperation(ctx, deps.Store, sessionID, "write_file", key, "success", "", params)
 		result := map[string]any{"success": true, "uuid": receipt.UUID}

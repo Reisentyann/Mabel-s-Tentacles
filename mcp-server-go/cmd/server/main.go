@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/cmd/server/main.go —— 服务入口：装配 config/logging/repo/search/api/mcp + 优雅关停 + 不安全默认值告警
-// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 package main
 
@@ -94,20 +94,28 @@ func main() {
 	if dlBase == "" {
 		dlBase = cfg.Server.BaseURL
 	}
-	mgr := manager.New(repo.NewManagerStore(st), cfg.DataDir, orch.ManagerIndexSink(), func(p string) string {
+	mgr := manager.New(repo.NewManagerStore(st), cfg.DataDir, orch.ManagerIndexSinkBound(), func(p string) string {
 		_, mt := service.InferFileMeta(p)
 		return mt
 	}, manager.DownloadConfig{
 		Secret:  cfg.Security.SecretKey,
 		BaseURL: dlBase,
 	})
+	orch.BindManager(mgr)
 	// 仅收敛上次进程未确认的入库：确认盘上已完成文件，或归档空占位释放名称。
 	// 不做轮询，下一次启动可安全重复执行。
-	if completed, err := mgr.RecoverPendingMoves(ctx); err != nil {
+	if recoveredMoves, err := mgr.RecoverPendingMoveOps(ctx); err != nil {
 		slog.Error("recover pending moves failed", "error", err)
 		return
 	} else {
-		slog.Info("pending moves recovered", "completed", completed)
+		slog.Info("pending moves recovered", "completed", len(recoveredMoves))
+		if ms, ok := st.(repo.MaintenanceStore); ok {
+			for _, op := range recoveredMoves {
+				if id, perr := ms.PrepareMaintenance(ctx, op.UUID, string(core.KindMove), "", ""); perr == nil {
+					_ = ms.FinishMaintenance(ctx, id, "ready", "")
+				}
+			}
+		}
 	}
 	if completed, archived, err := mgr.RecoverPendingIntakes(ctx); err != nil {
 		slog.Warn("intake recovery failed", "completed", completed, "archived", archived, "error", err)
@@ -143,7 +151,7 @@ func main() {
 	// T2 启动后台回填（describe.backfill，默认关闭）：先跑一轮再按 interval 轮询，
 	// 一轮结束即返回（铁律 3：绝不自旋），关停即断点（幂等可续跑）
 	if cfg.Describe.Backfill.Enabled {
-		go backfillLoop(ctx, mgr, cfg.Describe.Backfill)
+		go backfillLoop(ctx, orch, mgr, cfg.Describe.Backfill)
 	}
 
 	httpServer := &http.Server{
@@ -184,13 +192,13 @@ func maintenanceLoop(ctx context.Context, orch *core.Orchestrator) {
 }
 
 // backfillLoop T2 轮询驱动：启动先跑一轮，之后按 interval 反复调用
-// manager.Backfill（一轮 = 查→处理→写→结束，返回后才等下一轮）。
-func backfillLoop(ctx context.Context, mgr *manager.Manager, bc config.BackfillConfig) {
+// orch.Backfill（一轮 = 查→处理→写→结束，返回后才等下一轮）。
+func backfillLoop(ctx context.Context, orch *core.Orchestrator, mgr *manager.Manager, bc config.BackfillConfig) {
 	interval := time.Duration(bc.Interval) * time.Second
 	if interval <= 0 {
 		interval = time.Minute
 	}
-	if n, err := mgr.Backfill(ctx, bc.Batch); err != nil {
+	if n, err := orch.Backfill(ctx, mgr, bc.Batch); err != nil {
 		slog.Warn("backfill round failed", "error", err, "analyzed", n)
 	}
 	t := time.NewTicker(interval)
@@ -200,7 +208,7 @@ func backfillLoop(ctx context.Context, mgr *manager.Manager, bc config.BackfillC
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if n, err := mgr.Backfill(ctx, bc.Batch); err != nil {
+			if n, err := orch.Backfill(ctx, mgr, bc.Batch); err != nil {
 				slog.Warn("backfill round failed", "error", err, "analyzed", n)
 			}
 		}

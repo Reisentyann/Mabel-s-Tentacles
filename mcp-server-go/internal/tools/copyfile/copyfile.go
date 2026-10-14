@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/copyfile/copyfile.go —— MCP 工具 copy_file：内容 + 元数据一起复制（KindCopy 事件喂索引）
-// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 package copyfile
 
@@ -103,15 +103,23 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			}
 		}
 		// 持久化维护意图：盘写成功后先落库记录，进程重启后由 RetryMaintenance 接手。
+		var jobID int64
 		if ms, ok := deps.Store.(repo.MaintenanceStore); ok {
-			if _, perr := ms.PrepareMaintenance(ctx, copyReceipt.UUID, "copy", sessionID, owner); perr != nil {
+			id, perr := ms.PrepareMaintenance(ctx, copyReceipt.UUID, "copy", sessionID, owner)
+			if perr != nil {
 				slog.Warn("copy_file prepare maintenance failed", "tool", "copy_file", "target", dst, "uuid", copyReceipt.UUID, "session", sessionID, "error", perr)
+			} else {
+				jobID = id
 			}
 		}
 		// 复制主路径原本的喂食洞（目标 uuid 从不挂索引）由此堵上：
 		// 执行器重分析目标 + Upsert + Sink.Update，CopyMetadata 成败与否都覆盖
 		if deps.Orch != nil {
-			deps.Orch.Submit(core.Event{Kind: core.KindCopy, Path: dst, SessionID: sessionID, Actor: core.Actor{Name: owner}})
+			deps.Orch.Submit(core.Event{Kind: core.KindCopy, Path: dst, UUID: copyReceipt.UUID, MaintenanceJobID: jobID, SessionID: sessionID, Actor: core.Actor{Name: owner}})
+		} else if jobID > 0 {
+			if ms, ok := deps.Store.(repo.MaintenanceStore); ok {
+				_ = ms.FinishMaintenance(ctx, jobID, "ready", "orchestrator not wired")
+			}
 		}
 
 		slog.Info("copy_file ok", "source", src, "target", dst, "bytes", len(content), "session", sessionID, "duration", time.Since(start).String())

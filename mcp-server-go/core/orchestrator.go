@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/core/orchestrator.go —— 编排机门面：生命周期事件 + 异步队列 + worker 池（三机之上的统一编排层骨架）
-// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 // Package core 是编排机：把描述机（describer-go，字节进事实出）/ 索引机
 // （indexer-go，条件→uuid）/ 管理机（manager-go，位置与谱系）的编排，
@@ -94,13 +94,17 @@ const (
 // Actor 为写者主体（owner_id 落库标识——权限批次的归属打标）；
 // Visibility 为写者指定的可见性（public/group/private；空 = 事件不动它，
 // 新文件由执行器落共享默认 public——两级模型 2026-09-08：私密是显式选择）。
+// MaintenanceJobID 为可选的持久维护任务 ID（>0 时 worker 处理成功标记 done，
+// 失败或队列满丢弃时标记 retry 交由 RetryMaintenance 兜底）。
 type Event struct {
-	Kind       Kind
-	Path       string
-	Agent      *AgentMeta
-	Actor      Actor
-	Visibility string
-	SessionID  string
+	Kind             Kind
+	Path             string
+	UUID             string
+	MaintenanceJobID int64
+	Agent            *AgentMeta
+	Actor            Actor
+	Visibility       string
+	SessionID        string
 }
 
 // Actor 写者主体投影（Principal 的最小面：owner 匹配只看名字）。
@@ -189,22 +193,53 @@ func (o *Orchestrator) Stop() {
 }
 
 // Submit 提交生命周期事件（非阻塞）。false = 队列满被丢弃或已关停——
-// 容灾立场：事件可丢，管理机 T2 对账轮次兜底重建，调用方无需补偿。
+// 容灾立场：事件可丢，持久维护任务（RetryMaintenance）与管理机 T2 对账轮次兜底重建。
 func (o *Orchestrator) Submit(ev Event) bool {
+	if ev.MaintenanceJobID == 0 && ev.UUID != "" {
+		if st, ok := o.opts.Store.(repo.MaintenanceStore); ok {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			id, err := st.PrepareMaintenance(ctx, ev.UUID, string(ev.Kind), ev.SessionID, ev.Actor.Name)
+			cancel()
+			if err != nil {
+				slog.Warn("prepare maintenance on submit failed", "uuid", ev.UUID, "kind", ev.Kind, "path", ev.Path, "session", ev.SessionID, "error", err)
+			} else {
+				ev.MaintenanceJobID = id
+			}
+		}
+	}
 	o.mu.RLock()
-	defer o.mu.RUnlock()
 	if o.closed {
+		o.mu.RUnlock()
+		o.promoteDroppedMaintenance(ev.MaintenanceJobID, "orchestrator closed")
 		return false
 	}
 	select {
 	case o.queue <- ev:
 		o.submitted.Add(1)
+		o.mu.RUnlock()
 		return true
 	default:
 		o.dropped.Add(1)
+		o.mu.RUnlock()
+		o.promoteDroppedMaintenance(ev.MaintenanceJobID, "orchestrate queue full")
 		slog.Warn("orchestrate queue full, event dropped",
-			"kind", ev.Kind, "path", ev.Path, "session", ev.SessionID)
+			"kind", ev.Kind, "path", ev.Path, "uuid", ev.UUID, "job", ev.MaintenanceJobID, "session", ev.SessionID)
 		return false
+	}
+}
+
+func (o *Orchestrator) promoteDroppedMaintenance(jobID int64, reason string) {
+	if jobID <= 0 {
+		return
+	}
+	st, ok := o.opts.Store.(repo.MaintenanceStore)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := st.FinishMaintenance(ctx, jobID, "ready", reason); err != nil {
+		slog.Warn("promote dropped maintenance job failed", "job", jobID, "error", err)
 	}
 }
 
@@ -228,22 +263,37 @@ func (o *Orchestrator) Stats() Stats {
 }
 
 // work 单 worker 主循环：排空式消费（Stop 关队列后处理完存量即退出）。
-// 失败只记日志不重试——事件可丢立场（铁律 2），T2 对账兜底。
+// 若事件绑定了 MaintenanceJobID：成功则置 done，失败则置 retry 交由 RetryMaintenance 退避重试。
 func (o *Orchestrator) work(ctx context.Context) {
 	defer o.wg.Done()
+	st, _ := o.opts.Store.(repo.MaintenanceStore)
 	for ev := range o.queue {
 		start := time.Now()
 		report, err := o.execute(ctx, ev)
 		if err != nil {
+			if st != nil && ev.MaintenanceJobID > 0 {
+				stateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+				if ferr := st.FinishMaintenance(stateCtx, ev.MaintenanceJobID, "retry", err.Error()); ferr != nil {
+					slog.Warn("maintenance job mark retry failed", "job", ev.MaintenanceJobID, "uuid", ev.UUID, "error", ferr)
+				}
+				cancel()
+			}
 			slog.Warn("orchestrate event failed",
-				"kind", ev.Kind, "path", ev.Path, "session", ev.SessionID,
+				"kind", ev.Kind, "path", ev.Path, "uuid", ev.UUID, "job", ev.MaintenanceJobID, "session", ev.SessionID,
 				"error", err, "duration", time.Since(start).String())
 			o.processed.Add(1)
 			continue
 		}
+		if st != nil && ev.MaintenanceJobID > 0 {
+			stateCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			if ferr := st.FinishMaintenance(stateCtx, ev.MaintenanceJobID, "done", ""); ferr != nil {
+				slog.Warn("maintenance job mark done failed", "job", ev.MaintenanceJobID, "uuid", report.UUID, "error", ferr)
+			}
+			cancel()
+		}
 		slog.Info("file lifecycle recorded",
 			"kind", ev.Kind, "path", ev.Path, "session", ev.SessionID,
-			"uuid", report.UUID, "families", report.Families,
+			"uuid", report.UUID, "job", ev.MaintenanceJobID, "families", report.Families,
 			"cod_keys", report.CodKeys, "size", report.Size,
 			"owner", report.Owner, "visibility", report.Visibility,
 			"duration", time.Since(start).String())

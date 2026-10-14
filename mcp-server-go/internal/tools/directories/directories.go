@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/directories/directories.go —— UUID 目录 MCP 接口：列出、新建子目录和同名文件写入
-// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 package directories
 
@@ -81,13 +81,21 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			sessID := tools.SessionID(ctx)
 			actor := tools.Actor(ctx)
 			// 持久化维护意图：盘写成功后先落库记录，进程重启后由 RetryMaintenance 接手。
+			var jobID int64
 			if ms, ok := deps.Store.(repo.MaintenanceStore); ok {
-				if _, perr := ms.PrepareMaintenance(ctx, r.UUID, "write", sessID, actor.Name); perr != nil {
+				id, perr := ms.PrepareMaintenance(ctx, r.UUID, "write", sessID, actor.Name)
+				if perr != nil {
 					slog.Warn("write_directory_file prepare maintenance failed", "tool", op, "path", r.LogicPath, "uuid", r.UUID, "session", sessID, "error", perr)
+				} else {
+					jobID = id
 				}
 			}
 			if deps.Orch != nil {
-				deps.Orch.Submit(core.Event{Kind: core.KindWrite, Path: r.LogicPath, Actor: actor, SessionID: sessID, Agent: &core.AgentMeta{Title: common.StrPtr(name)}})
+				deps.Orch.Submit(core.Event{Kind: core.KindWrite, Path: r.LogicPath, UUID: r.UUID, MaintenanceJobID: jobID, Actor: actor, SessionID: sessID, Agent: &core.AgentMeta{Title: common.StrPtr(name)}})
+			} else if jobID > 0 {
+				if ms, ok := deps.Store.(repo.MaintenanceStore); ok {
+					_ = ms.FinishMaintenance(ctx, jobID, "ready", "orchestrator not wired")
+				}
 			}
 			return tools.Result(map[string]any{"success": true, "uuid": r.UUID, "name": name}), nil
 		})
