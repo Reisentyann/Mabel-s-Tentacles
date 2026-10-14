@@ -1,5 +1,5 @@
 // 文件：manager-go/updater.go —— 更新回填域：T2 启动后台回填 + T3 手动重分析（字典第 10 节三触发器）
-// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 // updater 域职责：让存量元数据跟上引擎演进。
 // 执行器唯一路径：读文件 → describer.Analyze → MergeResults → Upsert → 喂食索引机。
@@ -113,14 +113,20 @@ func (m *Manager) Backfill(ctx context.Context, batch int) (int, error) {
 						continue
 					}
 					if rounds >= ghostSoftDeleteRounds {
-						if derr := m.store.SoftDeleteMeta(ctx, row.Path); derr != nil {
+						derr := m.runMetaUpdate(func() error {
+							if err := m.store.SoftDeleteMeta(ctx, row.Path); err != nil {
+								return err
+							}
+							if m.sink != nil {
+								m.sink.Update(row.UUID, describer.AttrsFromJSON(row.Attributes), nil)
+							}
+							return nil
+						})
+						if derr != nil {
 							slog.Warn("backfill soft delete failed", "path", row.Path, "error", derr)
 							continue
 						}
 						softDeleted++
-						if m.sink != nil {
-							m.sink.Update(row.UUID, describer.AttrsFromJSON(row.Attributes), nil)
-						}
 						slog.Warn("ghost metadata soft-deleted", "path", row.Path, "uuid", row.UUID, "missing_rounds", rounds)
 					}
 					continue
@@ -200,29 +206,37 @@ func (m *Manager) analyze(ctx context.Context, row MetaRow) (*AnalyzeReport, err
 		return common.ReadLimited(abs, describer.MaxFullBytes)
 	})
 
-	// 读-改-写：整族合并 cod-*，保留 llm-* / sp-llm-*（无行 = 空开始）
-	old := map[string]any{}
-	oldRow, gerr := m.store.GetMeta(ctx, path)
-	if gerr != nil {
-		return nil, fmt.Errorf("get meta: %w", gerr)
-	}
-	if oldRow != nil {
-		old = describer.AttrsFromJSON(oldRow.Attributes)
-	}
-	merged := describer.MergeResults(old, results, time.Now())
+	// 读-改-写：整族合并 cod-*，保留 llm-* / sp-llm-*（无行 = 空开始），与索引发布处于同一临界区
+	if err := m.runMetaUpdate(func() error {
+		old := map[string]any{}
+		oldRow, gerr := m.store.GetMeta(ctx, path)
+		if gerr != nil {
+			return fmt.Errorf("get meta: %w", gerr)
+		}
+		if oldRow != nil {
+			if oldRow.IsDeleted {
+				return ErrDeleted
+			}
+			old = describer.AttrsFromJSON(oldRow.Attributes)
+		}
+		merged := describer.MergeResults(old, results, time.Now())
 
-	uuid, err := m.store.UpsertMeta(ctx, MetaRecord{
-		Path:       path,
-		Name:       name,
-		SizeBytes:  info.Size(),
-		Checksum:   cs,
-		Attributes: describer.JSONFromAttrs(merged),
-	})
-	if err != nil {
-		return nil, fmt.Errorf("upsert meta: %w", err)
-	}
-	if m.sink != nil {
-		m.sink.Update(uuid, old, merged)
+		uuid, uerr := m.store.UpsertMeta(ctx, MetaRecord{
+			Path:       path,
+			Name:       name,
+			SizeBytes:  info.Size(),
+			Checksum:   cs,
+			Attributes: describer.JSONFromAttrs(merged),
+		})
+		if uerr != nil {
+			return fmt.Errorf("upsert meta: %w", uerr)
+		}
+		if m.sink != nil {
+			m.sink.Update(uuid, old, merged)
+		}
+		return nil
+	}); err != nil {
+		return nil, err
 	}
 
 	report := &AnalyzeReport{Path: path, Families: make([]string, 0, len(results)), Attrs: map[string]any{}}

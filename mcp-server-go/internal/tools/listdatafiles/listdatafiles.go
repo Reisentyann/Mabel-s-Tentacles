@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/listdatafiles/listdatafiles.go —— MCP 工具 list_data_files：分页列表 + 路径过滤 + 简略元数据
-// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 package listdatafiles
 
@@ -152,7 +152,8 @@ func register(s *server.MCPServer, deps tools.Deps) {
 	}
 
 	toolOpts := []mcp.ToolOption{
-		mcp.WithDescription("List files with brief metadata, paginated to avoid flooding the context. Each item shows path/title/description/file_type/size_bytes/tags and has_description, so you can spot files lacking a description and maintain them via describe_file."),
+		mcp.WithDescription("Browse files in the workspace with brief metadata (paginated, optional path substring filter 'q'). " +
+			"[BOUNDARY] For browsing by path/name or spotting files with has_description=false. To filter by quantitative 'cod-*' or 'llm-*' attributes (e.g. image resolution, line count, language), use search_files instead."),
 		mcp.WithNumber("page",
 			mcp.Description("Page number, 1-based (default 1)."),
 		),

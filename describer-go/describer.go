@@ -1,5 +1,5 @@
 // 文件：describer-go/describer.go —— 描述引擎本体：Descriptor 接口 + 注册表 + Analyze 编排（basic 恒跑 + 路由 + 共享全量加载）
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 // Package describer 是确定性文件描述引擎：字节进、事实出。
 // 产出仅允许 cod- 前缀固定字段与 sp-cod- 自由字段，字段字典见仓库
@@ -8,8 +8,32 @@
 package describer
 
 import (
+	"log/slog"
 	"time"
 )
+
+func safeAnalyze(d Descriptor, in Input, data []byte) (attrs map[string]any, sp map[string]string, panicked bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			panicked = true
+			attrs = nil
+			sp = nil
+			slog.Error("describer plugin panicked", "family", d.Family(), "path", in.Path, "panic", r)
+		}
+	}()
+	attrs, sp = d.Analyze(in, data)
+	return attrs, sp, false
+}
+
+func safeSupports(d Descriptor, path string, head []byte, b Basic) (ok bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			ok = false
+			slog.Error("describer supports panicked", "family", d.Family(), "path", path, "panic", r)
+		}
+	}()
+	return d.Supports(path, head, b)
+}
 
 // 分析预算（字段字典第 7 节）。截断由引擎在 Analyze 入口统一强制执行——
 // 调用方传全量也安全，预算不再依赖调用方自觉（T1 写路径曾直传全量 content，
@@ -109,8 +133,8 @@ func Analyze(in Input, load Loader) []Result {
 		if d.Family() != "basic" {
 			continue
 		}
-		attrs, _ := d.Analyze(in, nil)
-		if len(attrs) > 0 {
+		attrs, _, panicked := safeAnalyze(d, in, nil)
+		if !panicked && len(attrs) > 0 {
 			results = append(results, Result{Family: "basic", Ver: d.FamilyVersion(), Attrs: attrs})
 			if v, ok := attrs["cod-basic-mime"].(string); ok {
 				b.Mime = v
@@ -144,14 +168,17 @@ func Analyze(in Input, load Loader) []Result {
 	}
 
 	for _, d := range registry {
-		if d.Family() == "basic" || !d.Supports(in.Path, in.Head, b) {
+		if d.Family() == "basic" || !safeSupports(d, in.Path, in.Head, b) {
 			continue
 		}
 		data, ok := needFull()
 		if !ok {
 			continue
 		}
-		attrs, sp := d.Analyze(in, data)
+		attrs, sp, panicked := safeAnalyze(d, in, data)
+		if panicked {
+			continue
+		}
 		// SP 自由字段：引擎统一加 sp-cod- 前缀，插件只给原始键
 		for k, v := range sp {
 			if attrs == nil {

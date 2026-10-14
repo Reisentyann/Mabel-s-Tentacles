@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/mcp/prompts.go —— MCP Prompts 模版注册：工作区整理、未描述文件巡检与布尔检索向导
-// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 package mcp
 
@@ -129,6 +129,36 @@ func registerPrompts(s *server.MCPServer) {
 
 			msg := mcp.NewPromptMessage(mcp.RoleUser, mcp.NewTextContent(promptContent))
 			return mcp.NewGetPromptResult("梅贝尔角色扮演与原作对话风格向导", []mcp.PromptMessage{msg}), nil
+		},
+	)
+
+	// 5. upload_and_manage_media（图片/媒体上传与分类管理向导）
+	s.AddPrompt(
+		mcp.NewPrompt("upload_and_manage_media",
+			mcp.WithPromptDescription("引导智能体将图片或二进制文件上传至 Mabel，自动触发视觉量化分析并补充语义标注与分类归档"),
+			mcp.WithArgument("target_path",
+				mcp.ArgumentDescription("目标逻辑路径（如 illustrations/mabel.png）"),
+			),
+		),
+		func(ctx context.Context, req mcp.GetPromptRequest) (*mcp.GetPromptResult, error) {
+			targetPath := req.Params.Arguments["target_path"]
+			if targetPath == "" {
+				targetPath = "images/<filename>.png"
+			}
+			text := fmt.Sprintf(`请按照 Mabel 标准媒体工作流上传并管理图片/文件（目标路径：%s）：
+
+1. **调用 upload_file 入库**：
+   - 传入 file_path=%q，以及 content_base64（支持纯 Base64 或 data:image/...;base64,...）或宿主机 source_path（管理员权限）；
+   - 同时内联传入 title、description、tags，以及 attributes JSON（例如 {"llm-semantic-type":"illustration","llm-characters":["..."],"llm-style":"..."}）。
+2. **核对自动量化事实（cod-image-*）**：
+   - 上传后编排机自动运行描述机提取宽高（cod-image-width/height）、宽高比（cod-image-aspect-ratio）、主色调（cod-image-dominant-color）、明暗度（cod-image-brightness）等属性并挂入内存索引；
+   - 可调用 get_file_info 查看完整属性表与 24 小时有效分享短链。
+3. **后续检索与管理**：
+   - 使用 search_files 按 cod-image-* 或 llm-* 条件组合检索；
+   - 需要调整目录结构时使用 move_file，补充额外标签使用 describe_file。`, targetPath, targetPath)
+
+			msg := mcp.NewPromptMessage(mcp.RoleUser, mcp.NewTextContent(text))
+			return mcp.NewGetPromptResult("图片与媒体文件上传管理向导", []mcp.PromptMessage{msg}), nil
 		},
 	)
 }

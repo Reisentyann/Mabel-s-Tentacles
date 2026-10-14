@@ -30,9 +30,10 @@
 
 | 新工具名（规范） | 旧工具名（兼容别名） | 类别 | 功能说明 | 核心变更点 |
 |---|---|---|---|---|
-| `read_file` | `read_file` | 读 | 读文件文本（1MB 截断防爆） | 入参统一为 `file_path`，兼容 `path` |
-| `write_file` | `write_file` | 写 | 写入新文件/全量覆盖，带元数据 | 保持现有能力，细化提示词 |
-| `modify_file` | `modify_data_file` | 写 | 追加 (`append`) 或整段覆写 (`overwrite`) | 剔除 `_data_` 冗余字样，入参统一 |
+| `read_file` | `read_file` | 读 | 读文件文本（1MB 截断防爆，支持 `uuid` 或 `file_path`） | 入参统一为 `file_path`，兼容 `path` |
+| `write_file` | `write_file` | 写 | 创建新纯文本/代码文件，内联带 `title/description/tags/attributes` | 仅限创建新文件（重名拒绝），支持内联 `llm-*` 属性 |
+| `upload_file` | *(新增)* | 写 | 上传图片/二进制/压缩包（支持 `content_base64`/Data URL 或宿主机 `source_path` 导入） | 自动触发描述机计算 `cod-image-*` 等属性并挂入内存索引，支持内联 `llm-*` 属性 |
+| `modify_file` | `modify_data_file` | 写 | 追加 (`append`) 或整段覆写 (`overwrite`) 已有文件 | 剔除 `_data_` 冗余字样，入参统一 |
 | `patch_file` | *(新增)* | 写 | 局部精准替换（基于唯一锚点文本替换） | 避免大文件全量覆写导致上下文污染与截断风险 |
 | `delete_file` | *(新增)* | 灭 | 软删除文件（标记删除，进入回收期） | 补齐文件清理闭环，支持回收留档 |
 | `get_file_info` | *(新增)* | 查 | 获取单文件完整详情（元数据+90+事实字段） | 终结“查已知文件还必须走搜索”的反直觉操作 |
@@ -117,6 +118,23 @@
   - 读取目标文件内容，校验 `old_string` 在内容中出现且仅出现 1 次（若出现 0 次或多次则安全拒绝并报错，防止改错）。
   - 执行单次替换并原子写回，触发管理机与编排机异步重新分析。
 
+#### 4. `upload_file`（图片与二进制文件上传）
+- **背景**：`write_file` 仅面向纯文本字符串，多模态 Agent 需要把生成的或用户提供的图片（PNG/JPEG/WebP/GIF 等）、压缩包或二进制文件直接存入 Mabel，并享受自动量化视觉特征（`cod-image-*`）与结构化检索。
+- **Schema**：
+  ```json
+  {
+    "file_path": "string (必填，目标逻辑路径，含扩展名，如 'images/mabel.png')",
+    "content_base64": "string (可选，Base64 编码字节或 data:image/...;base64,... URL，解码后上限 5MB)",
+    "source_path": "string (可选，宿主机本地文件路径导入，与 content_base64 二选一，限管理员/Master Key)",
+    "title": "string (可选，标题)",
+    "description": "string (可选，描述)",
+    "tags": "string (可选，逗号分隔标签)",
+    "visibility": "string (可选，public 或 private)",
+    "attributes": "string (可选，JSON 对象，如 {\"llm-semantic-type\":\"illustration\",\"llm-characters\":[\"梅贝尔\"]})"
+  }
+  ```
+- **配套 HTTP 端点**：`POST /api/files/upload`（支持 `multipart/form-data` 文件表单上传或 JSON `content_base64` 上传）。
+
 ---
 
 ### 2.3 入参别名与容错机制（代码层兼容规范）
@@ -154,6 +172,7 @@ MCP Resources 允许宿主客户端将静态/半静态的系统知识直接预�
 |---|---|---|---|
 | `mabel://catalog/fields` | 索引字段目录 | `application/json` | 当前系统所有可检索字段（`cod-*`、`llm-*`）、桶类型、取值基准（bench）与字段说明。模型检索时可直接查阅。 |
 | `mabel://guide/search-contract` | 检索契约速查 | `text/markdown` | `docs/检索契约.md` 的机器精炼版，包含布尔表达式（And/Or/Not 树）、8 种 op 操作符的合法组合。 |
+| `mabel://guide/workflow` | 操作指南与工具边界矩阵 | `text/markdown` | 全工具职责边界对照表（`write_file` vs `upload_file` vs `modify_file` vs `patch_file`，`describe_file` vs `analyze_file`）及图片上传管理 SOP。 |
 | `mabel://persona/system` | 梅贝尔助手人设 | `text/markdown` | 梅贝尔的角色设定、服务原则、工作流规范与安全边界（严谨、纯粹理性、不擅自越权）。 |
 
 ---

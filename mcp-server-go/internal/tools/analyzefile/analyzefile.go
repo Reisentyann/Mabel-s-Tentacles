@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/analyzefile/analyzefile.go —— MCP 工具 analyze_file：T3 手动重分析（manager updater 域）
-// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 package analyzefile
 
@@ -11,6 +11,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 
+	"github.com/Reisentyann/Mabel-s-Tentacles/manager-go"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
 )
 
@@ -20,9 +21,8 @@ func init() {
 
 func register(s *server.MCPServer, deps tools.Deps) {
 	tool := mcp.NewTool("analyze_file",
-		mcp.WithDescription("Re-run the deterministic describer on an existing file and store fresh cod-* facts (metadata refresh). "+
-			"Use this when a file was changed outside write_file/modify_file (e.g. by execute_command), or to upgrade old metadata to current engine version. "+
-			"Returns the fact families hit and newly produced attributes."),
+		mcp.WithDescription("Re-run the deterministic describer on an existing file's disk bytes to refresh 'cod-*' physical facts ( preserving all existing 'llm-*' semantic annotations). "+
+			"[BOUNDARY] Only needed when a file was changed outside MCP tools (e.g. by execute_command) or after a describer engine upgrade. To add human/LLM tags, descriptions or 'llm-*' attributes, use describe_file instead."),
 		mcp.WithString("file_path",
 			mcp.Description("Path of the file to analyze, relative to workspace. Also accepts 'path'."),
 		),
@@ -57,11 +57,19 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			return tools.Deny(ctx, "analyze_file", key, reason), nil
 		}
 
-		report, err := deps.Manager.AnalyzeFile(ctx, key)
-		if err != nil {
-			slog.Error("analyze_file failed", "path", key, "session", sessionID, "error", err, "duration", time.Since(start).String())
-			tools.RecordOperation(ctx, deps.Store, sessionID, "analyze_file", key, "failed", err.Error(), map[string]any{"file_path": filePath})
-			return tools.ResultError(err.Error()), nil
+		var (
+			report *manager.AnalyzeReport
+			aerr   error
+		)
+		if deps.Orch != nil {
+			report, aerr = deps.Orch.AnalyzeFile(ctx, deps.Manager, key)
+		} else {
+			report, aerr = deps.Manager.AnalyzeFile(ctx, key)
+		}
+		if aerr != nil {
+			slog.Error("analyze_file failed", "path", key, "session", sessionID, "error", aerr, "duration", time.Since(start).String())
+			tools.RecordOperation(ctx, deps.Store, sessionID, "analyze_file", key, "failed", aerr.Error(), map[string]any{"file_path": filePath})
+			return tools.ResultError(aerr.Error()), nil
 		}
 
 		slog.Info("analyze_file ok", "path", key, "session", sessionID, "families", report.Families, "cod_keys", len(report.Attrs), "duration", time.Since(start).String())

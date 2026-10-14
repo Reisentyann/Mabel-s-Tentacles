@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/statfile/statfile.go —— MCP 工具 get_file_info / stat_file：直查单文件完整元数据与事实属性
-// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 package statfile
 
@@ -103,7 +103,8 @@ func register(s *server.MCPServer, deps tools.Deps) {
 	}
 
 	toolOpts := []mcp.ToolOption{
-		mcp.WithDescription("Get full metadata and computed deterministic facts (90+ attributes) for a specific file. Returns size, timestamps, tags, lineage and attribute map."),
+		mcp.WithDescription("Get full metadata and computed deterministic facts (90+ 'cod-*' and 'llm-*' attributes) for a single known file. " +
+			"[BOUNDARY] Use this when you already know the file_path and want its attributes/lineage/size without reading its full content (use read_file for content, list_files for browsing, or search_files for condition-based queries)."),
 		mcp.WithString("file_path",
 			mcp.Description("Logical file path, relative to workspace or ~username/path. Also accepts 'path'."),
 		),

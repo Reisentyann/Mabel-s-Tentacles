@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/core/executor.go —— 统一执行器：盘上读 → describer.Analyze → 读旧合并 → 顶层列推导 → 单次 Upsert → 喂索引
-// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 package core
 
@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/Reisentyann/Mabel-s-Tentacles/common"
 	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go"
 	_ "github.com/Reisentyann/Mabel-s-Tentacles/describer-go/all" // 插件聚合注册（编排机自带；与 tools 侧重复 blank import 幂等无害）
+	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go/llm"
 	"github.com/Reisentyann/Mabel-s-Tentacles/manager-go"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
@@ -51,7 +53,15 @@ func (o *Orchestrator) execute(ctx context.Context, ev Event) (*Report, error) {
 	return o.executeUnlocked(ctx, ev)
 }
 
-func (o *Orchestrator) executeUnlocked(ctx context.Context, ev Event) (*Report, error) {
+func (o *Orchestrator) executeUnlocked(ctx context.Context, ev Event) (report *Report, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			report = nil
+			err = fmt.Errorf("executor panic recovered: %v", r)
+			slog.Error("orchestrator execute panicked",
+				"kind", ev.Kind, "path", ev.Path, "uuid", ev.UUID, "job", ev.MaintenanceJobID, "session", ev.SessionID, "panic", r)
+		}
+	}()
 	// KindMove 早退（文件管理域 2026-09-08）：键已由管理机 Move 改好——
 	// uuid / 内容 / 描述 / 归属全不变，索引键（uuid）不动，统一描述管线
 	// 零触发（intake 域设计红利：Move = 纯 DB 键改）。事件仅记账
@@ -203,7 +213,7 @@ func (o *Orchestrator) executeUnlocked(ctx context.Context, ev Event) (*Report, 
 		o.opts.Sink.Update(uuid, old, merged)
 	}
 
-	report := &Report{UUID: uuid, Families: make([]string, 0, len(results)), Size: size,
+	report = &Report{UUID: uuid, Families: make([]string, 0, len(results)), Size: size,
 		Visibility: visibility}
 	if meta.OwnerID != nil {
 		report.Owner = *meta.OwnerID // 本次落归属（KindWrite）；modify/copy 不动 owner，留空
@@ -215,31 +225,42 @@ func (o *Orchestrator) executeUnlocked(ctx context.Context, ev Event) (*Report, 
 	return report, nil
 }
 
-// mergeSourceAttributes 合并内部来源适配器提供的结构化事实。
-// 来源事实不是描述机固定 cod-* 结果，也不是模型 llm-* 结果，统一放在
-// sp-cod-jm-* 自由命名空间；重放同一事件时覆盖同名键，保证下载重试幂等。
+// mergeSourceAttributes 合并内部来源适配器提供的结构化事实（sp-cod-jm-*）
+// 以及写/上传事件顺带传入的 LLM 语义属性（llm-* / sp-llm-*，经 LLMStore 校验）。
 func mergeSourceAttributes(attrs map[string]any, agent *AgentMeta) {
-	if agent == nil {
+	if agent == nil || len(agent.Attributes) == 0 {
 		return
 	}
 	hasJM := false
-	for key := range agent.Attributes {
+	llmIn := map[string]any{}
+	for key, val := range agent.Attributes {
 		if strings.HasPrefix(key, "sp-cod-jm-") {
 			hasJM = true
-			break
+		} else if strings.HasPrefix(key, "llm-") || strings.HasPrefix(key, "sp-llm-") {
+			llmIn[key] = val
 		}
 	}
-	if !hasJM {
-		return
-	}
-	for key := range attrs {
-		if strings.HasPrefix(key, "sp-cod-jm-") {
-			delete(attrs, key)
+	if hasJM {
+		for key := range attrs {
+			if strings.HasPrefix(key, "sp-cod-jm-") {
+				delete(attrs, key)
+			}
+		}
+		for key, value := range agent.Attributes {
+			if strings.HasPrefix(key, "sp-cod-jm-") {
+				attrs[key] = value
+			}
 		}
 	}
-	for key, value := range agent.Attributes {
-		if strings.HasPrefix(key, "sp-cod-jm-") {
-			attrs[key] = value
+	if len(llmIn) > 0 {
+		st := llm.OpenLLM()
+		st.SetMany(llmIn)
+		committed := st.Commit(attrs, llm.LLMSourceAgent, time.Now())
+		for k := range attrs {
+			delete(attrs, k)
+		}
+		for k, v := range committed {
+			attrs[k] = v
 		}
 	}
 }

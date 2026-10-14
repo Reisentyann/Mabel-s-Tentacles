@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/api/analyze.go —— T2/T3 端点：POST analyze（单文件重分析）/ POST backfill（一轮批量回填）
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 package api
 
@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
+
+	"github.com/Reisentyann/Mabel-s-Tentacles/manager-go"
 )
 
 type analyzeRequest struct {
@@ -53,7 +55,15 @@ func (s *Server) analyzeFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	start := time.Now()
-	report, err := s.manager.AnalyzeFile(r.Context(), req.Path)
+	var (
+		report *manager.AnalyzeReport
+		err    error
+	)
+	if s.orch != nil {
+		report, err = s.orch.AnalyzeFile(r.Context(), s.manager, req.Path)
+	} else {
+		report, err = s.manager.AnalyzeFile(r.Context(), req.Path)
+	}
 	if err != nil {
 		slog.Error("analyze file failed", "path", req.Path, "error", err, "duration", time.Since(start).String())
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -76,7 +86,15 @@ func (s *Server) backfillFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	start := time.Now()
-	n, err := s.manager.Backfill(r.Context(), s.cfg.Describe.Backfill.Batch)
+	var (
+		n   int
+		err error
+	)
+	if s.orch != nil {
+		n, err = s.orch.Backfill(r.Context(), s.manager, s.cfg.Describe.Backfill.Batch)
+	} else {
+		n, err = s.manager.Backfill(r.Context(), s.cfg.Describe.Backfill.Batch)
+	}
 	if err != nil {
 		slog.Error("backfill failed", "error", err, "analyzed", n, "duration", time.Since(start).String())
 		writeError(w, http.StatusInternalServerError, err.Error())

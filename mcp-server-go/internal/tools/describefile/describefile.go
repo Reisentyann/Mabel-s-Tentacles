@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/describefile/describefile.go —— MCP 工具 describe_file：描述三件套 + llm 字段（编排机同步入口，拒因当场回传）
-// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 package describefile
 
@@ -24,8 +24,9 @@ func init() {
 
 func register(s *server.MCPServer, deps tools.Deps) {
 	tool := mcp.NewTool("describe_file",
-		mcp.WithDescription("Add description, tags, and semantic attributes to an existing file so it can be searched later. "+
-			"[FORBIDDEN] DO NOT pass cod-* fields in attributes! cod-* fields (e.g. cod-text-lines) are read-only facts computed by the deterministic engine. "+
+		mcp.WithDescription("Add or update human/LLM semantic metadata (title, description, tags, visibility, and 'llm-*'/'sp-llm-*' attributes) on an existing file so it can be searched later. "+
+			"[BOUNDARY] Updates semantic metadata in DB and memory index without touching disk bytes (to recompute physical 'cod-*' facts from disk bytes, use analyze_file). "+
+			"[FORBIDDEN] DO NOT pass cod-* fields in attributes! cod-* fields (e.g. cod-text-lines, cod-image-width) are read-only facts computed by the deterministic engine. "+
 			"[ACCEPTED ATTRIBUTES] JSON object of: llm-semantic-type (in [novel, game_guide, technical_doc, note, log, meme, illustration, photo, screenshot, code_artifact, data, other]), "+
 			"llm-tone, llm-characters, llm-action, llm-style, llm-summary, or custom sp-llm-* fields. Pass null for any attribute key to remove it."),
 		mcp.WithString("file_path",

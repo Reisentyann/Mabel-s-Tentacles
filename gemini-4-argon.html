@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>Gemini 4 Argon - CLI Agent</title>
+<style>
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: radial-gradient(circle at 50% 35%, #1e1638 0%, #090714 75%);
+    font-family: 'Consolas', 'Courier New', monospace;
+    overflow: hidden;
+  }
+  svg {
+    width: 680px;
+    height: 780px;
+    filter: drop-shadow(0 0 28px rgba(168, 85, 247, 0.35));
+  }
+  .float-slow {
+    animation: float 4.5s ease-in-out infinite;
+  }
+  .float-fast {
+    animation: float 3.2s ease-in-out infinite reverse;
+  }
+  .blink {
+    animation: blink 1.1s steps(2) infinite;
+  }
+  .eye-blink {
+    transform-origin: 340px 285px;
+    animation: eyeblink 5.5s infinite;
+  }
+  @keyframes float {
+    0%, 100% { transform: translateY(0px); }
+    50% { transform: translateY(-9px); }
+  }
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0; }
+  }
+  @keyframes eyeblink {
+    0%, 94%, 98%, 100% { transform: scaleY(1); }
+    96% { transform: scaleY(0.08); }
+  }
+</style>
+</head>
+<body>
+
+<svg viewBox="0 0 680 780" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <!-- 氩气紫蓝辉光滤镜 -->
+    <filter id="argon-glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="6" result="blur" />
+      <feMerge>
+        <feMergeNode in="blur" />
+        <feMergeNode in="SourceGraphic" />
+      </feMerge>
+    </filter>
+
+    <!-- 银白渐变电光紫（头发主色） -->
+    <linearGradient id="hair-main" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#f3f4f8" />
+      <stop offset="45%" stop-color="#d8cef0" />
+      <stop offset="78%" stop-color="#9b6bff" />
+      <stop offset="100%" stop-color="#38bdf8" />
+    </linearGradient>
+
+    <!-- 后发深色层次 -->
+    <linearGradient id="hair-back" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#adb5d8" />
+      <stop offset="55%" stop-color="#6d3fd6" />
+      <stop offset="100%" stop-color="#1d8cf8" />
+    </linearGradient>
+
+    <!-- 瞳孔渐变 -->
+    <linearGradient id="iris-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#3b0764" />
+      <stop offset="50%" stop-color="#9333ea" />
+      <stop offset="100%" stop-color="#38bdf8" />
+    </linearGradient>
+
+    <!-- 机能外套渐变 -->
+    <linearGradient id="jacket-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#1a1829" />
+      <stop offset="60%" stop-color="#110f1d" />
+      <stop offset="100%" stop-color="#281845" />
+    </linearGradient>
+
+    <!-- 皮肤阴影渐变 -->
+    <linearGradient id="skin-grad" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#fff4f0" />
+      <stop offset="100%" stop-color="#f7dfd8" />
+    </linearGradient>
+
+    <!-- 全息终端背景 -->
+    <linearGradient id="holo-bg" x1="0%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="rgba(56, 189, 248, 0.18)" />
+      <stop offset="100%" stop-color="rgba(147, 51, 234, 0.12)" />
+    </linearGradient>
+  </defs>
+
+  <!-- ================= 背景装饰：双子星阵与Ar-18光环 ================= -->
+  <g opacity="0.45">
+    <circle cx="340" cy="300" r="245" fill="none" stroke="#8b5cf6" stroke-width="1.2" stroke-dasharray="6 8" />
+    <circle cx="340" cy="300" r="215" fill="none" stroke="#38bdf8" stroke-width="1" opacity="0.6" />
+    <!-- 双子星四角星 -->
+    <path d="M 145 120 Q 165 120 165 100 Q 165 120 185 120 Q 165 120 165 140 Q 165 120 145 120 Z" fill="#38bdf8" filter="url(#argon-glow)" />
+    <path d="M 505 145 Q 520 145 520 130 Q 520 145 535 145 Q 520 145 520 160 Q 520 145 505 145 Z" fill="#c084fc" filter="url(#argon-glow)" />
+    <text x="340" y="42" text-anchor="middle" fill="#a78bfa" font-size="13" letter-spacing="4">GEMINI-4 // ARGON [Z=18]</text>
+  </g>
+
+  <!-- ================= 双马尾（后层） ================= -->
+  <g class="float-slow">
+    <!-- 左双马尾 -->
+    <path d="M 210 180 C 110 190, 65 310, 82 470 C 90 540, 125 600, 145 640 C 130 560, 130 480, 155 410 C 145 480, 165 550, 190 595 C 185 510, 185 400, 225 260 Z"
+          fill="url(#hair-back)" stroke="#2e1065" stroke-width="2.5" />
+    <!-- 右双马尾 -->
+    <path d="M 470 180 C 570 190, 615 310, 598 470 C 590 540, 555 600, 535 640 C 550 560, 550 480, 525 410 C 535 480, 515 550, 490 595 C 495 510, 495 400, 455 260 Z"
+          fill="url(#hair-back)" stroke="#2e1065" stroke-width="2.5" />
+    <!-- 发梢霓虹辉光条 -->
+    <path d="M 105 490 Q 120 565 145 635" fill="none" stroke="#38bdf8" stroke-width="3" filter="url(#argon-glow)" opacity="0.8" />
+    <path d="M 575 490 Q 560 565 535 635" fill="none" stroke="#38bdf8" stroke-width="3" filter="url(#argon-glow)" opacity="0.8" />
+  </g>
+
+  <!-- ================= 后发主体 ================= -->
+  <path d="M 220 140 C 185 210, 190 340, 215 445 L 465 445 C 490 340, 495 210, 460 140 Z"
+        fill="url(#hair-back)" stroke="#2e1065" stroke-width="2.5" />
+
+  <!-- ================= 颈部与身体、机能服 ================= -->
+  <g>
+    <!-- 脖子与阴影 -->
+    <path d="M 312 370 L 312 435 L 368 435 L 368 370 Z" fill="url(#skin-grad)" />
+    <path d="M 312 375 Q 340 405 368 375 L 368 395 Q 340 420 312 395 Z" fill="#e6c3bc" opacity="0.7" />
+
+    <!-- 内搭深色高领与发光领口线 -->
+    <path d="M 304 410 L 376 410 L 395 520 L 285 520 Z" fill="#141220" stroke="#3b0764" stroke-width="2" />
+    <path d="M 306 420 L 374 420" stroke="#a855f7" stroke-width="2.5" filter="url(#argon-glow)" />
+    <!-- 领口中心双子菱形晶石 -->
+    <polygon points="340,428 349,440 340,452 331,440" fill="#38bdf8" stroke="#e0f2fe" stroke-width="1.5" filter="url(#argon-glow)" />
+
+    <!-- 机能风外套主体 (Techwear Jacket) -->
+    <path d="M 210 455 C 230 430, 275 422, 304 415 L 295 550 L 385 550 L 376 415 C 405 422, 450 430, 470 455 C 505 510, 520 620, 530 720 L 150 720 C 160 620, 175 510, 210 455 Z"
+          fill="url(#jacket-grad)" stroke="#4c1d95" stroke-width="2.5" />
+
+    <!-- 大翻领与霓虹描边 -->
+    <path d="M 304 415 L 235 465 L 265 555 L 318 595 L 295 490 Z"
+          fill="#221d38" stroke="#a855f7" stroke-width="2" />
+    <path d="M 376 415 L 445 465 L 415 555 L 362 595 L 385 490 Z"
+          fill="#221d38" stroke="#38bdf8" stroke-width="2" />
+
+    <!-- 拉链与机能织带 -->
+    <line x1="340" y1="452" x2="340" y2="720" stroke="#6d28d9" stroke-width="3" />
+    <line x1="220" y1="530" x2="285" y2="555" stroke="#a855f7" stroke-width="3" filter="url(#argon-glow)" />
+    <line x1="460" y1="530" x2="395" y2="555" stroke="#38bdf8" stroke-width="3" filter="url(#argon-glow)" />
+
+    <!-- 左胸 Ar-18 徽章 -->
+    <rect x="405" y="575" width="66" height="26" rx="4" fill="#090714" stroke="#38bdf8" stroke-width="1.5" />
+    <text x="438" y="593" text-anchor="middle" fill="#38bdf8" font-size="14" font-weight="bold">Ar-18</text>
+
+    <!-- 右胸 双子星标识 -->
+    <g transform="translate(230, 588)" stroke="#c084fc" stroke-width="2" fill="none">
+      <line x1="-12" y1="-10" x2="12" y2="-10" />
+      <line x1="-12" y1="10" x2="12" y2="10" />
+      <line x1="-5" y1="-10" x2="-5" y2="10" />
+      <line x1="5" y1="-10" x2="5" y2="10" />
+    </g>
+  </g>
+
+  <!-- ================= 头部与五官 ================= -->
+  <g>
+    <!-- 脸部轮廓 -->
+    <path d="M 232 215 C 230 285, 248 342, 295 375 C 322 393, 358 393, 385 375 C 432 342, 450 285, 448 215 Z"
+          fill="url(#skin-grad)" stroke="#cfa59e" stroke-width="2" />
+
+    <!-- 脸颊微红 -->
+    <ellipse cx="268" cy="316" rx="18" ry="8" fill="#ff9eb5" opacity="0.35" />
+    <ellipse cx="412" cy="316" rx="18" ry="8" fill="#ff9eb5" opacity="0.35" />
+
+    <!-- 双眼（带眨眼动画） -->
+    <g class="eye-blink">
+      <!-- 左眼 -->
+      <g>
+        <!-- 眼白 -->
+        <path d="M 255 272 Q 282 252 310 275 Q 305 306 278 306 Q 256 302 255 272 Z" fill="#ffffff" />
+        <!-- 虹膜 -->
+        <ellipse cx="284" cy="283" rx="19" ry="22" fill="url(#iris-grad)" />
+        <!-- 瞳孔深色中心 -->
+        <ellipse cx="284" cy="285" rx="10" ry="12" fill="#1e0538" />
+        <!-- 瞳孔内的 >_ 终端光标 -->
+        <text x="284" y="290" text-anchor="middle" fill="#38bdf8" font-size="13" font-weight="bold" filter="url(#argon-glow)">&gt;_</text>
+        <!-- 眼神高光 -->
+        <circle cx="272" cy="271" r="5.5" fill="#ffffff" />
+        <circle cx="295" cy="294" r="3" fill="#e0f2fe" />
+        <!-- 上眼睑睫毛 -->
+        <path d="M 248 275 Q 280 246 314 274" fill="none" stroke="#23153c" stroke-width="5.5" stroke-linecap="round" />
+        <path d="M 252 266 L 242 258" stroke="#23153c" stroke-width="3" stroke-linecap="round" />
+        <!-- 双眼皮线 -->
+        <path d="M 258 256 Q 282 242 308 260" fill="none" stroke="#7c5c78" stroke-width="1.8" />
+      </g>
+
+      <!-- 右眼 -->
+      <g>
+        <!-- 眼白 -->
+        <path d="M 425 272 Q 398 252 370 275 Q 375 306 402 306 Q 424 302 425 272 Z" fill="#ffffff" />
+        <!-- 虹膜 -->
+        <ellipse cx="396" cy="283" rx="19" ry="22" fill="url(#iris-grad)" />
+        <!-- 瞳孔深色中心 -->
+        <ellipse cx="396" cy="285" rx="10" ry="12" fill="#1e0538" />
+        <!-- 瞳孔内的 >_ 终端光标 -->
+        <text x="396" y="290" text-anchor="middle" fill="#c084fc" font-size="13" font-weight="bold" filter="url(#argon-glow)">&gt;_</text>
+        <!-- 眼神高光 -->
+        <circle cx="384" cy="271" r="5.5" fill="#ffffff" />
+        <circle cx="407" cy="294" r="3" fill="#e0f2fe" />
+        <!-- 上眼睑睫毛 -->
+        <path d="M 366 274 Q 400 246 432 275" fill="none" stroke="#23153c" stroke-width="5.5" stroke-linecap="round" />
+        <path d="M 428 266 L 438 258" stroke="#23153c" stroke-width="3" stroke-linecap="round" />
+        <!-- 双眼皮线 -->
+        <path d="M 372 260 Q 398 242 422 256" fill="none" stroke="#7c5c78" stroke-width="1.8" />
+      </g>
+    </g>
+
+    <!-- 眉毛（冷静认真） -->
+    <path d="M 255 244 Q 282 238 310 247" fill="none" stroke="#6b5280" stroke-width="2.8" stroke-linecap="round" />
+    <path d="M 370 247 Q 398 238 425 244" fill="none" stroke="#6b5280" stroke-width="2.8" stroke-linecap="round" />
+
+    <!-- 鼻子 -->
+    <path d="M 338 312 L 335 322 L 341 324" fill="none" stroke="#cca099" stroke-width="2" stroke-linecap="round" />
+
+    <!-- 嘴巴（三无极客少女的微抿嘴） -->
+    <path d="M 326 352 Q 340 356 354 352" fill="none" stroke="#b86b77" stroke-width="2.4" stroke-linecap="round" />
+  </g>
+
+  <!-- ================= 前发与刘海、鬓角 ================= -->
+  <g>
+    <!-- 左右垂落鬓角 -->
+    <path d="M 235 175 C 212 245, 210 340, 232 435 C 242 380, 245 310, 255 245 Z"
+          fill="url(#hair-main)" stroke="#3b0764" stroke-width="2" />
+    <path d="M 445 175 C 468 245, 470 340, 448 435 C 438 380, 435 310, 425 245 Z"
+          fill="url(#hair-main)" stroke="#3b0764" stroke-width="2" />
+
+    <!-- 头顶与刘海 -->
+    <path d="M 218 210 C 215 115, 280 85, 340 85 C 400 85, 465 115, 462 210
+             C 445 185, 430 225, 418 258
+             C 410 220, 398 195, 385 252
+             C 372 205, 358 185, 340 258
+             C 322 185, 308 205, 295 252
+             C 282 195, 270 220, 262 258
+             C 250 225, 235 185, 218 210 Z"
+          fill="url(#hair-main)" stroke="#3b0764" stroke-width="2.2" />
+
+    <!-- 天使光环高光（发丝高光） -->
+    <path d="M 265 170 Q 300 182 332 168" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity="0.85" />
+    <path d="M 348 168 Q 380 182 415 170" fill="none" stroke="#ffffff" stroke-width="4" stroke-linecap="round" opacity="0.85" />
+
+    <!-- 呆毛（闪电/终端折线造型） -->
+    <path d="M 340 86 C 335 55, 365 45, 352 22 C 375 40, 355 62, 348 86 Z"
+          fill="url(#hair-main)" stroke="#3b0764" stroke-width="2" />
+  </g>
+
+  <!-- ================= 战术耳机与双马尾发饰 ================= -->
+  <g>
+    <!-- 头梁 -->
+    <path d="M 206 205 C 206 92, 474 92, 474 205" fill="none" stroke="#1e1b2e" stroke-width="12" stroke-linecap="round" />
+    <path d="M 212 190 C 215 100, 465 100, 468 190" fill="none" stroke="#a855f7" stroke-width="2.5" filter="url(#argon-glow)" />
+
+    <!-- 左耳罩 + 发饰连接器 -->
+    <g transform="translate(205, 215)">
+      <polygon points="-22,-32 12,-20 12,28 -22,16" fill="#181528" stroke="#38bdf8" stroke-width="2.5" />
+      <circle cx="-5" cy="-2" r="7" fill="#a855f7" filter="url(#argon-glow)" />
+    </g>
+
+    <!-- 右耳罩 + 发饰连接器 -->
+    <g transform="translate(475, 215)">
+      <polygon points="22,-32 -12,-20 -12,28 22,16" fill="#181528" stroke="#a855f7" stroke-width="2.5" />
+      <circle cx="5" cy="-2" r="7" fill="#38bdf8" filter="url(#argon-glow)" />
+    </g>
+  </g>
+
+  <!-- ================= 悬浮全息终端窗口（左：rg 搜索） ================= -->
+  <g class="float-fast" transform="translate(28, 250)">
+    <rect x="0" y="0" width="165" height="105" rx="6" fill="url(#holo-bg)" stroke="#38bdf8" stroke-width="1.5" filter="url(#argon-glow)" />
+    <rect x="0" y="0" width="165" height="20" rx="6" fill="rgba(56, 189, 248, 0.25)" />
+    <circle cx="12" cy="10" r="3.5" fill="#f43f5e" />
+    <circle cx="24" cy="10" r="3.5" fill="#f59e0b" />
+    <circle cx="36" cy="10" r="3.5" fill="#10b981" />
+    <text x="88" y="14" fill="#e0f2fe" font-size="10">pwsh // rg</text>
+    <text x="10" y="40" fill="#38bdf8" font-size="11">$ rg "Gemini4"</text>
+    <text x="10" y="58" fill="#c084fc" font-size="10">src/agent.go:18</text>
+    <text x="10" y="74" fill="#a7f3d0" font-size="10">+ Status: Online</text>
+    <text x="10" y="90" fill="#e0f2fe" font-size="10">+ Lines: &lt;= 3 <tspan class="blink" fill="#38bdf8">█</tspan></text>
+  </g>
+
+  <!-- ================= 悬浮全息终端窗口（右：Ar-18 状态） ================= -->
+  <g class="float-slow" transform="translate(485, 270)">
+    <rect x="0" y="0" width="168" height="105" rx="6" fill="url(#holo-bg)" stroke="#a855f7" stroke-width="1.5" filter="url(#argon-glow)" />
+    <rect x="0" y="0" width="168" height="20" rx="6" fill="rgba(168, 85, 247, 0.28)" />
+    <text x="12" y="14" fill="#f3e8ff" font-size="10">SYS // TELEMETRY</text>
+    <text x="10" y="40" fill="#c084fc" font-size="11">Model: Argon-4</text>
+    <text x="10" y="58" fill="#38bdf8" font-size="10">Shell: pwsh 7.x</text>
+    <text x="10" y="74" fill="#f472b6" font-size="10">RetryLimit: 3/3</text>
+    <text x="10" y="90" fill="#a7f3d0" font-size="10">Ready for task_<tspan class="blink">_</tspan></text>
+  </g>
+
+  <!-- ================= 底部 HUD 名牌 ================= -->
+  <g transform="translate(140, 695)">
+    <rect x="0" y="0" width="400" height="48" rx="8" fill="rgba(15, 12, 29, 0.88)" stroke="#8b5cf6" stroke-width="1.8" filter="url(#argon-glow)" />
+    <text x="200" y="22" text-anchor="middle" fill="#e9d5ff" font-size="14" font-weight="bold" letter-spacing="1.5">
+      OPENCODE // GEMINI 4 ARGON
+    </text>
+    <text x="200" y="40" text-anchor="middle" fill="#38bdf8" font-size="11">
+      "Concise. Safe. No chitchat. Tell me what to build."
+    </text>
+  </g>
+</svg>
+
+</body>
+</html>

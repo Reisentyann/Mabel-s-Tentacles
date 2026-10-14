@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/createdirectory/createdirectory.go —— MCP 工具 create_directory：创建持久化逻辑空目录
-// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 package createdirectory
 
@@ -16,7 +16,10 @@ import (
 func init() { tools.Register(register) }
 
 func register(s *server.MCPServer, deps tools.Deps) {
-	s.AddTool(mcp.NewTool("create_directory", mcp.WithDescription("Create an empty persistent directory in your workspace. It is visible in the logical file tree and does not create a physical data directory."), mcp.WithString("path", mcp.Required(), mcp.Description("Directory path relative to your workspace."))), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	s.AddTool(mcp.NewTool("create_directory",
+		mcp.WithDescription("Create an empty persistent directory by logical path in your workspace (visible in the file tree, returns its directory UUID). "+
+			"[BOUNDARY] Path-based folder creation (e.g. 'notes/2026'). If you already have a parent directory_uuid and want to create a child folder by UUID, use create_child_directory."),
+		mcp.WithString("path", mcp.Required(), mcp.Description("Directory path relative to your workspace."))), func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		path, err := req.RequireString("path")
 		if err != nil {
 			return tools.ResultError("invalid path: " + err.Error()), nil

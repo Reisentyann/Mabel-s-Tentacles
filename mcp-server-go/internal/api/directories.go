@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/api/directories.go —— UUID 文件夹 HTTP 接口：列出、受控本地导入和完整 ZIP 下载
-// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 package api
 
@@ -136,13 +136,21 @@ func (s *Server) directoryImport(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		// 持久化维护意图：导入成功后先落库记录，进程重启后由 RetryMaintenance 接手。
+		var jobID int64
 		if ms, ok := s.repo.(repo.MaintenanceStore); ok {
-			if _, perr := ms.PrepareMaintenance(r.Context(), item.UUID, "write", "", actor); perr != nil {
+			id, perr := ms.PrepareMaintenance(r.Context(), item.UUID, "write", "", actor)
+			if perr != nil {
 				slog.Warn("directory import prepare maintenance failed", "uuid", item.UUID, "path", ref.Path, "error", perr)
+			} else {
+				jobID = id
 			}
 		}
 		if s.orch != nil {
-			s.orch.Submit(core.Event{Kind: core.KindWrite, Path: ref.Path, Actor: core.Actor{Name: actor}})
+			s.orch.Submit(core.Event{Kind: core.KindWrite, Path: ref.Path, UUID: item.UUID, MaintenanceJobID: jobID, Actor: core.Actor{Name: actor}})
+		} else if jobID > 0 {
+			if ms, ok := s.repo.(repo.MaintenanceStore); ok {
+				_ = ms.FinishMaintenance(r.Context(), jobID, "ready", "orchestrator not wired")
+			}
 		}
 	}
 	if err != nil {

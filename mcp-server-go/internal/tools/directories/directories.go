@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/directories/directories.go —— UUID 目录 MCP 接口：列出、新建子目录和同名文件写入
-// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 package directories
 
@@ -20,9 +20,14 @@ import (
 func init() { tools.Register(register) }
 
 func register(s *server.MCPServer, deps tools.Deps) {
+	descByOp := map[string]string{
+		"list_directory":         "List direct child entries (files and subdirectories with their UUIDs) of a directory by its directory_uuid. [BOUNDARY] UUID-based directory listing; for workspace-wide path browsing use list_files.",
+		"create_child_directory": "Create a child directory inside a parent directory specified by directory_uuid and name. [BOUNDARY] UUID-based child folder creation; for path-based creation (e.g. 'notes/2026') use create_directory.",
+		"write_directory_file":   "Create a text file inside a directory specified by directory_uuid and display name (supports optional request_id for idempotency and allows duplicate display names with distinct UUIDs). [BOUNDARY] UUID-directory text upload; for standard path-based text creation use write_file, or upload_file for images/binary.",
+	}
 	for _, op := range []string{"list_directory", "create_child_directory", "write_directory_file"} {
 		op := op
-		tool := mcp.NewTool(op, mcp.WithDescription("Operate on a directory by UUID. Same-name uploads are independent files; use returned UUID to retrieve."), mcp.WithString("directory_uuid", mcp.Required()), mcp.WithString("name"), mcp.WithString("content"), mcp.WithString("request_id", mcp.Description("Optional idempotency key for text uploads; reuse on retry before editing, moving or deleting the result.")))
+		tool := mcp.NewTool(op, mcp.WithDescription(descByOp[op]), mcp.WithString("directory_uuid", mcp.Required()), mcp.WithString("name"), mcp.WithString("content"), mcp.WithString("request_id", mcp.Description("Optional idempotency key for text uploads; reuse on retry before editing, moving or deleting the result.")))
 		s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if deps.Manager == nil {
 				return tools.ResultError("manager not wired"), nil
@@ -81,13 +86,21 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			sessID := tools.SessionID(ctx)
 			actor := tools.Actor(ctx)
 			// 持久化维护意图：盘写成功后先落库记录，进程重启后由 RetryMaintenance 接手。
+			var jobID int64
 			if ms, ok := deps.Store.(repo.MaintenanceStore); ok {
-				if _, perr := ms.PrepareMaintenance(ctx, r.UUID, "write", sessID, actor.Name); perr != nil {
+				id, perr := ms.PrepareMaintenance(ctx, r.UUID, "write", sessID, actor.Name)
+				if perr != nil {
 					slog.Warn("write_directory_file prepare maintenance failed", "tool", op, "path", r.LogicPath, "uuid", r.UUID, "session", sessID, "error", perr)
+				} else {
+					jobID = id
 				}
 			}
 			if deps.Orch != nil {
-				deps.Orch.Submit(core.Event{Kind: core.KindWrite, Path: r.LogicPath, Actor: actor, SessionID: sessID, Agent: &core.AgentMeta{Title: common.StrPtr(name)}})
+				deps.Orch.Submit(core.Event{Kind: core.KindWrite, Path: r.LogicPath, UUID: r.UUID, MaintenanceJobID: jobID, Actor: actor, SessionID: sessID, Agent: &core.AgentMeta{Title: common.StrPtr(name)}})
+			} else if jobID > 0 {
+				if ms, ok := deps.Store.(repo.MaintenanceStore); ok {
+					_ = ms.FinishMaintenance(ctx, jobID, "ready", "orchestrator not wired")
+				}
 			}
 			return tools.Result(map[string]any{"success": true, "uuid": r.UUID, "name": name}), nil
 		})

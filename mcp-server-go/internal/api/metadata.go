@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/api/metadata.go —— 元数据端点：搜索 / 查看元数据 / 描述（编排机同步入口）/ 复制（KindCopy 事件）
-// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 package api
 
@@ -268,6 +268,7 @@ func (s *Server) copyFile(w http.ResponseWriter, r *http.Request) {
 	if p := principalOf(r); p != nil {
 		owner = p.Name
 	}
+	var jobID int64
 	if s.repo != nil {
 		// 副本归操作者（拿走即拥有，copied_from 保留谱系）
 		if err := s.repo.CopyMetadata(r.Context(), req.Source, req.Target, owner, ""); err != nil {
@@ -277,13 +278,20 @@ func (s *Server) copyFile(w http.ResponseWriter, r *http.Request) {
 		}
 		// 持久化维护意图：盘写成功后先落库记录，进程重启后由 RetryMaintenance 接手。
 		if ms, ok := s.repo.(repo.MaintenanceStore); ok {
-			if _, perr := ms.PrepareMaintenance(r.Context(), copyReceipt.UUID, "copy", "", owner); perr != nil {
+			id, perr := ms.PrepareMaintenance(r.Context(), copyReceipt.UUID, "copy", "", owner)
+			if perr != nil {
 				slog.Warn("copy file prepare maintenance failed", "source", req.Source, "target", req.Target, "uuid", copyReceipt.UUID, "error", perr)
+			} else {
+				jobID = id
 			}
 		}
 	}
 	if s.orch != nil {
-		s.orch.Submit(core.Event{Kind: core.KindCopy, Path: req.Target, Actor: core.Actor{Name: owner}})
+		s.orch.Submit(core.Event{Kind: core.KindCopy, Path: req.Target, UUID: copyReceipt.UUID, MaintenanceJobID: jobID, Actor: core.Actor{Name: owner}})
+	} else if jobID > 0 {
+		if ms, ok := s.repo.(repo.MaintenanceStore); ok {
+			_ = ms.FinishMaintenance(r.Context(), jobID, "ready", "orchestrator not wired")
+		}
 	}
 	slog.Info("copy file ok", "source", req.Source, "target", req.Target)
 	writeJSON(w, http.StatusOK, map[string]string{"message": "Successfully copied " + req.Source + " to " + req.Target})

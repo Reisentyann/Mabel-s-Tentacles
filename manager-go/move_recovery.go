@@ -1,5 +1,5 @@
 // 文件：manager-go/move_recovery.go —— 扩展名移动恢复：排他发布目标并确认持久化移动记录
-// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 package manager
 
@@ -47,29 +47,35 @@ func (m *Manager) finishStorageMove(op MoveOperation) error {
 
 // RecoverPendingMoves 必须在启动接收请求和扫描前执行；确认失败仍保留记录。
 func (m *Manager) RecoverPendingMoves(ctx context.Context) (int, error) {
+	ops, err := m.RecoverPendingMoveOps(ctx)
+	return len(ops), err
+}
+
+// RecoverPendingMoveOps 恢复未完成的移动操作并返回已恢复的操作列表（供编排机生成维护刷新任务）。
+func (m *Manager) RecoverPendingMoveOps(ctx context.Context) ([]MoveOperation, error) {
 	m.mutation.Lock()
 	defer m.mutation.Unlock()
 	s, ok := m.store.(MoveRecoveryStore)
 	if !ok {
-		return 0, nil
+		return nil, nil
 	}
 	ops, err := s.ListPendingMoves(ctx)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	completed := 0
+	recovered := make([]MoveOperation, 0, len(ops))
 	for _, op := range ops {
 		if err := ctx.Err(); err != nil {
-			return completed, err
+			return recovered, err
 		}
 		if err := m.finishStorageMove(op); err != nil {
-			return completed, err
+			return recovered, err
 		}
 		if err := s.CompleteMove(ctx, op.UUID, op.To); err != nil {
-			return completed, err
+			return recovered, err
 		}
 		m.buf.drop(op.UUID)
-		completed++
+		recovered = append(recovered, op)
 	}
-	return completed, nil
+	return recovered, nil
 }

@@ -1,9 +1,10 @@
 // 文件：manager-go/intake.go —— 入库域：文本写入与外部文件导入（逻辑键 + uuid 派生物理随机路径）
-// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 package manager
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -42,17 +43,23 @@ type ImportReceipt struct {
 // 落盘。描述/落库/喂索引归编排机事件流（调用方提交），本口只管"文件在哪
 // +内容落盘"。同逻辑键（包括软删、幽灵、占位行）拒绝；更新使用 Modify。
 func (m *Manager) Write(ctx context.Context, logicPath, content string) (*WriteReceipt, error) {
+	return m.WriteBytes(ctx, logicPath, []byte(content))
+}
+
+// WriteBytes 字节级新文件入库口（图片/归档/二进制文件上传）：Reserve 原子占位 →
+// uuid 派生物理路径 → 落盘。与 Write 同享 5MB 上限、重名保护与 .partial 硬链接发布。
+func (m *Manager) WriteBytes(ctx context.Context, logicPath string, data []byte) (*WriteReceipt, error) {
 	if err := validLogicPath(logicPath); err != nil {
 		return nil, err
 	}
-	if len(content) > maxIntakeBytes {
+	if len(data) > maxIntakeBytes {
 		return nil, fmt.Errorf("security error: file content exceeds 5MB limit")
 	}
 	if err := m.ensureFilePathAvailable(ctx, logicPath); err != nil {
 		return nil, err
 	}
-	return m.storeNewFile(ctx, logicPath, int64(len(content)), func(abs string) error {
-		if err := publishNewFile(abs, strings.NewReader(content)); err != nil {
+	return m.storeNewFile(ctx, logicPath, int64(len(data)), func(abs string) error {
+		if err := publishNewFile(abs, bytes.NewReader(data)); err != nil {
 			return fmt.Errorf("write file: %w", err)
 		}
 		return nil

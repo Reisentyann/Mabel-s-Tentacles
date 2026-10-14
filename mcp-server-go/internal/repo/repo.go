@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/repo/repo.go —— 数据访问接口 Store + pgx 连接池实现（可 mock）
-// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 package repo
 
@@ -315,6 +315,8 @@ var migrations = []string{
 	)`,
 	`ALTER TABLE logical_directories ADD COLUMN IF NOT EXISTS uuid UUID NOT NULL DEFAULT gen_random_uuid()`,
 	`CREATE UNIQUE INDEX IF NOT EXISTS logical_directories_uuid ON logical_directories(uuid)`,
+	// file_metadata.uuid 需唯一才能作为 directory_files 的外键目标（存量库缺此约束会 42830）
+	`CREATE UNIQUE INDEX IF NOT EXISTS file_metadata_uuid_key ON file_metadata(uuid)`,
 	`CREATE TABLE IF NOT EXISTS directory_files (
 		file_uuid UUID PRIMARY KEY REFERENCES file_metadata(uuid),
 		parent_uuid UUID NOT NULL REFERENCES logical_directories(uuid), name TEXT NOT NULL

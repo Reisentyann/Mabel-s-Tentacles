@@ -1,15 +1,20 @@
 // 文件：mcp-server-go/internal/api/files.go —— 文件端点：可见性裁剪的目录树 / 单文件下载（自证：静态 token 或 JWT）/ zip 打包
-// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 package api
 
 import (
+	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/common"
 	"github.com/Reisentyann/Mabel-s-Tentacles/manager-go"
@@ -367,4 +372,172 @@ func (s *Server) deleteFile(w http.ResponseWriter, r *http.Request) {
 	}
 	slog.Info("delete file ok", "path", path, "user", principalOf(r).Subject())
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "path": path})
+}
+
+// uploadFile 接收客户端或前端上传的文件（支持 JSON content_base64/content 或 multipart/form-data），
+// 写入管理机并异步触发描述机与索引机更新。
+func (s *Server) uploadFile(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+	if s.manager == nil {
+		writeError(w, http.StatusServiceUnavailable, "manager not wired")
+		return
+	}
+	var (
+		logicPath   string
+		title       string
+		description string
+		visibility  string
+		tags        []string
+		attrs       map[string]any
+		payload     []byte
+	)
+
+	ct := r.Header.Get("Content-Type")
+	if strings.HasPrefix(ct, "multipart/form-data") {
+		if err := r.ParseMultipartForm(6 << 20); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid multipart form: "+err.Error())
+			return
+		}
+		f, hdr, err := r.FormFile("file")
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "missing 'file' in form")
+			return
+		}
+		defer f.Close()
+		data, err := io.ReadAll(io.LimitReader(f, 5<<20+1))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "read upload failed: "+err.Error())
+			return
+		}
+		payload = data
+		logicPath = strings.TrimSpace(r.FormValue("path"))
+		if logicPath == "" && hdr != nil {
+			logicPath = hdr.Filename
+		}
+		title = r.FormValue("title")
+		description = r.FormValue("description")
+		visibility = r.FormValue("visibility")
+		if rawTags := r.FormValue("tags"); rawTags != "" {
+			for _, t := range strings.Split(rawTags, ",") {
+				if t = strings.TrimSpace(t); t != "" {
+					tags = append(tags, t)
+				}
+			}
+		}
+		if rawAttrs := r.FormValue("attributes"); rawAttrs != "" {
+			if err := json.Unmarshal([]byte(rawAttrs), &attrs); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid attributes JSON")
+				return
+			}
+		}
+	} else {
+		var body struct {
+			Path          string          `json:"path"`
+			ContentBase64 string          `json:"content_base64"`
+			Content       string          `json:"content"`
+			Title         string          `json:"title"`
+			Description   string          `json:"description"`
+			Tags          []string        `json:"tags"`
+			Visibility    string          `json:"visibility"`
+			Attributes    json.RawMessage `json:"attributes"`
+		}
+		if err := decodeJSON(r, &body); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		logicPath = strings.TrimSpace(body.Path)
+		title = body.Title
+		description = body.Description
+		tags = body.Tags
+		visibility = body.Visibility
+		if len(body.Attributes) > 0 {
+			if err := json.Unmarshal(body.Attributes, &attrs); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid attributes JSON")
+				return
+			}
+		}
+		if strings.TrimSpace(body.ContentBase64) != "" {
+			raw := strings.TrimSpace(body.ContentBase64)
+			if idx := strings.Index(raw, ","); idx != -1 && strings.HasPrefix(strings.ToLower(raw[:idx]), "data:") {
+				raw = raw[idx+1:]
+			}
+			raw = strings.NewReplacer("\r", "", "\n", "", " ", "").Replace(raw)
+			b, err := base64.StdEncoding.DecodeString(raw)
+			if err != nil {
+				b, err = base64.RawStdEncoding.DecodeString(raw)
+			}
+			if err != nil {
+				writeError(w, http.StatusBadRequest, "invalid content_base64")
+				return
+			}
+			payload = b
+		} else {
+			payload = []byte(body.Content)
+		}
+	}
+
+	if logicPath == "" {
+		writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+	p := principalOf(r)
+	actorName := ""
+	if p != nil {
+		actorName = p.Name
+		if !strings.HasPrefix(logicPath, "~") && !p.IsAdmin() {
+			logicPath = "~" + p.Name + "/" + strings.TrimPrefix(logicPath, "/")
+		}
+	}
+	if !s.canActFile(w, r, logicPath, "upload", true) {
+		return
+	}
+
+	receipt, err := s.manager.WriteBytes(r.Context(), logicPath, payload)
+	if err != nil {
+		slog.Error("upload file failed", "method", r.Method, "path", logicPath, "user", principalOf(r).Subject(), "bytes", len(payload), "error", err, "duration", time.Since(start).String())
+		status := http.StatusBadRequest
+		if errors.Is(err, manager.ErrKeyExists) {
+			status = http.StatusConflict
+		}
+		writeError(w, status, err.Error())
+		return
+	}
+
+	var jobID int64
+	if ms, ok := s.repo.(repo.MaintenanceStore); ok {
+		id, perr := ms.PrepareMaintenance(r.Context(), receipt.UUID, "write", "", actorName)
+		if perr != nil {
+			slog.Warn("upload file prepare maintenance failed", "path", logicPath, "uuid", receipt.UUID, "error", perr)
+		} else {
+			jobID = id
+		}
+	}
+	if s.orch != nil {
+		s.orch.Submit(core.Event{
+			Kind:             core.KindWrite,
+			Path:             logicPath,
+			UUID:             receipt.UUID,
+			MaintenanceJobID: jobID,
+			Actor:            core.Actor{Name: actorName},
+			Visibility:       visibility,
+			Agent: &core.AgentMeta{
+				Title:       common.StrPtr(title),
+				Description: common.StrPtr(description),
+				Tags:        tags,
+				Attributes:  attrs,
+			},
+		})
+	} else if jobID > 0 {
+		if ms, ok := s.repo.(repo.MaintenanceStore); ok {
+			_ = ms.FinishMaintenance(r.Context(), jobID, "ready", "orchestrator not wired")
+		}
+	}
+
+	slog.Info("upload file ok", "path", logicPath, "uuid", receipt.UUID, "bytes", receipt.SizeBytes, "user", principalOf(r).Subject(), "duration", time.Since(start).String())
+	writeJSON(w, http.StatusOK, map[string]any{
+		"success":      true,
+		"uuid":         receipt.UUID,
+		"logical_path": receipt.LogicPath,
+		"size_bytes":   receipt.SizeBytes,
+	})
 }

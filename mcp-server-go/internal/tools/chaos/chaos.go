@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/chaos/chaos.go —— 混沌机 MCP 工具面：遍历 chaos-go 注册表自动挂载每个娱乐功能
-// 修改：2026-09-23（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 // Package chaos 是混沌机（chaos-go）的 MCP 工具面。
 //
@@ -179,9 +179,13 @@ func postProcessJMComic(ctx context.Context, deps tools.Deps, sessionID string, 
 	out["save_dir"] = ""
 
 	// 4. 持久化维护意图：导入成功后先落库记录，进程重启后由 RetryMaintenance 接手。
+	var jobID int64
 	if ms, ok := deps.Store.(repo.MaintenanceStore); ok {
-		if _, perr := ms.PrepareMaintenance(ctx, receipt.UUID, "write", sessionID, tools.Actor(ctx).Name); perr != nil {
+		id, perr := ms.PrepareMaintenance(ctx, receipt.UUID, "write", sessionID, tools.Actor(ctx).Name)
+		if perr != nil {
 			slog.Warn("jm_comic prepare maintenance failed", "feature", "jm_comic", "path", logicKey, "uuid", receipt.UUID, "session", sessionID, "error", perr)
+		} else {
+			jobID = id
 		}
 	}
 
@@ -189,10 +193,12 @@ func postProcessJMComic(ctx context.Context, deps tools.Deps, sessionID string, 
 	if deps.Orch != nil {
 		title, _ := out["title"].(string)
 		deps.Orch.Submit(core.Event{
-			Kind:      core.KindWrite,
-			Path:      logicKey,
-			SessionID: sessionID,
-			Actor:     tools.Actor(ctx),
+			Kind:             core.KindWrite,
+			Path:             logicKey,
+			UUID:             receipt.UUID,
+			MaintenanceJobID: jobID,
+			SessionID:        sessionID,
+			Actor:            tools.Actor(ctx),
 			Agent: &core.AgentMeta{
 				Title:       common.StrPtr(title),
 				Description: common.StrPtr(jmDescription(out)),
@@ -201,6 +207,10 @@ func postProcessJMComic(ctx context.Context, deps tools.Deps, sessionID string, 
 				Attributes:  jmAttributes(out),
 			},
 		})
+	} else if jobID > 0 {
+		if ms, ok := deps.Store.(repo.MaintenanceStore); ok {
+			_ = ms.FinishMaintenance(ctx, jobID, "ready", "orchestrator not wired")
+		}
 	}
 
 	// 6. 生成 24 小时有效的 Mabel 极简短链（/d/{code}）与防篡改票据下载链接

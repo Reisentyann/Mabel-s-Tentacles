@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/core/orchestrator_test.go —— 编排机骨架测试：执行器管线 / 队列生命周期 / Describe 闸门 / 检索降级 / 索引重建
-// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 package core
 
@@ -1194,5 +1194,261 @@ func TestMaintenanceFailureRetryReadsCurrentFile(t *testing.T) {
 	got, err := ix.Query(indexer.Leaf("cod-basic-textish", indexer.OpEq, true))
 	if err != nil || len(got) != 1 || got[0] != uuid {
 		t.Fatalf("current file not indexed: %v %v", got, err)
+	}
+}
+
+func TestSubmitWriteCompletesMaintenanceJob(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := newMemStore()
+	ix := indexer.New()
+	o, err := New(Options{DataDir: dir, Store: store, Sink: ix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	uuid := intakeSeed(t, store, dir, "doc.txt", "hello world")
+	jobID, err := store.PrepareMaintenance(ctx, uuid, string(KindWrite), "s1", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o.Start(ctx)
+	if ok := o.Submit(Event{Kind: KindWrite, Path: "doc.txt", UUID: uuid, MaintenanceJobID: jobID, SessionID: "s1", Actor: Actor{Name: "alice"}}); !ok {
+		t.Fatal("submit rejected")
+	}
+	o.Stop()
+
+	store.mu.Lock()
+	remaining := len(store.jobs)
+	store.mu.Unlock()
+	if remaining != 0 {
+		t.Fatalf("expected maintenance job to be marked done and removed, got %d remaining: %#v", remaining, store.jobs)
+	}
+	got, err := ix.Query(indexer.Leaf("cod-basic-textish", indexer.OpEq, true))
+	if err != nil || len(got) != 1 || got[0] != uuid {
+		t.Fatalf("file not indexed after submit: %v %v", got, err)
+	}
+}
+
+func TestSubmitDroppedPromotesMaintenanceJobToReady(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := newMemStore()
+	ix := indexer.New()
+	o, err := New(Options{DataDir: dir, Store: store, Sink: ix, QueueCap: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	u1 := intakeSeed(t, store, dir, "a.txt", "first")
+	u2 := intakeSeed(t, store, dir, "b.txt", "second")
+	j1, _ := store.PrepareMaintenance(ctx, u1, string(KindWrite), "s1", "alice")
+	j2, _ := store.PrepareMaintenance(ctx, u2, string(KindWrite), "s1", "alice")
+
+	// Do not start worker yet so the second submit overflows the queue of capacity 1.
+	if !o.Submit(Event{Kind: KindWrite, Path: "a.txt", UUID: u1, MaintenanceJobID: j1}) {
+		t.Fatal("first submit should succeed")
+	}
+	if o.Submit(Event{Kind: KindWrite, Path: "b.txt", UUID: u2, MaintenanceJobID: j2}) {
+		t.Fatal("second submit should be dropped when queue is full")
+	}
+	store.mu.Lock()
+	st2 := store.jobStates[j2]
+	store.mu.Unlock()
+	if st2 != "ready" {
+		t.Fatalf("dropped event job state = %q, want ready", st2)
+	}
+	// RetryMaintenance should pick up the ready job j2 without needing a process restart.
+	if err := o.RetryMaintenance(ctx, 10); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ix.Query(indexer.Leaf("cod-basic-textish", indexer.OpEq, true))
+	if err != nil || len(got) != 1 || got[0] != u2 {
+		t.Fatalf("dropped job not recovered by RetryMaintenance: %v %v", got, err)
+	}
+}
+
+type coreMgrStoreAdapter struct {
+	*memStore
+}
+
+func (a coreMgrStoreAdapter) ListMetaPage(ctx context.Context, since string, limit int) ([]manager.MetaRow, error) {
+	items, err := a.ListMetadataPage(ctx, since, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]manager.MetaRow, 0, len(items))
+	for _, m := range items {
+		if m.IsDeleted {
+			continue
+		}
+		out = append(out, toMgrMetaRow(&m))
+	}
+	return out, nil
+}
+func (a coreMgrStoreAdapter) ListMetaPageAll(ctx context.Context, since string, limit int) ([]manager.MetaRow, error) {
+	return a.ListMetaPage(ctx, since, limit)
+}
+func (a coreMgrStoreAdapter) GetMeta(ctx context.Context, path string) (*manager.MetaRow, error) {
+	m, err := a.GetMetadata(ctx, path)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	row := toMgrMetaRow(m)
+	return &row, nil
+}
+func (a coreMgrStoreAdapter) UpsertMeta(ctx context.Context, rec manager.MetaRecord) (string, error) {
+	sz := rec.SizeBytes
+	cs := rec.Checksum
+	return a.UpsertMetadata(ctx, &repo.FileMetadata{
+		FilePath:   rec.Path,
+		SizeBytes:  &sz,
+		Checksum:   &cs,
+		Attributes: rec.Attributes,
+	})
+}
+func (a coreMgrStoreAdapter) GetMetaByUUID(context.Context, string) (*manager.FileRef, error) {
+	return nil, nil
+}
+func (a coreMgrStoreAdapter) GetMetaByUUIDs(context.Context, []string) (map[string]*manager.FileRef, error) {
+	return nil, nil
+}
+func (a coreMgrStoreAdapter) ReverseCopiedFrom(context.Context, string) ([]manager.MetaRow, error) {
+	return nil, nil
+}
+func (a coreMgrStoreAdapter) MarkMissing(context.Context, string) (int, error) { return 0, nil }
+func (a coreMgrStoreAdapter) ResetMissing(context.Context, string) error       { return nil }
+func (a coreMgrStoreAdapter) SoftDeleteMeta(ctx context.Context, path string) error {
+	return a.SoftDeleteMetadata(ctx, path)
+}
+func (a coreMgrStoreAdapter) ReserveMeta(context.Context, string) (string, error)  { return "", nil }
+func (a coreMgrStoreAdapter) CompleteIntake(context.Context, string, string) error { return nil }
+func (a coreMgrStoreAdapter) ArchiveFailedIntake(context.Context, string, string) error {
+	return nil
+}
+func (a coreMgrStoreAdapter) ListPendingIntakes(context.Context) ([]manager.IntakeOperation, error) {
+	return nil, nil
+}
+func (a coreMgrStoreAdapter) CreateDirectory(context.Context, string) error { return nil }
+func (a coreMgrStoreAdapter) ListDirectoryPaths(context.Context) ([]string, error) {
+	return nil, nil
+}
+func (a coreMgrStoreAdapter) DirectoryExists(context.Context, string) (bool, error) {
+	return false, nil
+}
+func (a coreMgrStoreAdapter) MoveMeta(context.Context, string, string) (string, error) {
+	return "", nil
+}
+
+func toMgrMetaRow(m *repo.FileMetadata) manager.MetaRow {
+	r := manager.MetaRow{
+		Path:       m.FilePath,
+		UUID:       m.UUID,
+		Scope:      m.Scope,
+		Attributes: m.Attributes,
+		IsDeleted:  m.IsDeleted,
+	}
+	if m.Checksum != nil {
+		r.Checksum = *m.Checksum
+	}
+	if m.SizeBytes != nil {
+		r.SizeBytes = *m.SizeBytes
+	}
+	return r
+}
+
+func TestBoundManagerAnalyzeAndBackfillNoDeadlockAndPreserveLLM(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := newMemStore()
+	ix := indexer.New()
+	o, err := New(Options{DataDir: dir, Store: store, Sink: ix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mgr := manager.New(coreMgrStoreAdapter{store}, dir, o.ManagerIndexSinkBound(), func(p string) string {
+		_, mt := service.InferFileMeta(p)
+		return mt
+	}, manager.DownloadConfig{})
+	o.BindManager(mgr)
+
+	uuid := intakeSeed(t, store, dir, "concurrent.txt", "hello world\nline two\n")
+
+	// Run Describe and AnalyzeFile/Backfill concurrently under timeout to verify no deadlock and LLM attribute preservation.
+	done := make(chan error, 3)
+	go func() {
+		_, err := o.Describe(ctx, DescribeRequest{
+			Path:       "concurrent.txt",
+			Attributes: map[string]any{"sp-llm-topic": "testing"},
+		}, "s-desc")
+		done <- err
+	}()
+	go func() {
+		_, err := o.AnalyzeFile(ctx, mgr, "concurrent.txt")
+		done <- err
+	}()
+	go func() {
+		_, err := o.Backfill(ctx, mgr, 10)
+		done <- err
+	}()
+
+	for i := 0; i < 3; i++ {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatalf("concurrent op failed: %v", err)
+			}
+		case <-time.After(3 * time.Second):
+			t.Fatal("AnalyzeFile / Backfill / Describe deadlocked")
+		}
+	}
+
+	gotLLM, err := ix.Query(indexer.Leaf("sp-llm-topic", indexer.OpEq, "testing"))
+	if err != nil || len(gotLLM) != 1 || gotLLM[0] != uuid {
+		t.Fatalf("sp-llm-topic lost or not indexed: %v %v", gotLLM, err)
+	}
+	gotCod, err := ix.Query(indexer.Leaf("cod-basic-textish", indexer.OpEq, true))
+	if err != nil || len(gotCod) != 1 || gotCod[0] != uuid {
+		t.Fatalf("cod-basic-textish not indexed: %v %v", gotCod, err)
+	}
+}
+
+func TestWriteEventMergesInlineLLMAttributes(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := newMemStore()
+	ix := indexer.New()
+	o, err := New(Options{DataDir: dir, Store: store, Sink: ix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	uuid := intakeSeed(t, store, dir, "inline-llm.txt", "hello inline llm\n")
+	o.Start(ctx)
+	o.Submit(Event{
+		Kind: KindWrite,
+		Path: "inline-llm.txt",
+		UUID: uuid,
+		Agent: &AgentMeta{
+			Attributes: map[string]any{
+				"llm-semantic-type": "note",
+				"sp-llm-character":  "Mabel",
+				"cod-text-lines":    9999, // read-only cod-* must be rejected by LLMStore
+			},
+		},
+	})
+	o.Stop()
+
+	gotSem, err := ix.Query(indexer.Leaf("llm-semantic-type", indexer.OpEq, "note"))
+	if err != nil || len(gotSem) != 1 || gotSem[0] != uuid {
+		t.Fatalf("inline llm-semantic-type not indexed: %v %v", gotSem, err)
+	}
+	gotCustom, err := ix.Query(indexer.Leaf("sp-llm-character", indexer.OpEq, "Mabel"))
+	if err != nil || len(gotCustom) != 1 || gotCustom[0] != uuid {
+		t.Fatalf("inline sp-llm-character not indexed: %v %v", gotCustom, err)
+	}
+	gotSpoof, err := ix.Query(indexer.Leaf("cod-text-lines", indexer.OpEq, 9999))
+	if err != nil || len(gotSpoof) != 0 {
+		t.Fatalf("cod-text-lines spoof should be rejected: %v %v", gotSpoof, err)
 	}
 }
