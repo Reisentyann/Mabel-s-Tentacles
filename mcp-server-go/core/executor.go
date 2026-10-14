@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/core/executor.go —— 统一执行器：盘上读 → describer.Analyze → 读旧合并 → 顶层列推导 → 单次 Upsert → 喂索引
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
 
 package core
 
@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -45,12 +46,28 @@ type Report struct {
 // 文件已删除等竞态：stat 失败返回错误，调用方按容灾立场丢弃
 // （管理机 T2 幽灵计数轮次兜底）。
 func (o *Orchestrator) execute(ctx context.Context, ev Event) (*Report, error) {
+	o.updateMu.Lock()
+	defer o.updateMu.Unlock()
+	return o.executeUnlocked(ctx, ev)
+}
+
+func (o *Orchestrator) executeUnlocked(ctx context.Context, ev Event) (*Report, error) {
 	// KindMove 早退（文件管理域 2026-09-08）：键已由管理机 Move 改好——
 	// uuid / 内容 / 描述 / 归属全不变，索引键（uuid）不动，统一描述管线
 	// 零触发（intake 域设计红利：Move = 纯 DB 键改）。事件仅记账
 	//（lifecycle 日志归 orchestrator 统一记录，谱系 moved_from 在行内）。
 	if ev.Kind == KindMove {
 		return &Report{UUID: "", Visibility: ev.Visibility}, nil
+	}
+	if ev.Kind == KindAnalyze {
+		meta, err := o.opts.Store.GetMetadata(ctx, ev.Path)
+		if err != nil {
+			return nil, err
+		}
+		if meta == nil || meta.IsDeleted {
+			return nil, fmt.Errorf("file unavailable for analysis")
+		}
+		ev.Path = meta.FilePath
 	}
 	// 占位行先行（write/copy 工具层经管理机 Reserve）：行必有 uuid——
 	// 物理路径由 uuid 派生（intake 域口径，agent 只见逻辑键）。
@@ -62,7 +79,35 @@ func (o *Orchestrator) execute(ctx context.Context, ev Event) (*Report, error) {
 	if meta == nil {
 		return nil, fmt.Errorf("no meta row for %q (intake first)", ev.Path)
 	}
+	// 软删早退：若该文件在排队在途期间已被删除，早退避免重新落库并防复活进索引机
+	if meta.IsDeleted {
+		return &Report{UUID: meta.UUID, Visibility: ev.Visibility}, nil
+	}
 	old := describer.AttrsFromJSON(meta.Attributes)
+	name := ev.Path
+	if s, ok := o.opts.Store.(interface {
+		AnalysisName(context.Context, string) (string, error)
+	}); ok {
+		var err error
+		name, err = s.AnalysisName(ctx, meta.UUID)
+		if err != nil {
+			return nil, fmt.Errorf("analysis name: %w", err)
+		}
+		if name == "" {
+			name = ev.Path
+		}
+	}
+	if s, ok := o.opts.Store.(interface {
+		IsIntakePending(context.Context, string) (bool, error)
+	}); ok {
+		pending, err := s.IsIntakePending(ctx, meta.UUID)
+		if err != nil {
+			return nil, err
+		}
+		if pending {
+			return nil, manager.ErrPending
+		}
+	}
 
 	storageRel, err := manager.StoragePathOf(meta.UUID, ev.Path)
 	if err != nil {
@@ -88,9 +133,9 @@ func (o *Orchestrator) execute(ctx context.Context, ev Event) (*Report, error) {
 		return nil, fmt.Errorf("checksum: %w", err)
 	}
 
-	fileType, mimeType := service.InferFileMeta(ev.Path)
+	fileType, mimeType := service.InferFileMeta(name)
 	results := describer.Analyze(describer.Input{
-		Path:    ev.Path,
+		Path:    name,
 		Head:    head,
 		Size:    info.Size(),
 		MTime:   info.ModTime(),
@@ -101,6 +146,7 @@ func (o *Orchestrator) execute(ctx context.Context, ev Event) (*Report, error) {
 
 	// 读-改-写：整族合并 cod-*，保留 llm-* / sp-llm-*（旧值已前置读取）
 	merged := describer.MergeResults(old, results, time.Now())
+	mergeSourceAttributes(merged, ev.Agent)
 
 	// 顶层列 + agent 顺带字段 → 单次 Upsert（消灭 write_file 的双 upsert）。
 	// 归属打标（权限批次 2026-09-06）：仅创建语义（KindWrite）落 owner——
@@ -110,14 +156,17 @@ func (o *Orchestrator) execute(ctx context.Context, ev Event) (*Report, error) {
 	size := info.Size()
 	visibility := ev.Visibility
 	if visibility == "" && ev.Kind == KindWrite {
-		visibility = "public"
+		visibility = meta.Visibility
+		if visibility == "" {
+			visibility = "public"
+		}
 	}
 	upsert := &repo.FileMetadata{
 		FilePath:   ev.Path,
 		Scope:      service.InferScope(ev.Path),
 		FileType:   &fileType,
 		MimeType:   &mimeType,
-		Extension:  common.StrPtr(service.InferExtension(ev.Path)),
+		Extension:  common.StrPtr(service.InferExtension(name)),
 		SizeBytes:  &size,
 		Checksum:   &cs,
 		SessionID:  common.StrPtr(ev.SessionID),
@@ -136,7 +185,11 @@ func (o *Orchestrator) execute(ctx context.Context, ev Event) (*Report, error) {
 			upsert.Description = ev.Agent.Description
 		}
 		if ev.Agent.Tags != nil {
-			upsert.Tags = ev.Agent.Tags
+			if _, fromJM := ev.Agent.Attributes["sp-cod-jm-tags"]; fromJM {
+				upsert.Tags = mergeTags(meta.Tags, ev.Agent.Tags)
+			} else {
+				upsert.Tags = ev.Agent.Tags
+			}
 		}
 		if ev.Agent.FileType != nil {
 			upsert.FileType = ev.Agent.FileType
@@ -160,4 +213,52 @@ func (o *Orchestrator) execute(ctx context.Context, ev Event) (*Report, error) {
 		report.CodKeys += len(r.Attrs)
 	}
 	return report, nil
+}
+
+// mergeSourceAttributes 合并内部来源适配器提供的结构化事实。
+// 来源事实不是描述机固定 cod-* 结果，也不是模型 llm-* 结果，统一放在
+// sp-cod-jm-* 自由命名空间；重放同一事件时覆盖同名键，保证下载重试幂等。
+func mergeSourceAttributes(attrs map[string]any, agent *AgentMeta) {
+	if agent == nil {
+		return
+	}
+	hasJM := false
+	for key := range agent.Attributes {
+		if strings.HasPrefix(key, "sp-cod-jm-") {
+			hasJM = true
+			break
+		}
+	}
+	if !hasJM {
+		return
+	}
+	for key := range attrs {
+		if strings.HasPrefix(key, "sp-cod-jm-") {
+			delete(attrs, key)
+		}
+	}
+	for key, value := range agent.Attributes {
+		if strings.HasPrefix(key, "sp-cod-jm-") {
+			attrs[key] = value
+		}
+	}
+}
+
+func mergeTags(existing, incoming []string) []string {
+	seen := make(map[string]struct{}, len(existing)+len(incoming))
+	out := make([]string, 0, len(existing)+len(incoming))
+	for _, tags := range [][]string{existing, incoming} {
+		for _, tag := range tags {
+			tag = strings.TrimSpace(tag)
+			if tag == "" {
+				continue
+			}
+			if _, ok := seen[tag]; ok {
+				continue
+			}
+			seen[tag] = struct{}{}
+			out = append(out, tag)
+		}
+	}
+	return out
 }

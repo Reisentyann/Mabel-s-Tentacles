@@ -110,3 +110,9 @@ mcp-server-go/mabel-server-linux
 
 # 私有开发者文档（不入库）
 docs/developer-data/
+
+# JMComic 下载器本体及相关下载产物（不入库）
+JMComic-Crawler-Python/
+chaos-go/**/JMComic-Crawler-Python/
+
+

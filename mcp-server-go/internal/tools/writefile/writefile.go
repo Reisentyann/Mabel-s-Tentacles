@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/writefile/writefile.go —— MCP 工具 write_file：写文件 + 内联描述字段随编排机事件异步落库
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
 
 package writefile
 
@@ -14,6 +14,8 @@ import (
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/common"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
 )
 
@@ -23,10 +25,12 @@ func init() {
 
 func register(s *server.MCPServer, deps tools.Deps) {
 	tool := mcp.NewTool("write_file",
-		mcp.WithDescription("Write generated content to a file under the data directory. Pass title/description/tags so the file can be found later via search; without a description the file may become unfindable. Use this when the user wants to generate code, write an article, or create a file."),
+		mcp.WithDescription("Create a new file. Existing paths, including soft-deleted files, are rejected without changing their content or metadata. Choose another path on conflict; use modify_file or patch_file to intentionally update an existing file. Pass title/description/tags for search."),
 		mcp.WithString("file_path",
-			mcp.Required(),
-			mcp.Description("Path of the file to write, relative to the data directory."),
+			mcp.Description("Path of the file to write, relative to your workspace. Also accepts 'path'."),
+		),
+		mcp.WithString("path",
+			mcp.Description("Alias for file_path."),
 		),
 		mcp.WithString("content",
 			mcp.Required(),
@@ -45,12 +49,12 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			mcp.Description("File type, e.g. text / image / code / other. Defaults to inferred from extension."),
 		),
 		mcp.WithString("visibility",
-			mcp.Description("Who can see this file: 'private' (default, only you), 'public' (everyone can read), or 'group' (members of its group)."),
+			mcp.Description("Who can see this file: 'public' (default, anyone can read/edit) or 'private' (only you and admin)."),
 		),
 	)
 
 	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		filePath, err := req.RequireString("file_path")
+		filePath, err := tools.GetFilePath(req)
 		if err != nil {
 			return tools.ResultError("invalid file_path: " + err.Error()), nil
 		}
@@ -97,34 +101,33 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		}
 		receipt, err := deps.Manager.Write(ctx, key, content)
 		if err != nil {
-			slog.Error("write_file failed", "path", key, "session", sessionID, "error", err, "duration", time.Since(start).String())
+			slog.Error("write_file failed", "tool", "write_file", "path", key, "bytes", len(content), "session", sessionID, "error", err, "duration", time.Since(start).String())
 			tools.RecordOperation(ctx, deps.Store, sessionID, "write_file", key, "failed", err.Error(), params)
 			return tools.ResultError(err.Error()), nil
 		}
 
-		slog.Info("write_file ok", "path", key, "bytes", len(content), "uuid", receipt.UUID, "session", sessionID, "duration", time.Since(start).String())
+		slog.Info("write_file ok", "tool", "write_file", "path", key, "bytes", len(content), "uuid", receipt.UUID, "session", sessionID, "duration", time.Since(start).String())
+
+		// 持久化维护意图：盘写成功后先落库记录，进程重启后由 RetryMaintenance 接手。
+		// 与后续 Submit 不冲突：Submit 是异步快路径，PrepareMaintenance 是持久兜底。
+		if ms, ok := deps.Store.(repo.MaintenanceStore); ok {
+			if _, perr := ms.PrepareMaintenance(ctx, receipt.UUID, "write", sessionID, tools.Actor(ctx).Name); perr != nil {
+				slog.Warn("write_file prepare maintenance failed", "tool", "write_file", "path", key, "uuid", receipt.UUID, "session", sessionID, "error", perr)
+			}
+		}
 
 		// 编排机异步接管 T1（盘写成功即回，agent 不等描述）：agent 顺带
 		// 描述字段随事件走，执行器单次 Upsert 落库并喂索引——旧的双 upsert 已灭。
 		// Actor/Visibility 为归属与可见性打标（两级模型：缺省 public 共享，
 		// 私密是显式选择）。
-		// 事件可丢（容灾铁律 2）：队列满由 Submit 内部 WARN + T2 对账兜底。
+		// 初次描述仍使用既有异步事件链。
 		if deps.Orch != nil {
 			deps.Orch.Submit(core.Event{
-				Kind:       core.KindWrite,
-				Path:       key,
-				SessionID:  sessionID,
-				Actor:      tools.Actor(ctx),
+				Kind: core.KindWrite, Path: key, SessionID: sessionID, Actor: tools.Actor(ctx),
 				Visibility: req.GetString("visibility", ""),
-				Agent: &core.AgentMeta{
-					Title:       common.StrPtr(title),
-					Description: common.StrPtr(description),
-					Tags:        tags,
-					FileType:    common.StrPtr(fileType),
-				},
+				Agent:      &core.AgentMeta{Title: common.StrPtr(title), Description: common.StrPtr(description), Tags: tags, FileType: common.StrPtr(fileType)},
 			})
 		}
-
 		tools.RecordOperation(ctx, deps.Store, sessionID, "write_file", key, "success", "", params)
 		result := map[string]any{"success": true, "uuid": receipt.UUID}
 		// 下载地址（2026-09-08）：message 里的链接用代码框包裹——聊天
@@ -132,9 +135,24 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		// 转义（QQ 实测：invitation_to_lilywhite → invitationtolilywhite），
 		// 代码框内的 URL 原样呈现，用户复制框内链接即完整无损；
 		// 入口未配置时不卡回执——降级提示 agent 稍后走读文件/元数据接口自取
-		if u := tools.DownloadURL(deps.Cfg, key, receipt.UUID); u != "" {
-			result["download_url"] = u
-			result["message"] = "Successfully wrote to " + key + ". 下载地址（请把下方代码框内的链接原样发给用户，不要拆开）：\n```\n" + u + "\n```"
+		var dlURL string
+		// 优先签发 /d/{code} 极简短链（24小时有效，对朋友转发极度友好，无乱码与断行）
+		if deps.Store != nil && deps.Cfg != nil {
+			dlBase := strings.TrimRight(deps.Cfg.API.DownloadBaseURL, "/")
+			if dlBase == "" {
+				dlBase = deps.Cfg.Server.BaseURL
+			}
+			if shortURL, err := service.IssueShortURL(ctx, deps.Store, dlBase, key, receipt.UUID, 24*time.Hour); err == nil {
+				dlURL = shortURL
+			}
+		}
+		// 降级回退到常规票据下载地址
+		if dlURL == "" && deps.Manager != nil {
+			dlURL = deps.Manager.IssueDownloadURL(key, receipt.UUID, 0)
+		}
+		if dlURL != "" {
+			result["download_url"] = dlURL
+			result["message"] = "Successfully wrote to " + key + ". 下载短链（24小时有效，可直接发给朋友）：\n" + dlURL
 		} else {
 			result["message"] = "Successfully wrote to " + key + "（下载链接暂不可用：请稍后调用 read_file 或查询文件元数据接口获取下载地址）"
 		}

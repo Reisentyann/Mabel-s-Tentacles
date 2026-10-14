@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/repo/manager_adapter.go —— manager.Store 适配器：repo 存取 → manager 最小面（DTO 转换 + 顶层列推导归装配侧）
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 package repo
 
@@ -41,6 +41,18 @@ func (a *ManagerStore) ListMetaPage(ctx context.Context, sincePath string, limit
 	return out, nil
 }
 
+func (a *ManagerStore) ListMetaPageAll(ctx context.Context, sincePath string, limit int) ([]manager.MetaRow, error) {
+	items, err := a.st.ListMetadataPageAll(ctx, sincePath, limit)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]manager.MetaRow, 0, len(items))
+	for i := range items {
+		out = append(out, toMetaRow(&items[i]))
+	}
+	return out, nil
+}
+
 func (a *ManagerStore) GetMeta(ctx context.Context, path string) (*manager.MetaRow, error) {
 	m, err := a.st.GetMetadata(ctx, path)
 	if err != nil {
@@ -54,8 +66,12 @@ func (a *ManagerStore) GetMeta(ctx context.Context, path string) (*manager.MetaR
 }
 
 func (a *ManagerStore) UpsertMeta(ctx context.Context, rec manager.MetaRecord) (string, error) {
-	ft, mt := service.InferFileMeta(rec.Path)
-	ext := service.InferExtension(rec.Path)
+	name := rec.Name
+	if name == "" {
+		name = rec.Path
+	}
+	ft, mt := service.InferFileMeta(name)
+	ext := service.InferExtension(name)
 	size, cs := rec.SizeBytes, rec.Checksum
 	uuid, err := a.st.UpsertMetadata(ctx, &FileMetadata{
 		FilePath:   rec.Path,
@@ -73,13 +89,73 @@ func (a *ManagerStore) UpsertMeta(ctx context.Context, rec manager.MetaRecord) (
 	return uuid, nil
 }
 
+func (a *ManagerStore) AnalysisName(ctx context.Context, uuid string) (string, error) {
+	return a.st.AnalysisName(ctx, uuid)
+}
+
+func (a *ManagerStore) ListPendingMoves(ctx context.Context) ([]manager.MoveOperation, error) {
+	return a.st.ListPendingMoves(ctx)
+}
+func (a *ManagerStore) CompleteMove(ctx context.Context, uuid, to string) error {
+	return a.st.CompleteMove(ctx, uuid, to)
+}
+
 func (a *ManagerStore) MarkMissing(ctx context.Context, path string) (int, error) {
 	return a.st.MarkMissingRound(ctx, path)
 }
 
+func (a *ManagerStore) ArchiveFailedIntake(ctx context.Context, logicPath, uuid string) error {
+	return a.st.ArchiveFailedIntake(ctx, logicPath, uuid)
+}
+
+func (a *ManagerStore) CompleteIntake(ctx context.Context, logicPath, uuid string) error {
+	return a.st.CompleteIntake(ctx, logicPath, uuid)
+}
+
+func (a *ManagerStore) ListPendingIntakes(ctx context.Context) ([]manager.IntakeOperation, error) {
+	return a.st.ListPendingIntakes(ctx)
+}
+
+func (a *ManagerStore) IsIntakePending(ctx context.Context, uuid string) (bool, error) {
+	return a.st.IsIntakePending(ctx, uuid)
+}
+
+func (a *ManagerStore) ResetMissing(ctx context.Context, uuid string) error {
+	return a.st.ResetMissing(ctx, uuid)
+}
+
+func (a *ManagerStore) CreateDirectory(ctx context.Context, logicPath string) error {
+	return a.st.CreateDirectory(ctx, logicPath)
+}
+func (a *ManagerStore) ListDirectoryPaths(ctx context.Context) ([]string, error) {
+	return a.st.ListDirectoryPaths(ctx)
+}
+func (a *ManagerStore) DirectoryExists(ctx context.Context, logicPath string) (bool, error) {
+	return a.st.DirectoryExists(ctx, logicPath)
+}
+
+func (a *ManagerStore) DirectoryByUUID(ctx context.Context, id string) (*manager.DirectoryRef, error) {
+	return a.st.DirectoryByUUID(ctx, id)
+}
+
+func (a *ManagerStore) AtomicDirectoryIntake() {}
+func (a *ManagerStore) DirectoryByPath(ctx context.Context, p string) (*manager.DirectoryRef, error) {
+	return a.st.DirectoryByPath(ctx, p)
+}
+func (a *ManagerStore) LinkDirectoryFile(ctx context.Context, parent, file, name string) error {
+	return a.st.LinkDirectoryFile(ctx, parent, file, name)
+}
+func (a *ManagerStore) DirectoryEntries(ctx context.Context, id string) ([]manager.DirectoryEntry, error) {
+	return a.st.DirectoryEntries(ctx, id)
+}
+
 // ReserveMeta 占位行直通（uuid 生成权归 DB）。
 func (a *ManagerStore) ReserveMeta(ctx context.Context, logicPath string) (string, error) {
-	return a.st.ReserveMeta(ctx, logicPath)
+	uuid, err := a.st.ReserveMeta(ctx, logicPath)
+	if errors.Is(err, ErrKeyExists) {
+		return "", manager.ErrKeyExists
+	}
+	return uuid, err
 }
 
 // MoveMeta 键改直通（哨兵翻译：pgx.ErrNoRows → manager ErrNotFound/
@@ -88,6 +164,16 @@ func (a *ManagerStore) ReserveMeta(ctx context.Context, logicPath string) (strin
 func (a *ManagerStore) MoveMeta(ctx context.Context, from, to string) (string, error) {
 	uuid, err := a.st.MoveMetadata(ctx, from, to)
 	if err != nil {
+		if errors.Is(err, ErrKeyExists) {
+			return "", manager.ErrKeyExists
+		}
+		return "", err
+	}
+	return uuid, nil
+}
+
+func (a *ManagerStore) MoveUUID(ctx context.Context, uuid, target, parentUUID, name string) (string, error) {
+	if err := a.st.MoveMetadataByUUID(ctx, uuid, target, parentUUID, name); err != nil {
 		if errors.Is(err, ErrKeyExists) {
 			return "", manager.ErrKeyExists
 		}
@@ -130,6 +216,19 @@ func (a *ManagerStore) GetMetaByUUIDs(ctx context.Context, uuids []string) (map[
 	return out, nil
 }
 
+// ReverseCopiedFrom 反查复制来源路径，转换为 manager 谱系 DTO。
+func (a *ManagerStore) ReverseCopiedFrom(ctx context.Context, path string) ([]manager.MetaRow, error) {
+	items, err := a.st.ReverseCopiedFrom(ctx, path)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]manager.MetaRow, 0, len(items))
+	for i := range items {
+		out = append(out, toMetaRow(&items[i]))
+	}
+	return out, nil
+}
+
 // toFileRef repo 行 → manager 取件视图（DTO 归属 manager，装配侧只做转换）。
 func toFileRef(m *FileMetadata) *manager.FileRef {
 	return &manager.FileRef{
@@ -144,13 +243,17 @@ func toFileRef(m *FileMetadata) *manager.FileRef {
 
 func toMetaRow(m *FileMetadata) manager.MetaRow {
 	return manager.MetaRow{
-		Path:       m.FilePath,
-		UUID:       m.UUID,
-		Checksum:   common.DerefStr(m.Checksum),
-		Attributes: m.Attributes,
-		IsDeleted:  m.IsDeleted,
-		SizeBytes:  common.DerefInt64(m.SizeBytes),
-		UpdatedAt:  m.UpdatedAt,
-		MovedFrom:  common.DerefStr(m.MovedFrom),
+		Path:          m.FilePath,
+		UUID:          m.UUID,
+		Scope:         m.Scope,
+		MimeType:      common.DerefStr(m.MimeType),
+		Checksum:      common.DerefStr(m.Checksum),
+		Attributes:    m.Attributes,
+		IsDeleted:     m.IsDeleted,
+		MissingRounds: m.MissingRounds,
+		SizeBytes:     common.DerefInt64(m.SizeBytes),
+		UpdatedAt:     m.UpdatedAt,
+		MovedFrom:     common.DerefStr(m.MovedFrom),
+		CopiedFrom:    common.DerefStr(m.CopiedFrom),
 	}
 }

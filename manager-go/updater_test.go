@@ -1,5 +1,5 @@
 // 文件：manager-go/updater_test.go —— updater 域 L1：T3 执行器（路由/合并/穿越/喂食）+ T2 陈旧四条件 + 幽灵软删 + batch 上限
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 package manager_test
 
@@ -7,6 +7,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -30,6 +31,9 @@ type fakeStore struct {
 	missing     map[string]int
 	softDeleted map[string]bool
 	refs        map[string]*manager.FileRef
+	pending     map[string]manager.IntakeOperation
+	moves       map[string]manager.MoveOperation
+	dirs        map[string]bool
 }
 
 func newFakeStore() *fakeStore {
@@ -40,6 +44,9 @@ func newFakeStore() *fakeStore {
 		missing:     map[string]int{},
 		softDeleted: map[string]bool{},
 		refs:        map[string]*manager.FileRef{},
+		pending:     map[string]manager.IntakeOperation{},
+		moves:       map[string]manager.MoveOperation{},
+		dirs:        map[string]bool{},
 	}
 }
 
@@ -69,6 +76,10 @@ func (s *fakeStore) GetMeta(ctx context.Context, path string) (*manager.MetaRow,
 	return nil, nil
 }
 
+func (s *fakeStore) ListMetaPageAll(ctx context.Context, since string, limit int) ([]manager.MetaRow, error) {
+	return s.ListMetaPage(ctx, since, limit)
+}
+
 func (s *fakeStore) UpsertMeta(ctx context.Context, rec manager.MetaRecord) (string, error) {
 	uuid, ok := s.uuids[rec.Path]
 	if !ok {
@@ -88,15 +99,87 @@ func (s *fakeStore) UpsertMeta(ctx context.Context, rec manager.MetaRecord) (str
 	return uuid, nil
 }
 
-// ReserveMeta 占位行（intake 域）：幂等拿 uuid，与 UpsertMeta 共用 uuid 池。
+func (s *fakeStore) ArchiveFailedIntake(ctx context.Context, key, uuid string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if s.uuids[key] != uuid {
+		return fmt.Errorf("reservation changed")
+	}
+	_, err := s.MoveMeta(ctx, key, "旧内容/失败入库/"+uuid+"/"+filepath.Base(key))
+	delete(s.pending, key)
+	return err
+}
+
+func (s *fakeStore) CompleteIntake(ctx context.Context, key, uuid string) error {
+	item, ok := s.pending[key]
+	if !ok || item.UUID != uuid {
+		return fmt.Errorf("reservation changed")
+	}
+	delete(s.pending, key)
+	return nil
+}
+
+func (s *fakeStore) ListPendingIntakes(ctx context.Context) ([]manager.IntakeOperation, error) {
+	items := make([]manager.IntakeOperation, 0, len(s.pending))
+	for _, item := range s.pending {
+		items = append(items, item)
+	}
+	return items, nil
+}
+
+func (s *fakeStore) CreateDirectory(ctx context.Context, path string) error {
+	if s.dirs[path] {
+		return manager.ErrDirectoryExists
+	}
+	s.dirs[path] = true
+	return nil
+}
+
+func (s *fakeStore) IsIntakePending(ctx context.Context, uuid string) (bool, error) {
+	if _, ok := s.moves[uuid]; ok {
+		return true, nil
+	}
+	for _, item := range s.pending {
+		if item.UUID == uuid {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func (s *fakeStore) ResetMissing(ctx context.Context, uuid string) error {
+	for p, row := range s.rows {
+		if row.UUID == uuid {
+			s.missing[p] = 0
+			row.MissingRounds = 0
+		}
+	}
+	return nil
+}
+
+func (s *fakeStore) ListDirectoryPaths(ctx context.Context) ([]string, error) {
+	paths := make([]string, 0, len(s.dirs))
+	for path := range s.dirs {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	return paths, nil
+}
+
+func (s *fakeStore) DirectoryExists(ctx context.Context, path string) (bool, error) {
+	return s.dirs[path], nil
+}
+
+// ReserveMeta 占位行（intake 域）：重名拒绝，与 UpsertMeta 共用 uuid 池。
 func (s *fakeStore) ReserveMeta(ctx context.Context, logicPath string) (string, error) {
-	if uuid, ok := s.uuids[logicPath]; ok {
-		s.missing[logicPath] = 0
-		return uuid, nil
+	if _, ok := s.uuids[logicPath]; ok {
+		return "", manager.ErrKeyExists
 	}
 	if _, err := s.UpsertMeta(ctx, manager.MetaRecord{Path: logicPath}); err != nil {
 		return "", err
 	}
+	s.pending[logicPath] = manager.IntakeOperation{LogicPath: logicPath, UUID: s.uuids[logicPath]}
 	return s.uuids[logicPath], nil
 }
 
@@ -112,6 +195,9 @@ func (s *fakeStore) MoveMeta(ctx context.Context, from, to string) (string, erro
 		return "", manager.ErrKeyExists
 	}
 	uuid := r.UUID
+	if filepath.Ext(from) != filepath.Ext(to) {
+		s.moves[uuid] = manager.MoveOperation{UUID: uuid, From: from, To: to}
+	}
 	delete(s.rows, from)
 	delete(s.uuids, from)
 	delete(s.missing, from)
@@ -125,6 +211,21 @@ func (s *fakeStore) MoveMeta(ctx context.Context, from, to string) (string, erro
 func (s *fakeStore) MarkMissing(ctx context.Context, path string) (int, error) {
 	s.missing[path]++
 	return s.missing[path], nil
+}
+
+func (s *fakeStore) ListPendingMoves(context.Context) ([]manager.MoveOperation, error) {
+	ops := []manager.MoveOperation{}
+	for _, op := range s.moves {
+		ops = append(ops, op)
+	}
+	return ops, nil
+}
+func (s *fakeStore) CompleteMove(ctx context.Context, uuid, to string) error {
+	if op, ok := s.moves[uuid]; !ok || op.To != to {
+		return fmt.Errorf("move changed")
+	}
+	delete(s.moves, uuid)
+	return nil
 }
 
 func (s *fakeStore) SoftDeleteMeta(ctx context.Context, path string) error {
@@ -149,6 +250,16 @@ func (s *fakeStore) GetMetaByUUIDs(ctx context.Context, uuids []string) (map[str
 		if r, ok := s.refs[u]; ok {
 			cp := *r
 			out[u] = &cp
+		}
+	}
+	return out, nil
+}
+
+func (s *fakeStore) ReverseCopiedFrom(ctx context.Context, path string) ([]manager.MetaRow, error) {
+	out := make([]manager.MetaRow, 0)
+	for _, row := range s.rows {
+		if row.CopiedFrom == path {
+			out = append(out, *row)
 		}
 	}
 	return out, nil
@@ -180,7 +291,7 @@ func newTestManager(t *testing.T) (*manager.Manager, *fakeStore, *fakeSink, stri
 	t.Helper()
 	dir := t.TempDir()
 	st, sink := newFakeStore(), &fakeSink{}
-	m := manager.New(st, dir, sink, testExtMime)
+	m := manager.New(st, dir, sink, testExtMime, manager.DownloadConfig{})
 	return m, st, sink, dir
 }
 
@@ -329,6 +440,21 @@ func TestBackfillFreshNotStale(t *testing.T) {
 	}
 }
 
+func TestBackfillPresentResetsMissingWithoutAnalysis(t *testing.T) {
+	m, st, _, _ := newTestManager(t)
+	ctx := context.Background()
+	intakeFile(t, m, "present.txt", "fresh")
+	if _, err := m.AnalyzeFile(ctx, "present.txt"); err != nil {
+		t.Fatal(err)
+	}
+	st.missing["present.txt"] = 2
+	st.rows["present.txt"].MissingRounds = 2
+	n, err := m.Backfill(ctx, 1)
+	if err != nil || n != 0 || st.missing["present.txt"] != 0 {
+		t.Fatalf("analyzed=%d missing=%d err=%v", n, st.missing["present.txt"], err)
+	}
+}
+
 func TestBackfillVerBump(t *testing.T) {
 	m, st, _, _ := newTestManager(t)
 	intakeFile(t, m, "a.txt", novelSample)
@@ -411,7 +537,7 @@ func TestBackfillMtimeNew(t *testing.T) {
 }
 
 func TestBackfillGhostSoftDelete(t *testing.T) {
-	m, st, _, _ := newTestManager(t)
+	m, st, sink, _ := newTestManager(t)
 	// DB 有行、盘上无文件（uuid 派生位不存在 = 天然幽灵）：连续 3 轮 → 软删除
 	st.rows["ghost.txt"] = &manager.MetaRow{
 		Path:       "ghost.txt",
@@ -435,6 +561,24 @@ func TestBackfillGhostSoftDelete(t *testing.T) {
 	}
 	if st.missing["ghost.txt"] != 3 {
 		t.Fatalf("missing rounds = %d, want 3", st.missing["ghost.txt"])
+	}
+
+	// 软删联动：sink 收到卸载喂食——uuid 对上、new=nil（整体移除语义）、
+	// old 携行上原属性（桶级 diff 的旧值侧）。前两轮不软删 → 不得提前喂
+	var unmount *sinkFeed
+	for i := range sink.feeds {
+		if sink.feeds[i].uuid == "u-ghost-1" {
+			unmount = &sink.feeds[i]
+		}
+	}
+	if unmount == nil {
+		t.Fatal("soft delete must feed sink an unmount (uuid=u-ghost-1, new=nil)")
+	}
+	if unmount.new != nil {
+		t.Fatalf("unmount feed new = %v, want nil (整体移除)", unmount.new)
+	}
+	if _, ok := unmount.old["cod-basic-ver"]; !ok {
+		t.Fatalf("unmount feed old = %v, want carry cod-basic-ver", unmount.old)
 	}
 }
 

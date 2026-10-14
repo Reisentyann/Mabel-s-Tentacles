@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/api/metadata.go —— 元数据端点：搜索 / 查看元数据 / 描述（编排机同步入口）/ 复制（KindCopy 事件）
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 package api
 
@@ -10,14 +10,24 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"time"
 
+	manager "github.com/Reisentyann/Mabel-s-Tentacles/manager-go"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/search"
 )
 
-// searchFiles 检索文件元数据：?q=&tag=&type=&creator=&scope=&color=&deleted=&page=&size=
+// searchFiles 检索文件元数据：?cond=&q=&tag=&type=&creator=&scope=&color=&deleted=&order_by=&order=&page=&size=
+// cond 为索引机条件语法（URL 编码的 JSON：扁平数组 = 全部 And，或
+// {and/or/not} 布尔组合树；与 MCP search_files 工具同一份解析——目录批次
+// 2026-09-09，布尔组合 2026-09-11）：有 cond 走编排机 SearchByConditions
+// （索引优先，8 种 op + 布尔组合）；其余参数走原 Search 路径（关键词/
+// 标签是 SQL 专长）。color 旧参数保留兼容（前端存量），新调用一律用 cond。
+// order_by/order（检索语言扩展 2026-09-10）：按属性值排序（极值/Top-N，
+// 仅 cond 路径生效）；order 只认 asc/desc，缺省 desc。
 func (s *Server) searchFiles(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	sq := search.Query{
@@ -27,11 +37,17 @@ func (s *Server) searchFiles(w http.ResponseWriter, r *http.Request) {
 		Creator:        q.Get("creator"),
 		Scope:          q.Get("scope"),
 		IncludeDeleted: q.Get("deleted") == "true",
+		OrderBy:        q.Get("order_by"),
+		Order:          q.Get("order"),
 		Page:           1,
 		Size:           20,
 	}
 	if color := q.Get("color"); color != "" {
 		sq.Attributes = map[string]any{"color": color}
+	}
+	if sq.Order != "" && sq.Order != "asc" && sq.Order != "desc" {
+		writeError(w, http.StatusBadRequest, "order 只认 asc / desc")
+		return
 	}
 	if p, err := strconv.Atoi(q.Get("page")); err == nil && p >= 1 {
 		sq.Page = p
@@ -47,6 +63,29 @@ func (s *Server) searchFiles(w http.ResponseWriter, r *http.Request) {
 
 	if s.searcher == nil {
 		writeJSON(w, http.StatusOK, map[string]any{"items": []any{}, "total": 0, "page": sq.Page, "size": sq.Size})
+		return
+	}
+
+	// cond 分流：条件语法 → 编排机条件直查（索引优先）；解析失败 →
+	// 400 人话（前端/调用方可自纠错），不静默降级旧路径（语法给了却
+	// 被忽略会让调用方误以为条件生效）
+	if condRaw := q.Get("cond"); condRaw != "" {
+		expr, cerr := search.ParseConditions(condRaw)
+		if cerr != nil {
+			writeError(w, http.StatusBadRequest, cerr.Error())
+			return
+		}
+		if s.orch == nil {
+			writeError(w, http.StatusInternalServerError, "orchestrator unavailable")
+			return
+		}
+		items, total, err := s.orch.SearchByConditions(r.Context(), expr, sq)
+		if err != nil {
+			slog.Error("search files by cond failed", "error", err)
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": items, "total": total, "page": sq.Page, "size": sq.Size})
 		return
 	}
 
@@ -179,6 +218,7 @@ type copyRequest struct {
 
 // copyFile 复制文件内容 + 元数据。
 func (s *Server) copyFile(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
 	var req copyRequest
 	if err := decodeJSON(r, &req); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid request body")
@@ -193,6 +233,10 @@ func (s *Server) copyFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// 授权必须先于读取和目标落盘。
+	if !s.canActFile(w, r, req.Source, "copy-read", false) {
+		return
+	}
 	// 物理复制走管理机（读源 + 入库目标：逻辑键 → uuid 派生随机物理路径）
 	if s.manager == nil {
 		writeError(w, http.StatusInternalServerError, "manager not wired")
@@ -209,13 +253,14 @@ func (s *Server) copyFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, rerr.Error())
 		return
 	}
-	if _, err := s.manager.Write(r.Context(), req.Target, string(content)); err != nil {
-		writeError(w, http.StatusInternalServerError, err.Error())
-		return
-	}
-
-	// 源文件读授权：看不到的文件不允许复制（404 隐藏存在性）
-	if !s.canActFile(w, r, req.Source, "copy-read", false) {
+	copyReceipt, err := s.manager.Write(r.Context(), req.Target, string(content))
+	if err != nil {
+		slog.Error("copy file failed", "method", r.Method, "path", r.URL.Path, "user", principalOf(r).Subject(), "source", req.Source, "target", req.Target, "error", err, "duration", time.Since(start).String())
+		status := http.StatusInternalServerError
+		if errors.Is(err, manager.ErrKeyExists) {
+			status = http.StatusConflict
+		}
+		writeError(w, status, err.Error())
 		return
 	}
 
@@ -229,6 +274,12 @@ func (s *Server) copyFile(w http.ResponseWriter, r *http.Request) {
 			// 源文件可能没有元数据，复制失败不致命：编排机 KindCopy 事件的
 			// 执行器会从盘上重建目标元数据并喂索引（COALESCE 保留 copied_from 等复制列）
 			slog.Warn("copy metadata failed, orchestrator will rebuild target meta", "source", req.Source, "error", err)
+		}
+		// 持久化维护意图：盘写成功后先落库记录，进程重启后由 RetryMaintenance 接手。
+		if ms, ok := s.repo.(repo.MaintenanceStore); ok {
+			if _, perr := ms.PrepareMaintenance(r.Context(), copyReceipt.UUID, "copy", "", owner); perr != nil {
+				slog.Warn("copy file prepare maintenance failed", "source", req.Source, "target", req.Target, "uuid", copyReceipt.UUID, "error", perr)
+			}
 		}
 	}
 	if s.orch != nil {

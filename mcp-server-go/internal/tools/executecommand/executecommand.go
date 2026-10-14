@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/executecommand/executecommand.go —— MCP 工具 execute_command：Shell 执行 + 记录入库
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
 
 package executecommand
 
@@ -21,14 +21,13 @@ func init() {
 
 func register(s *server.MCPServer, deps tools.Deps) {
 	tool := mcp.NewTool("execute_command",
-		mcp.WithDescription("Execute a shell command. Use this when the user's intent is to run a command or perform an action on the system."),
+		mcp.WithDescription("Execute a shell command on the host (60s timeout). Master agent privilege only."),
 		mcp.WithString("command",
 			mcp.Required(),
 			mcp.Description("The shell command to execute."),
 		),
 		mcp.WithNumber("user_id",
-			mcp.Required(),
-			mcp.Description("The identifier of the calling user."),
+			mcp.Description("Optional caller user identifier (automatically inferred if omitted)."),
 		),
 	)
 
@@ -37,17 +36,14 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		if err != nil {
 			return tools.ResultError("invalid command: " + err.Error()), nil
 		}
-		userID, err := req.RequireInt("user_id")
-		if err != nil {
-			return tools.ResultError("invalid user_id: " + err.Error()), nil
-		}
 
 		sessionID := tools.SessionID(ctx)
 		start := time.Now()
 
 		// shell 是管家特权（权限批次 2026-09-06）：master key 专属，
 		// 外部 agent（受限 key）一律拒绝——key 泄露也不该交出执行权
-		if p := tools.Principal(ctx); p == nil || !p.IsMaster() {
+		p := tools.Principal(ctx)
+		if p == nil || !p.IsMaster() {
 			who := "anonymous"
 			if p != nil {
 				who = p.Subject()
@@ -56,6 +52,12 @@ func register(s *server.MCPServer, deps tools.Deps) {
 				"principal", who, "session", sessionID, "command", command)
 			tools.RecordOperation(ctx, deps.Store, sessionID, "execute_command", "", "denied", "仅管家 agent 可执行命令", map[string]any{"command": command})
 			return tools.ResultError("权限不足: 仅管家 agent（master key）可执行命令"), nil
+		}
+
+		// 自动从认证上下文解析 userID，兼容显式传参
+		userID := req.GetInt("user_id", 0)
+		if userID == 0 && p.UID > 0 {
+			userID = int(p.UID)
 		}
 
 		var commandID int64

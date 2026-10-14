@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/api/files.go —— 文件端点：可见性裁剪的目录树 / 单文件下载（自证：静态 token 或 JWT）/ zip 打包
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
 
 package api
 
@@ -122,8 +122,13 @@ func (s *Server) downloadFile(w http.ResponseWriter, r *http.Request) {
 
 	switch {
 	case ticket != "":
-		// 票据对 path+uuid 绑定：换文件、过期、篡改一概拒
-		if verr := service.VerifyDownloadTicket(s.cfg.Security.SecretKey, path, m.UUID, expStr, ticket); verr != nil {
+		// 票据对 path+uuid 绑定：换文件、过期、篡改一概拒（验签归管理机，
+		// 2026-09-11 归位批次）
+		if s.manager == nil {
+			writeError(w, http.StatusForbidden, "download link expired or invalid")
+			return
+		}
+		if verr := s.manager.VerifyDownloadTicket(path, m.UUID, expStr, ticket); verr != nil {
 			writeError(w, http.StatusForbidden, "download link expired or invalid")
 			return
 		}
@@ -176,7 +181,7 @@ func (s *Server) downloadFile(w http.ResponseWriter, r *http.Request) {
 // 里的百分号编码做二次转义——实测 %2F（斜杠）与 %7E（波浪号）都会中招，
 // 服务端按字面查键 → file not found。r.URL.Query() 已解一层，这里再解
 // 至多两层（覆盖任意 %XX 的二次/三次转义）；解码出错或解不动原样返回
-//（含 % 的真实文件名不受影响——非法 %XX 序列直接返回）。
+// （含 % 的真实文件名不受影响——非法 %XX 序列直接返回）。
 func normalizeDownloadPath(p string) string {
 	for i := 0; i < 2; i++ {
 		dec, err := url.QueryUnescape(p)
@@ -279,7 +284,7 @@ func (s *Server) downloadZip(w http.ResponseWriter, r *http.Request) {
 
 // moveFile 逻辑键改（文件管理域的 HTTP 面，前端管理页用；与 MCP move_file
 // 工具同一份 manager.Move 正主）。键透传（前端树显示的就是全键 ~owner/…），
-// 写授权按源行 owner 矩阵判；KindMove 事件仅记账（执行器早退零重分析）。
+// 写授权按源行 owner 矩阵判；编排机持久登记移动维护任务并更新名称属性。
 func (s *Server) moveFile(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		From string `json:"from"`
@@ -306,19 +311,15 @@ func (s *Server) moveFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	receipt, err := s.manager.Move(r.Context(), body.From, body.To)
+	if s.orch == nil {
+		writeError(w, http.StatusServiceUnavailable, "orchestrator unavailable")
+		return
+	}
+	receipt, err := s.orch.MoveFile(r.Context(), s.manager, body.From, body.To, "", "", "", "", core.Actor{Name: principalOf(r).Name})
 	if err != nil {
 		slog.Error("move file failed", "from", body.From, "to", body.To, "error", err)
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
-	}
-	if s.orch != nil {
-		s.orch.Submit(core.Event{
-			Kind:      core.KindMove,
-			Path:      receipt.To,
-			SessionID: "",
-			Actor:     core.Actor{Name: principalOf(r).Name},
-		})
 	}
 	slog.Info("move file ok", "from", body.From, "to", body.To, "uuid", receipt.UUID, "user", principalOf(r).Subject())
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -328,4 +329,42 @@ func (s *Server) moveFile(w http.ResponseWriter, r *http.Request) {
 		"to":           receipt.To,
 		"storage_move": receipt.StorageMove,
 	})
+}
+
+// deleteFile 软删除文件（HTTP 面，前端管理页用）
+func (s *Server) deleteFile(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		var body struct {
+			Path string `json:"path"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err == nil {
+			path = body.Path
+		}
+	}
+	if path == "" {
+		writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+	if !s.canActFile(w, r, path, "delete", true) {
+		return
+	}
+	if s.orch != nil {
+		if err := s.orch.Delete(r.Context(), path, ""); err != nil {
+			slog.Error("delete file failed", "path", path, "error", err)
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	} else if s.repo != nil {
+		if err := s.repo.SoftDeleteMetadata(r.Context(), path); err != nil {
+			slog.Error("soft delete file failed", "path", path, "error", err)
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+	} else {
+		writeError(w, http.StatusServiceUnavailable, "service unavailable")
+		return
+	}
+	slog.Info("delete file ok", "path", path, "user", principalOf(r).Subject())
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "path": path})
 }

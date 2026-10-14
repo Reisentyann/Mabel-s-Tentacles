@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/core/orchestrator.go —— 编排机门面：生命周期事件 + 异步队列 + worker 池（三机之上的统一编排层骨架）
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
 
 // Package core 是编排机：把描述机（describer-go，字节进事实出）/ 索引机
 // （indexer-go，条件→uuid）/ 管理机（manager-go，位置与谱系）的编排，
@@ -56,9 +56,12 @@ type Sink interface {
 
 // IndexSource 索引查询最小面（indexer-go Indexer 的结构子集）：
 // 检索门面（search.go）与启动重建（RebuildIndex）用。nil = 检索降级 SQL。
+// Catalog 为字段目录（search_files / list_index_fields 工具的发现接口，
+// 索引机 2026-09-09 目录批次）。
 type IndexSource interface {
-	Query(conds []indexer.Condition, mode indexer.Combine) ([]string, error)
+	Query(expr indexer.Expr) ([]string, error)
 	Rebuild(all map[string]map[string]any) error
+	Catalog() []indexer.FieldInfo
 }
 
 // Store 编排机所需的最小存储面（repo.Store 的结构子集，pgx 实现直接注入；
@@ -70,6 +73,8 @@ type Store interface {
 	// GetMetadataByUUIDs 批量凭 uuid 取件（检索索引路径：Index.Query →
 	// uuids → 一次取齐，免 N+1；含软删行，由检索侧过滤）。
 	GetMetadataByUUIDs(ctx context.Context, uuids []string) (map[string]*repo.FileMetadata, error)
+	// SoftDeleteMetadata 软删除元数据行
+	SoftDeleteMetadata(ctx context.Context, filePath string) error
 }
 
 // Kind 生命周期事件种类。提交即表示盘上内容已是终态（调用方先完成盘写）。
@@ -110,6 +115,9 @@ type AgentMeta struct {
 	Description *string
 	Tags        []string
 	FileType    *string
+	// Attributes 是装配层传入的受信来源事实（例如 JMComic 下载详情），
+	// 不经过 LLMStore；当前 JM 适配器使用 sp-cod-jm-* 命名空间。
+	Attributes map[string]any
 }
 
 // Options 编排机构造参数。
@@ -125,13 +133,14 @@ type Options struct {
 
 // Orchestrator 编排机。
 type Orchestrator struct {
-	opts   Options
-	queue  chan Event
-	mu     sync.RWMutex // 保护 closed：Submit 持读锁非阻塞发送 / Stop 持写锁关闭，杜绝向已闭通道发送
-	closed bool
-	wg     sync.WaitGroup
-	startO sync.Once
-	stopO  sync.Once
+	updateMu sync.Mutex // 串行元数据读改写、维护与索引发布（单实例）。
+	opts     Options
+	queue    chan Event
+	mu       sync.RWMutex // 保护 closed：Submit 持读锁非阻塞发送 / Stop 持写锁关闭，杜绝向已闭通道发送
+	closed   bool
+	wg       sync.WaitGroup
+	startO   sync.Once
+	stopO    sync.Once
 
 	submitted atomic.Int64
 	processed atomic.Int64

@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/analyzefile/analyzefile.go —— MCP 工具 analyze_file：T3 手动重分析（manager updater 域）
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
 
 package analyzefile
 
@@ -21,16 +21,18 @@ func init() {
 func register(s *server.MCPServer, deps tools.Deps) {
 	tool := mcp.NewTool("analyze_file",
 		mcp.WithDescription("Re-run the deterministic describer on an existing file and store fresh cod-* facts (metadata refresh). "+
-			"Use this when a file was changed outside write_file/modify_data_file (e.g. by execute_command), or to upgrade old metadata to the current engine version. "+
-			"Returns the fact families hit and the newly produced attributes."),
+			"Use this when a file was changed outside write_file/modify_file (e.g. by execute_command), or to upgrade old metadata to current engine version. "+
+			"Returns the fact families hit and newly produced attributes."),
 		mcp.WithString("file_path",
-			mcp.Required(),
-			mcp.Description("Path of the file, relative to the data directory."),
+			mcp.Description("Path of the file to analyze, relative to workspace. Also accepts 'path'."),
+		),
+		mcp.WithString("path",
+			mcp.Description("Alias for file_path."),
 		),
 	)
 
 	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		filePath, err := req.RequireString("file_path")
+		filePath, err := tools.GetFilePath(req)
 		if err != nil {
 			return tools.ResultError("invalid file_path: " + err.Error()), nil
 		}

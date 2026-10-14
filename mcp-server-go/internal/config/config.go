@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/config/config.go —— 配置加载：config.yml + 环境变量覆盖（服务器/日志/DB/JWT/API/管理员/T2 回填）
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
 
 package config
 
@@ -69,6 +69,22 @@ type DescribeConfig struct {
 	Backfill BackfillConfig `yaml:"backfill"`
 }
 
+// TrueRandomConfig 混沌机·真随机机配置：量子熵源选择。
+// Source=off（默认，休眠保留——待找到可靠真随机源再点亮）；
+// lfdr=lfdr.de / ID Quantique 硬件（公开免费但不保证牢靠）；
+// jinan=济南 DIQRNG 信标（器件无关但脉冲偏旧）；anu=澳国立（旧端点已退役）。
+// Endpoint 空 = 用熵源内置默认；TimeoutSeconds<=0 = 10s。
+type TrueRandomConfig struct {
+	Source         string `yaml:"source"`
+	Endpoint       string `yaml:"endpoint"`
+	TimeoutSeconds int    `yaml:"timeout_seconds"`
+}
+
+// ChaosConfig 混沌机配置。
+type ChaosConfig struct {
+	TrueRandom TrueRandomConfig `yaml:"true_random"`
+}
+
 type Config struct {
 	Server   ServerConfig   `yaml:"server"`
 	DataDir  string         `yaml:"data_dir"`
@@ -79,6 +95,7 @@ type Config struct {
 	Security SecurityConfig `yaml:"security"`
 	Admin    AdminConfig    `yaml:"admin"`
 	Describe DescribeConfig `yaml:"describe"`
+	Chaos    ChaosConfig    `yaml:"chaos"`
 }
 
 func Load() *Config {
@@ -129,6 +146,12 @@ func defaults() *Config {
 				Enabled:  false,
 				Batch:    100,
 				Interval: 60,
+			},
+		},
+		Chaos: ChaosConfig{
+			TrueRandom: TrueRandomConfig{
+				Source:         "off",
+				TimeoutSeconds: 10,
 			},
 		},
 	}
@@ -220,6 +243,17 @@ func (c *Config) loadEnv() {
 	if v := os.Getenv("DESCRIBE_BACKFILL_INTERVAL"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			c.Describe.Backfill.Interval = n
+		}
+	}
+	if v := os.Getenv("CHAOS_TRUE_RANDOM_SOURCE"); v != "" {
+		c.Chaos.TrueRandom.Source = v
+	}
+	if v := os.Getenv("CHAOS_TRUE_RANDOM_ENDPOINT"); v != "" {
+		c.Chaos.TrueRandom.Endpoint = v
+	}
+	if v := os.Getenv("CHAOS_TRUE_RANDOM_TIMEOUT"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			c.Chaos.TrueRandom.TimeoutSeconds = n
 		}
 	}
 }

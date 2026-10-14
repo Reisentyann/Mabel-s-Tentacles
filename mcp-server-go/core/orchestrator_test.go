@@ -1,10 +1,11 @@
 // 文件：mcp-server-go/core/orchestrator_test.go —— 编排机骨架测试：执行器管线 / 队列生命周期 / Describe 闸门 / 检索降级 / 索引重建
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
 
 package core
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -27,14 +28,85 @@ import (
 
 // memStore Store 最小面的内存实现（近似 COALESCE 语义：指针 nil 不覆盖）。
 type memStore struct {
-	mu   sync.Mutex
-	rows map[string]*repo.FileMetadata
-	ups  int // Upsert 次数（KindMove 零触发断言用）
+	mu        sync.Mutex
+	rows      map[string]*repo.FileMetadata
+	names     map[string]string
+	ups       int // Upsert 次数（KindMove 零触发断言用）
+	jobs      map[int64]repo.MaintenanceJob
+	jobStates map[int64]string
+	nextJob   int64
 }
 
 func newMemStore() *memStore {
-	return &memStore{rows: map[string]*repo.FileMetadata{}}
+	return &memStore{rows: map[string]*repo.FileMetadata{}, names: map[string]string{}, jobs: map[int64]repo.MaintenanceJob{}, jobStates: map[int64]string{}}
 }
+
+func (s *memStore) PrepareMaintenance(_ context.Context, uuid, kind, session, user string) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.nextJob++
+	id := s.nextJob
+	s.jobs[id] = repo.MaintenanceJob{ID: id, UUID: uuid, Kind: kind, Session: session, User: user}
+	s.jobStates[id] = "prepared"
+	return id, nil
+}
+func (s *memStore) FinishMaintenance(_ context.Context, id int64, status, message string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	j := s.jobs[id]
+	if status == "retry" {
+		j.Attempts++
+	}
+	if status == "done" || status == "cancelled" {
+		delete(s.jobs, id)
+		delete(s.jobStates, id)
+	} else {
+		s.jobs[id] = j
+		s.jobStates[id] = status
+	}
+	return nil
+}
+func (s *memStore) PendingMaintenance(_ context.Context, limit int) ([]repo.MaintenanceJob, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	out := []repo.MaintenanceJob{}
+	for _, j := range s.jobs {
+		if s.jobStates[j.ID] != "ready" && s.jobStates[j.ID] != "retry" {
+			continue
+		}
+		s.jobStates[j.ID] = "processing"
+		out = append(out, j)
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+func (s *memStore) RecoverMaintenanceClaims(context.Context) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for id, state := range s.jobStates {
+		if state == "processing" || state == "prepared" {
+			s.jobStates[id] = "ready"
+		}
+	}
+	return nil
+}
+
+func (s *memStore) AnalysisName(_ context.Context, uuid string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for p, row := range s.rows {
+		if row.UUID == uuid {
+			if name := s.names[p]; name != "" {
+				return name, nil
+			}
+			return p, nil
+		}
+	}
+	return "", nil
+}
+func (s *memStore) IsIntakePending(context.Context, string) (bool, error) { return false, nil }
 
 // upserts 累计 Upsert 次数（KindMove 早退断言：move 不得触发重分析落库）。
 func (s *memStore) upserts() int {
@@ -157,6 +229,17 @@ func (s *memStore) GetMetadataByUUIDs(_ context.Context, uuids []string) (map[st
 	return out, nil
 }
 
+func (s *memStore) SoftDeleteMetadata(_ context.Context, path string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m, ok := s.rows[path]
+	if !ok {
+		return errors.New("no row")
+	}
+	m.IsDeleted = true
+	return nil
+}
+
 func (s *memStore) row(t *testing.T, p string) *repo.FileMetadata {
 	t.Helper()
 	s.mu.Lock()
@@ -216,16 +299,40 @@ type memIndex struct {
 	rebuilt  map[string]map[string]any
 	rebuilds int
 	hits     []string // Query 的预设返回（nil = 空集）
-	conds    []indexer.Condition
+	expr     indexer.Expr
 	queries  int
+	catalog  []indexer.FieldInfo // Catalog 的预设返回
 }
 
-func (m *memIndex) Query(conds []indexer.Condition, _ indexer.Combine) ([]string, error) {
+func (m *memIndex) Query(expr indexer.Expr) ([]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.conds = conds
+	m.expr = expr
 	m.queries++
 	return m.hits, nil
+}
+
+func (m *memIndex) Update(uuid string, old, next map[string]any) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.rebuilt == nil {
+		m.rebuilt = map[string]map[string]any{}
+	}
+	if len(next) == 0 {
+		delete(m.rebuilt, uuid)
+		return
+	}
+	cp := map[string]any{}
+	for k, v := range next {
+		cp[k] = v
+	}
+	m.rebuilt[uuid] = cp
+}
+
+func (m *memIndex) Catalog() []indexer.FieldInfo {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.catalog
 }
 
 func (m *memIndex) Rebuild(all map[string]map[string]any) error {
@@ -335,6 +442,10 @@ func TestExecutePipeline(t *testing.T) {
 
 	ms := newMemStore()
 	intakeSeed(t, ms, dir, "note.txt", content)
+	ms.row(t, "note.txt").Tags = []string{"人工标签"}
+	ms.row(t, "note.txt").Attributes = describer.JSONFromAttrs(map[string]any{
+		"sp-cod-jm-old": "stale",
+	})
 	sn := &fakeSink{}
 	o, err := New(Options{DataDir: dir, Store: ms, Sink: sn})
 	if err != nil {
@@ -343,7 +454,12 @@ func TestExecutePipeline(t *testing.T) {
 
 	rep, err := o.execute(context.Background(), Event{
 		Kind: KindWrite, Path: "note.txt", SessionID: "s1",
-		Agent: &AgentMeta{Title: ptr("书架笔记")},
+		Agent: &AgentMeta{Title: ptr("书架笔记"), Tags: []string{"jm-tag"}, Attributes: map[string]any{
+			"sp-cod-jm-demo": "kept",
+			"sp-cod-jm-tags": []string{"jm-tag"},
+			"sp-src-demo":    "ignored",
+			"cod-forbidden":  "ignored",
+		}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -373,6 +489,22 @@ func TestExecutePipeline(t *testing.T) {
 	if row.SessionID == nil || *row.SessionID != "s1" {
 		t.Fatalf("session not persisted: %v", row.SessionID)
 	}
+	attrs = describer.AttrsFromJSON(row.Attributes)
+	if attrs["sp-cod-jm-demo"] != "kept" {
+		t.Fatalf("source attribute not persisted: %#v", attrs)
+	}
+	if _, ok := attrs["sp-cod-jm-old"]; ok {
+		t.Fatal("stale JM source attribute must be purged on a fresh source snapshot")
+	}
+	if _, ok := attrs["sp-src-demo"]; ok {
+		t.Fatal("source adapter must use sp-cod-jm-* attributes")
+	}
+	if _, ok := attrs["cod-forbidden"]; ok {
+		t.Fatal("source adapter must not inject cod-* attributes")
+	}
+	if got := ms.row(t, "note.txt").Tags; len(got) != 2 || got[0] != "人工标签" || got[1] != "jm-tag" {
+		t.Fatalf("source tags = %#v", got)
+	}
 
 	feeds := sn.snapshot()
 	if len(feeds) != 1 {
@@ -383,6 +515,32 @@ func TestExecutePipeline(t *testing.T) {
 	}
 	if feeds[0].new == nil || feeds[0].new["cod-text-language"] != "zh" {
 		t.Fatal("feed new attrs missing cod-text-language")
+	}
+}
+
+func TestExecuteUsesDirectoryDisplayNameAndPreservesVisibility(t *testing.T) {
+	dir := t.TempDir()
+	ms := newMemStore()
+	intakeSeed(t, ms, dir, "opaque-key", "A short plain text document.")
+	ms.names["opaque-key"] = "report.txt"
+	ms.row(t, "opaque-key").Visibility = "private"
+	o, err := New(Options{DataDir: dir, Store: ms})
+	if err != nil {
+		t.Fatal(err)
+	}
+	report, err := o.execute(context.Background(), Event{Kind: KindWrite, Path: "opaque-key"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := ms.row(t, "opaque-key")
+	if row.Visibility != "private" {
+		t.Fatalf("visibility=%q", row.Visibility)
+	}
+	if row.Extension == nil || *row.Extension != ".txt" {
+		t.Fatalf("extension=%v", row.Extension)
+	}
+	if !strings.Contains(strings.Join(report.Families, ","), "text") {
+		t.Fatalf("display-name routing families=%v", report.Families)
 	}
 }
 
@@ -605,8 +763,9 @@ func TestSearchIndexed(t *testing.T) {
 		t.Fatalf("fallback calls = %d, want 0（索引路径不降级）", fb.count())
 	}
 	// 条件映射：标量 → eq
-	if len(idx.conds) != 1 || idx.conds[0].Field != "cod-text-lines" || idx.conds[0].Op != indexer.OpEq {
-		t.Fatalf("conds = %+v, want eq cod-text-lines", idx.conds)
+	leaves, ok := idx.expr.Leaves()
+	if !ok || len(leaves) != 1 || leaves[0].Field != "cod-text-lines" || leaves[0].Op != indexer.OpEq {
+		t.Fatalf("expr = %+v, want eq cod-text-lines", leaves)
 	}
 
 	// 分页：page=2 size=1（同观察者口径）→ 只剩 hit-old
@@ -665,6 +824,194 @@ func TestSearchIndexedDegrade(t *testing.T) {
 	}
 }
 
+// TestSearchByConditions 条件数组直查（search_files 工具入口，目录批次
+// 2026-09-09）：显式条件原样进索引（And）→ 取件复判分页；空条件不问索引；
+// 降级口径：eq/in 折回 Attributes 走 SQL，gt/lt/range 索引不可用时报错。
+func TestSearchByConditions(t *testing.T) {
+	ctx := context.Background()
+	ms := newMemStore()
+	for _, p := range []string{"hit-new.txt", "hit-old.txt", "priv.txt"} {
+		if _, err := ms.UpsertMetadata(ctx, &repo.FileMetadata{
+			FilePath: p, Visibility: "public", FileType: ptr("text"),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ms.rows["priv.txt"].Visibility = "private"
+	ms.rows["priv.txt"].OwnerID = ptr("alice")
+	ms.rows["hit-old.txt"].UpdatedAt = time.Now().Add(-time.Hour)
+	ms.rows["hit-new.txt"].UpdatedAt = time.Now()
+
+	idx := &memIndex{hits: []string{"uuid-hit-new.txt", "uuid-hit-old.txt", "uuid-priv.txt"}}
+	fb := &stubSearcher{}
+	o, err := New(Options{DataDir: "x", Store: ms, Index: idx, Fallback: fb})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 显式条件（eq + range，And 交集）原样进索引
+	expr := indexer.And(
+		indexer.Leaf("cod-text-language", indexer.OpEq, "zh"),
+		indexer.Leaf("cod-text-lines", indexer.OpRange, [2]any{1, 99}),
+	)
+	items, total, err := o.SearchByConditions(ctx, expr, search.Query{ViewerName: "bob"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 2 || len(items) != 2 || items[0].FilePath != "hit-new.txt" {
+		t.Fatalf("by-conditions = %d items, total %d（priv 应被复判剔除）", len(items), total)
+	}
+	leaves, _ := idx.expr.Leaves()
+	if len(leaves) != 2 || leaves[1].Op != indexer.OpRange {
+		t.Fatalf("expr 原样传递失败: %+v", leaves)
+	}
+	if fb.count() != 0 {
+		t.Fatalf("fallback calls = %d, want 0", fb.count())
+	}
+
+	// 空条件：空集直返，不问索引不降级
+	idx.queries = 0
+	if items, total, err = o.SearchByConditions(ctx, indexer.Expr{}, search.Query{}); err != nil || total != 0 || len(items) != 0 {
+		t.Fatalf("empty expr = (%d items, %d, err %v), want 0/0/nil", len(items), total, err)
+	}
+	if idx.queries != 0 || fb.count() != 0 {
+		t.Fatal("空条件不该问索引/兜底")
+	}
+
+	// 索引空集：合法答案，不降级
+	idx.hits = nil
+	if _, total, err = o.SearchByConditions(ctx, expr, search.Query{}); err != nil || total != 0 {
+		t.Fatalf("index empty = (total %d, err %v), want 0/nil", total, err)
+	}
+	if fb.count() != 0 {
+		t.Fatal("索引空集不该降级")
+	}
+
+	// 降级：索引未装配 + 纯 And eq/in → 折回 Attributes 走 SQL
+	oNoIdx, err := New(Options{DataDir: "x", Store: newMemStore(), Fallback: fb})
+	if err != nil {
+		t.Fatal(err)
+	}
+	eqExpr := indexer.Leaf("k", indexer.OpEq, "v")
+	if _, _, err = oNoIdx.SearchByConditions(ctx, eqExpr, search.Query{}); err != nil {
+		t.Fatal(err)
+	}
+	if fb.count() != 1 {
+		t.Fatalf("eq 降级后 fallback calls = %d, want 1", fb.count())
+	}
+
+	// 降级折不动：索引未装配 + range → 报错（宁缺毋滥不静默错答）
+	rngExpr := indexer.Leaf("k", indexer.OpRange, [2]any{1, 2})
+	if _, _, err = oNoIdx.SearchByConditions(ctx, rngExpr, search.Query{}); err == nil {
+		t.Fatal("range + 无索引应报错")
+	}
+
+	// 降级折不动：索引未装配 + or/not → 报错（布尔组合是索引专长，@> 装不下）
+	orExpr := indexer.Or(indexer.Leaf("k", indexer.OpEq, "v"), indexer.Leaf("k2", indexer.OpEq, "v2"))
+	if _, _, err = oNoIdx.SearchByConditions(ctx, orExpr, search.Query{}); err == nil {
+		t.Fatal("or + 无索引应报错")
+	}
+	notExpr := indexer.Not(indexer.Leaf("k", indexer.OpEq, "v"))
+	if _, _, err = oNoIdx.SearchByConditions(ctx, notExpr, search.Query{}); err == nil {
+		t.Fatal("not + 无索引应报错")
+	}
+}
+
+// TestSearchByConditionsOrderBy 属性排序（检索语言扩展 2026-09-10）：
+// OrderBy 命中集按该值排（desc 大者在前 / asc 小者在前），缺键行恒排
+// 末尾（「最大」不可能是缺值的行）；size=1 + desc = 取最大文件。
+func TestSearchByConditionsOrderBy(t *testing.T) {
+	ctx := context.Background()
+	ms := newMemStore()
+	rows := []struct {
+		path  string
+		lines any // nil = 缺键
+	}{
+		{"a.txt", 10},
+		{"b.txt", 420},
+		{"c.txt", 88},
+		{"d.txt", nil}, // 缺 cod-text-lines（该文件从未适用 text 家族）
+	}
+	for _, r := range rows {
+		attrs := map[string]any{"cod-text-language": "zh"}
+		if r.lines != nil {
+			attrs["cod-text-lines"] = r.lines
+		}
+		if _, err := ms.UpsertMetadata(ctx, &repo.FileMetadata{
+			FilePath: r.path, Visibility: "public",
+			Attributes: describer.JSONFromAttrs(attrs),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	idx := &memIndex{hits: []string{"uuid-a.txt", "uuid-b.txt", "uuid-c.txt", "uuid-d.txt"}}
+	o, err := New(Options{DataDir: "x", Store: ms, Index: idx, Fallback: &stubSearcher{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	expr := indexer.Leaf("cod-text-language", indexer.OpEq, "zh")
+
+	// desc：420 → 88 → 10 → 缺键垫底
+	items, _, err := o.SearchByConditions(ctx, expr, search.Query{OrderBy: "cod-text-lines"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := pathsOf(items); got != "b.txt,c.txt,a.txt,d.txt" {
+		t.Fatalf("desc order = %s, want b,c,a,d(缺键最后)", got)
+	}
+
+	// asc：10 → 88 → 420 → 缺键垫底
+	items, _, err = o.SearchByConditions(ctx, expr, search.Query{OrderBy: "cod-text-lines", Order: "asc"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := pathsOf(items); got != "a.txt,c.txt,b.txt,d.txt" {
+		t.Fatalf("asc order = %s, want a,c,b,d(缺键最后)", got)
+	}
+
+	// size=1 + desc = 最大文件（二分法退役）
+	items, total, err := o.SearchByConditions(ctx, expr, search.Query{OrderBy: "cod-text-lines", Size: 1})
+	if err != nil || total != 4 || len(items) != 1 || items[0].FilePath != "b.txt" {
+		t.Fatalf("max-file = (%d items, total %d, err %v), want b.txt/4", len(items), total, err)
+	}
+
+	// 无 OrderBy：默认 updated_at 倒序口径不变（回归护栏）
+	if _, _, err := o.SearchByConditions(ctx, expr, search.Query{}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// pathsOf 路径串（排序断言用）。
+func pathsOf(items []repo.FileMetadata) string {
+	ps := make([]string, len(items))
+	for i := range items {
+		ps[i] = items[i].FilePath
+	}
+	return strings.Join(ps, ",")
+}
+
+// TestIndexCatalog 目录透传：IndexCatalog = Index.Catalog 的门面
+// （list_index_fields 工具入口）；未装配返回 nil。
+func TestIndexCatalog(t *testing.T) {
+	cat := []indexer.FieldInfo{{Field: "f", Kind: indexer.KindEnum, Values: []string{"v"}}}
+	idx := &memIndex{catalog: cat}
+	o, err := New(Options{DataDir: "x", Store: newMemStore(), Index: idx})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := o.IndexCatalog(); len(got) != 1 || got[0].Field != "f" || got[0].Values[0] != "v" {
+		t.Fatalf("IndexCatalog = %+v, want stub 目录透传", got)
+	}
+
+	o2, err := New(Options{DataDir: "x", Store: newMemStore()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := o2.IndexCatalog(); got != nil {
+		t.Fatalf("未装配索引应返回 nil, got %+v", got)
+	}
+}
+
 func TestRebuildIndex(t *testing.T) {
 	ctx := context.Background()
 	ms := newMemStore()
@@ -704,5 +1051,148 @@ func TestRebuildIndex(t *testing.T) {
 	}
 	if err := o2.RebuildIndex(ctx); err == nil {
 		t.Fatal("expected error without index source")
+	}
+}
+
+func TestDurableMaintenanceRefreshesCurrentUUIDState(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := newMemStore()
+	idx := &memIndex{}
+	o, err := New(Options{DataDir: dir, Store: store, Sink: idx})
+	if err != nil {
+		t.Fatal(err)
+	}
+	uuid := intakeSeed(t, store, dir, "old.txt", "hello")
+	if err := o.NotifyMaintenance(ctx, uuid, string(KindModify), "old.txt", "s1", Actor{Name: "alice"}); err != nil {
+		t.Fatal(err)
+	}
+	all, _ := idx.snapshot()
+	if len(all) != 1 || all[uuid]["cod-basic-name-pattern"] != "plain" {
+		t.Fatalf("indexed attrs = %#v", all)
+	}
+	if len(store.jobs) != 0 {
+		t.Fatalf("completed job remains: %#v", store.jobs)
+	}
+	feed := managerIndexSink{orch: o}
+	feed.Update(uuid, nil, map[string]any{"cod-basic-name-pattern": "manual"})
+	all, _ = idx.snapshot()
+	if all[uuid]["cod-basic-name-pattern"] != "plain" {
+		t.Fatalf("adapter did not read DB snapshot: %#v", all[uuid])
+	}
+
+	// Worker restart semantics: an already prepared task re-reads latest DB path.
+	store.rename(t, "old.txt", "screenshot.txt")
+	id, err := store.PrepareMaintenance(ctx, uuid, string(KindMove), "s2", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.FinishMaintenance(ctx, id, "ready", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.RetryMaintenance(ctx, 10); err != nil {
+		t.Fatal(err)
+	}
+	all, _ = idx.snapshot()
+	if all[uuid]["cod-basic-name-pattern"] != "screenshot" {
+		t.Fatalf("rename attrs = %#v", all[uuid])
+	}
+	if _, ok := store.jobs[id]; ok {
+		t.Fatal("successful recovery job remains")
+	}
+}
+
+func TestMaintenanceJobsForDeletedUUID(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := newMemStore()
+	idx := &memIndex{}
+	o, err := New(Options{DataDir: dir, Store: store, Sink: idx})
+	if err != nil {
+		t.Fatal(err)
+	}
+	uuid := intakeSeed(t, store, dir, "retry.txt", "body")
+	job, err := store.PrepareMaintenance(ctx, uuid, "modify", "s1", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.PrepareMaintenance(ctx, uuid, "move", "s2", "alice"); err != nil {
+		t.Fatal(err)
+	}
+	if err := o.RecoverMaintenanceClaims(ctx); err != nil {
+		t.Fatal(err)
+	}
+	store.rows["retry.txt"].IsDeleted = true
+	if err := o.RetryMaintenance(ctx, 10); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.jobs[job]; ok {
+		t.Fatal("deleted object maintenance should complete after index removal")
+	}
+}
+
+func TestDeleteMaintenanceDoesNotDeadlock(t *testing.T) {
+	ctx := context.Background()
+	store := newMemStore()
+	ix := indexer.New()
+	uuid, err := store.UpsertMetadata(ctx, &repo.FileMetadata{FilePath: "delete.txt", Attributes: describer.JSONFromAttrs(map[string]any{"k": "v"})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ix.Update(uuid, nil, map[string]any{"k": "v"})
+	o, err := New(Options{DataDir: t.TempDir(), Store: store, Sink: ix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- o.Delete(ctx, "delete.txt", "s") }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("delete deadlocked")
+	}
+	got, err := ix.Query(indexer.Leaf("k", indexer.OpEq, "v"))
+	if err != nil || len(got) != 0 {
+		t.Fatalf("deleted index mount remains: %v %v", got, err)
+	}
+}
+
+func TestMaintenanceFailureRetryReadsCurrentFile(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := newMemStore()
+	ix := indexer.New()
+	uuid, err := store.UpsertMetadata(ctx, &repo.FileMetadata{FilePath: "retry.txt"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	o, err := New(Options{DataDir: dir, Store: store, Sink: ix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = o.NotifyMaintenance(ctx, uuid, "modify", "retry.txt", "s", Actor{Name: "alice"})
+	if err == nil || len(store.jobs) != 1 {
+		t.Fatalf("failure lost task: %v %#v", err, store.jobs)
+	}
+	var id int64
+	for key, job := range store.jobs {
+		id = key
+		if job.Attempts != 1 {
+			t.Fatalf("attempts=%d", job.Attempts)
+		}
+	}
+	intakeSeed(t, store, dir, "retry.txt", "current content")
+	if err := o.RetryMaintenance(ctx, 10); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := store.jobs[id]; ok {
+		t.Fatal("retry did not complete")
+	}
+	got, err := ix.Query(indexer.Leaf("cod-basic-textish", indexer.OpEq, true))
+	if err != nil || len(got) != 1 || got[0] != uuid {
+		t.Fatalf("current file not indexed: %v %v", got, err)
 	}
 }

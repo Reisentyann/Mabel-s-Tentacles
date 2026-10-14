@@ -1,13 +1,16 @@
-// 文件：manager-go/intake_test.go —— 入库域 L1：uuid 派生物理位 / 覆写幂等 / Modify 双模 / 逻辑键校验 / 逻辑视图
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 文件：manager-go/intake_test.go —— 入库域 L1：新建重名保护、外部文件导入、修改与逻辑视图
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 package manager_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/manager-go"
@@ -42,24 +45,272 @@ func TestIntakeWriteStorageDerived(t *testing.T) {
 	}
 }
 
-// TestIntakeWriteOverwriteIdempotent 同逻辑键重写 = 覆写：uuid 不变
-// （物理位稳定）、内容替换。
-func TestIntakeWriteOverwriteIdempotent(t *testing.T) {
-	m, _, _, _ := newTestManager(t)
+// TestIntakeWriteConflict 重名不改变原内容、UUID、属性或缺失计数。
+func TestIntakeWriteConflict(t *testing.T) {
+	m, st, _, dir := newTestManager(t)
 	ctx := context.Background()
 	r1, err := m.Write(ctx, "a.txt", "v1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	r2, err := m.Write(ctx, "a.txt", "v2-longer")
+	st.rows["a.txt"].Attributes = []byte(`{"llm-description":"keep"}`)
+	st.missing["a.txt"] = 2
+	for _, deleted := range []bool{false, true} {
+		st.rows["a.txt"].IsDeleted = deleted
+		if r, err := m.Write(ctx, "a.txt", "v2-longer"); r != nil || !errors.Is(err, manager.ErrKeyExists) {
+			t.Fatalf("deleted=%v receipt=%+v err=%v", deleted, r, err)
+		}
+		b, err := os.ReadFile(filepath.Join(dir, r1.StorageRel))
+		if err != nil || string(b) != "v1" || st.uuids["a.txt"] != r1.UUID || st.missing["a.txt"] != 2 || string(st.rows["a.txt"].Attributes) != `{"llm-description":"keep"}` {
+			t.Fatalf("conflict changed old file: content=%q err=%v", b, err)
+		}
+	}
+}
+
+func TestImportConflictPreservesSource(t *testing.T) {
+	m, st, _, dir := newTestManager(t)
+	ctx := context.Background()
+	r, err := m.Write(ctx, "existing.zip", "old")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r1.UUID != r2.UUID {
-		t.Fatalf("uuid changed on overwrite: %q → %q", r1.UUID, r2.UUID)
+	source := filepath.Join(t.TempDir(), "new.zip")
+	if err := os.WriteFile(source, []byte("new"), 0644); err != nil {
+		t.Fatal(err)
 	}
-	if r2.SizeBytes != int64(len("v2-longer")) {
-		t.Fatalf("receipt size = %d", r2.SizeBytes)
+	for _, deleted := range []bool{false, true} {
+		st.rows["existing.zip"].IsDeleted = deleted
+		if _, err := m.ImportFile(ctx, "existing.zip", source); !errors.Is(err, manager.ErrKeyExists) {
+			t.Fatalf("got %v", err)
+		}
+		for p, want := range map[string]string{source: "new", filepath.Join(dir, r.StorageRel): "old"} {
+			b, err := os.ReadFile(p)
+			if err != nil || string(b) != want {
+				t.Fatalf("%s = %q, %v", p, b, err)
+			}
+		}
+	}
+}
+
+// atomicIntakeStore 模拟数据库唯一约束；两台 Manager 共享同一占位存储。
+type atomicIntakeStore struct {
+	*fakeStore
+	mu sync.Mutex
+}
+
+func (s *atomicIntakeStore) ReserveMeta(ctx context.Context, key string) (string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.fakeStore.ReserveMeta(ctx, key)
+}
+
+func TestConcurrentIntakeConflict(t *testing.T) {
+	st := &atomicIntakeStore{fakeStore: newFakeStore()}
+	dir := t.TempDir()
+	managers := []*manager.Manager{
+		manager.New(st, dir, nil, nil, manager.DownloadConfig{}),
+		manager.New(st, dir, nil, nil, manager.DownloadConfig{}),
+	}
+	start := make(chan struct{})
+	results := make(chan error, 16)
+	for i := 0; i < 16; i++ {
+		go func(i int) {
+			<-start
+			_, err := managers[i%2].Write(context.Background(), "race.txt", "winner")
+			results <- err
+		}(i)
+	}
+	close(start)
+	winners := 0
+	for i := 0; i < 16; i++ {
+		err := <-results
+		if err == nil {
+			winners++
+		} else if !errors.Is(err, manager.ErrKeyExists) {
+			t.Fatal(err)
+		}
+	}
+	if winners != 1 {
+		t.Fatalf("successful writers = %d", winners)
+	}
+}
+
+func TestModifyDeletedDoesNotWrite(t *testing.T) {
+	m, st, _, dir := newTestManager(t)
+	r, err := m.Write(context.Background(), "deleted.txt", "old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.rows["deleted.txt"].IsDeleted = true
+	for _, mode := range []string{"append", "overwrite"} {
+		if err := m.Modify(context.Background(), "deleted.txt", "new", mode); !errors.Is(err, manager.ErrDeleted) {
+			t.Fatal(err)
+		}
+	}
+	b, err := os.ReadFile(filepath.Join(dir, r.StorageRel))
+	if err != nil || string(b) != "old" {
+		t.Fatalf("content=%q err=%v", b, err)
+	}
+}
+
+// TestImportFile 管理机外部文件接入口：下载器只提供源文件路径，管理机
+// 负责占位、uuid 派生物理位与文件转移，不要求调用方拼接 data 布局。
+func TestImportFile(t *testing.T) {
+	m, st, _, dir := newTestManager(t)
+	source := filepath.Join(t.TempDir(), "download.zip")
+	if err := os.WriteFile(source, []byte("zip-payload"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r, err := m.ImportFile(context.Background(), "comics/download.zip", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.UUID == "" || r.LogicPath != "comics/download.zip" || r.SizeBytes != int64(len("zip-payload")) {
+		t.Fatalf("import receipt = %+v", r)
+	}
+	if st.uuids[r.LogicPath] != r.UUID {
+		t.Fatalf("row uuid = %q, receipt uuid = %q", st.uuids[r.LogicPath], r.UUID)
+	}
+	stored := filepath.Join(dir, filepath.FromSlash(r.StorageRel))
+	b, err := os.ReadFile(stored)
+	if err != nil {
+		t.Fatalf("stored import missing: %v", err)
+	}
+	if string(b) != "zip-payload" {
+		t.Fatalf("stored import = %q", b)
+	}
+}
+
+func TestFailedIntakeReleasesName(t *testing.T) {
+	for _, importing := range []bool{false, true} {
+		t.Run(fmt.Sprint(importing), func(t *testing.T) {
+			st := newFakeStore()
+			root := filepath.Join(t.TempDir(), "blocked")
+			if err := os.WriteFile(root, []byte("obstruction"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			m := manager.New(st, root, nil, nil, manager.DownloadConfig{})
+			source := filepath.Join(t.TempDir(), "source.txt")
+			if err := os.WriteFile(source, []byte("payload"), 0644); err != nil {
+				t.Fatal(err)
+			}
+			ctx, cancel := context.WithCancel(context.Background())
+			cancel() // 归档不应继承已取消请求。
+			var err error
+			if importing {
+				_, err = m.ImportFile(ctx, "retry.txt", source)
+			} else {
+				_, err = m.Write(ctx, "retry.txt", "payload")
+			}
+			if err == nil {
+				t.Fatal("expected disk error")
+			}
+			if st.uuids["retry.txt"] != "" {
+				t.Fatal("failed name remains occupied")
+			}
+			if err := os.Rename(root, root+".saved"); err != nil {
+				t.Fatal(err)
+			}
+			if importing {
+				_, err = m.ImportFile(context.Background(), "retry.txt", source)
+			} else {
+				_, err = m.Write(context.Background(), "retry.txt", "payload")
+			}
+			if err != nil {
+				t.Fatal("retry failed", err)
+			}
+			r, err := m.ReadByLogic(context.Background(), "retry.txt", 0)
+			if err != nil || string(r.Content) != "payload" {
+				t.Fatalf("retry read: %+v %v", r, err)
+			}
+		})
+	}
+}
+
+type unconfirmedIntakeStore struct {
+	*fakeStore
+	failConfirmation bool
+}
+
+func (s *unconfirmedIntakeStore) CompleteIntake(ctx context.Context, key, uuid string) error {
+	if s.failConfirmation {
+		return fmt.Errorf("confirmation unavailable")
+	}
+	return s.fakeStore.CompleteIntake(ctx, key, uuid)
+}
+
+// 已发布内容的确认失败必须保留 UUID 和 pending，恢复后可正常读取。
+func TestIntakeConfirmationFailureIsRecoverable(t *testing.T) {
+	for _, importing := range []bool{false, true} {
+		t.Run(fmt.Sprint(importing), func(t *testing.T) {
+			st := &unconfirmedIntakeStore{fakeStore: newFakeStore(), failConfirmation: true}
+			root := t.TempDir()
+			m := manager.New(st, root, nil, nil, manager.DownloadConfig{})
+			ctx := context.Background()
+			source := filepath.Join(t.TempDir(), "source.txt")
+			if err := os.WriteFile(source, []byte("payload"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			var err error
+			if importing {
+				_, err = m.ImportFile(ctx, "saved.txt", source)
+			} else {
+				_, err = m.Write(ctx, "saved.txt", "payload")
+			}
+			if err == nil {
+				t.Fatal("expected confirmation error")
+			}
+			uuid := st.uuids["saved.txt"]
+			if uuid == "" || st.pending["saved.txt"].UUID != uuid {
+				t.Fatal("published reservation was archived", st.pending)
+			}
+			if _, err := m.ReadByLogic(ctx, "saved.txt", 0); !errors.Is(err, manager.ErrPending) {
+				t.Fatalf("unconfirmed read: %v", err)
+			}
+			st.failConfirmation = false
+			completed, archived, err := m.RecoverPendingIntakes(ctx)
+			if err != nil || completed != 1 || archived != 0 {
+				t.Fatalf("recovery: completed=%d archived=%d err=%v", completed, archived, err)
+			}
+			r, err := m.ReadByLogic(ctx, "saved.txt", 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if r.UUID != uuid || string(r.Content) != "payload" {
+				t.Fatalf("recovered content: %+v", r)
+			}
+		})
+	}
+}
+
+func TestRecoverPendingIntakes(t *testing.T) {
+	m, st, _, dir := newTestManager(t)
+	for _, tc := range []struct {
+		path string
+		file bool
+	}{{"stored.txt", true}, {"missing.txt", false}} {
+		uuid, err := st.ReserveMeta(context.Background(), tc.path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if tc.file {
+			rel, _ := manager.StoragePathOf(uuid, tc.path)
+			abs := filepath.Join(dir, filepath.FromSlash(rel))
+			if err := os.MkdirAll(filepath.Dir(abs), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(abs, []byte("saved"), 0644); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	completed, archived, err := m.RecoverPendingIntakes(context.Background())
+	if err != nil || completed != 1 || archived != 1 {
+		t.Fatalf("completed=%d archived=%d err=%v", completed, archived, err)
+	}
+	if len(st.pending) != 0 || st.uuids["missing.txt"] != "" {
+		t.Fatalf("pending=%v uuids=%v", st.pending, st.uuids)
 	}
 }
 
@@ -93,6 +344,110 @@ func TestIntakeModifyModes(t *testing.T) {
 	}
 	if err := m.Modify(ctx, "无此文件.txt", "x", "append"); err == nil {
 		t.Fatal("modify must reject missing row")
+	}
+}
+
+func TestModifyPreservesOriginalSnapshotAndRejectsGhost(t *testing.T) {
+	m, st, _, dir := newTestManager(t)
+	ctx := context.Background()
+	r, err := m.Write(ctx, "modify.txt", "old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.refs[r.UUID] = &manager.FileRef{UUID: r.UUID, Path: r.LogicPath}
+	canceled, cancel := context.WithCancel(ctx)
+	cancel()
+	if err := m.ModifyByUUID(canceled, r.UUID, "canceled", "overwrite"); !errors.Is(err, context.Canceled) {
+		t.Fatalf("cancel err=%v", err)
+	}
+	if _, err := m.Read(ctx, r.UUID, 0); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.ModifyByUUID(ctx, r.UUID, "new", "overwrite"); err != nil {
+		t.Fatal(err)
+	}
+	rf, err := m.Read(ctx, r.UUID, 0)
+	if err != nil || string(rf.Content) != "new" {
+		t.Fatalf("read=%+v err=%v", rf, err)
+	}
+	abs := filepath.Join(dir, filepath.FromSlash(r.StorageRel))
+	b, err := os.ReadFile(abs + ".partial")
+	if err != nil || string(b) != "old" {
+		t.Fatalf("original snapshot=%q err=%v", b, err)
+	}
+	if err := os.Rename(abs, abs+".saved"); err != nil {
+		t.Fatal(err)
+	}
+	for _, mode := range []string{"append", "overwrite"} {
+		if err := m.ModifyByUUID(ctx, r.UUID, "x", mode); !errors.Is(err, manager.ErrGhost) {
+			t.Fatalf("mode=%s err=%v", mode, err)
+		}
+	}
+	if _, err := os.Stat(abs); !os.IsNotExist(err) {
+		t.Fatal("ghost recreated")
+	}
+}
+
+type uuidOnlyModifyStore struct{ *fakeStore }
+
+func (s *uuidOnlyModifyStore) GetMeta(context.Context, string) (*manager.MetaRow, error) {
+	return nil, errors.New("UUID modification must not resolve path again")
+}
+
+func TestModifyUUIDDoesNotResolvePathAgain(t *testing.T) {
+	m, st, _, dir := newTestManager(t)
+	ctx := context.Background()
+	r, err := m.Write(ctx, "uuid.txt", "old")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.refs[r.UUID] = &manager.FileRef{UUID: r.UUID, Path: r.LogicPath}
+	m = manager.New(&uuidOnlyModifyStore{st}, dir, nil, nil, manager.DownloadConfig{})
+	if err := m.ModifyByUUID(ctx, r.UUID, "new", "overwrite"); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(r.StorageRel)))
+	if err != nil || string(b) != "new" {
+		t.Fatalf("content=%q err=%v", b, err)
+	}
+}
+
+func TestPendingIntakeCannotBeReadOrModified(t *testing.T) {
+	m, st, _, dir := newTestManager(t)
+	ctx := context.Background()
+	uuid, err := st.ReserveMeta(ctx, "pending.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st.refs[uuid] = &manager.FileRef{UUID: uuid, Path: "pending.txt"}
+	abs := storedAbs(t, st, dir, "pending.txt")
+	if err := os.MkdirAll(filepath.Dir(abs), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(abs, []byte("complete but unconfirmed"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	for _, read := range []func() error{
+		func() error { _, err := m.Open(ctx, uuid); return err },
+		func() error { _, err := m.OpenByLogic(ctx, "pending.txt"); return err },
+		func() error { _, err := m.StreamByLogic(ctx, "pending.txt"); return err },
+		func() error { return m.ModifyByUUID(ctx, uuid, "new", "overwrite") },
+	} {
+		if err := read(); !errors.Is(err, manager.ErrPending) {
+			t.Fatalf("pending err=%v", err)
+		}
+	}
+	if _, err := m.Backfill(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := st.pending["pending.txt"]; !ok {
+		t.Fatal("backfill published pending intake")
+	}
+	if err := st.CompleteIntake(ctx, "pending.txt", uuid); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := m.Read(ctx, uuid, 0); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -140,6 +495,46 @@ func TestIntakeLogicViews(t *testing.T) {
 		t.Fatalf("tree child path = %q", tree[0].Children[0].Path)
 	}
 }
+
+func TestCreateDirectoryAndLogicTree(t *testing.T) {
+	m, st, _, _ := newTestManager(t)
+	ctx := context.Background()
+	for _, dir := range []string{"空目录", "空目录/深层"} {
+		if err := m.CreateDirectory(ctx, dir); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := m.CreateDirectory(ctx, "自动父/子"); err != nil {
+		t.Fatal(err)
+	}
+	if !movedDirExists(st, "自动父") || !movedDirExists(st, "自动父/子") {
+		t.Fatal("parent directories were not persisted")
+	}
+	if err := m.CreateDirectory(ctx, "空目录"); !errors.Is(err, manager.ErrDirectoryExists) {
+		t.Fatalf("duplicate directory = %v", err)
+	}
+	if _, err := m.Write(ctx, "文件.txt", "data"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.CreateDirectory(ctx, "文件.txt"); !errors.Is(err, manager.ErrKeyExists) {
+		t.Fatalf("file-directory collision = %v", err)
+	}
+	if _, err := m.Write(ctx, "空目录", "data"); !errors.Is(err, manager.ErrKeyExists) {
+		t.Fatalf("directory-file collision = %v", err)
+	}
+	if _, err := m.Write(ctx, "文件.txt/child.txt", "data"); err == nil {
+		t.Fatal("file cannot be a parent")
+	}
+	tree, err := m.LogicTree(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := names(tree); got != "空目录,自动父,文件.txt" || len(tree[0].Children) != 1 || tree[0].Children[0].Path != "空目录/深层" {
+		t.Fatalf("tree = %+v", tree)
+	}
+}
+
+func movedDirExists(st *fakeStore, path string) bool { return st.dirs[path] }
 
 // names 测试便捷：节点名列表。
 func names(nodes []*manager.LogicNode) string {
@@ -230,8 +625,8 @@ func TestMoveExtChangeRename(t *testing.T) {
 		t.Fatalf("new storage missing: %v", err)
 	}
 	oldRel, _ := manager.StoragePathOf(r.UUID, "笔记.txt")
-	if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(oldRel))); !os.IsNotExist(err) {
-		t.Fatal("old storage must be gone after rename")
+	if _, err := os.Stat(filepath.Join(dir, filepath.FromSlash(oldRel))); err != nil {
+		t.Fatal("old storage must remain as recovery evidence", err)
 	}
 	_ = st
 }

@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/repo/metadata.go —— file_metadata 表存取：模型 / Upsert(COALESCE 返回 uuid) / 搜索 / 分页扫描 / 缺失计数 / 软删
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 package repo
 
@@ -7,8 +7,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"path"
+	"strings"
 	"time"
 
+	manager "github.com/Reisentyann/Mabel-s-Tentacles/manager-go"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 )
@@ -167,6 +171,25 @@ func (s *pgxStore) GetMetadataByPaths(ctx context.Context, paths []string) (map[
 	return out, rows.Err()
 }
 
+// ReverseCopiedFrom 返回复制自 path 的文件，包含软删除行以保持谱系可追溯。
+func (s *pgxStore) ReverseCopiedFrom(ctx context.Context, path string) ([]FileMetadata, error) {
+	rows, err := s.pool.Query(ctx,
+		`SELECT `+metaColumns+` FROM file_metadata WHERE copied_from=$1 ORDER BY file_path ASC`, path)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := make([]FileMetadata, 0)
+	for rows.Next() {
+		m, err := scanMeta(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, *m)
+	}
+	return items, rows.Err()
+}
+
 // GetMetadataByUUID 凭 uuid 读单行（含软删行——manager fetch 的 Locate
 // 语义"软删照报"；无行返回 pgx.ErrNoRows，由调用方映射）。
 func (s *pgxStore) GetMetadataByUUID(ctx context.Context, uuid string) (*FileMetadata, error) {
@@ -320,9 +343,14 @@ var ErrKeyExists = errors.New("repo: logic key already exists")
 // pgx.ErrNoRows；to 占用 → ErrKeyExists（UNIQUE 兜底并发竞态）。
 // uuid / 归属 / 描述 / 索引键全不动——键改即完成"移动"。
 func (s *pgxStore) MoveMetadata(ctx context.Context, from, to string) (string, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback(ctx)
 	// 预查目标占用（人话错误）；并发竞态由 UNIQUE 约束兜底（下方 23505 捕获）
 	var exists bool
-	if err := s.pool.QueryRow(ctx,
+	if err := tx.QueryRow(ctx,
 		`SELECT EXISTS(SELECT 1 FROM file_metadata WHERE file_path=$1)`, to).Scan(&exists); err != nil {
 		return "", err
 	}
@@ -330,7 +358,7 @@ func (s *pgxStore) MoveMetadata(ctx context.Context, from, to string) (string, e
 		return "", ErrKeyExists
 	}
 	var uuid string
-	err := s.pool.QueryRow(ctx,
+	err = tx.QueryRow(ctx,
 		`UPDATE file_metadata SET file_path=$2, moved_from=$1, updated_at=NOW()
 		 WHERE file_path=$1 AND is_deleted=FALSE
 		 RETURNING uuid`, from, to).Scan(&uuid)
@@ -344,7 +372,80 @@ func (s *pgxStore) MoveMetadata(ctx context.Context, from, to string) (string, e
 		}
 		return "", err
 	}
-	return uuid, nil
+	// 旧路径入口移动已关联文件时同步目录，不改变对象 UUID。
+	if path.Ext(from) != path.Ext(to) {
+		tag, err := tx.Exec(ctx, `INSERT INTO move_operations(uuid,source_path,target_path,status) VALUES($1,$2,$3,'pending') ON CONFLICT(uuid) DO UPDATE SET source_path=$2,target_path=$3,status='pending',parent_uuid=NULL,display_name='',updated_at=NOW() WHERE move_operations.status='completed'`, uuid, from, to)
+		if err != nil {
+			return "", err
+		}
+		if tag.RowsAffected() != 1 {
+			return "", manager.ErrPending
+		}
+	}
+	if _, err := tx.Exec(ctx, `UPDATE directory_files SET parent_uuid=d.uuid,name=$3 FROM logical_directories d WHERE file_uuid=$1 AND d.file_path=$2 AND NOT d.is_deleted`, uuid, path.Dir(to), path.Base(to)); err != nil {
+		return "", err
+	}
+	// 若目的地还没有显式目录，保留关联但列表按当前物理逻辑父路径复判，避免旧目录误列。
+	if _, err := tx.Exec(ctx, `UPDATE intake_operations SET file_path=$2 WHERE uuid=$1 AND status='stored'`, uuid, to); err != nil {
+		return "", err
+	}
+	return uuid, tx.Commit(ctx)
+}
+
+func (s *pgxStore) MoveMetadataByUUID(ctx context.Context, uuid, target, parentUUID, name string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	var exists bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM file_metadata WHERE file_path=$1)`, target).Scan(&exists); err != nil {
+		return err
+	}
+	if exists {
+		return ErrKeyExists
+	}
+	var parentPath string
+	if err := tx.QueryRow(ctx, `SELECT file_path FROM logical_directories WHERE uuid=$1 AND NOT is_deleted FOR SHARE`, parentUUID).Scan(&parentPath); err != nil {
+		return err
+	}
+	if path.Dir(target) != parentPath {
+		return fmt.Errorf("target parent does not match directory uuid")
+	}
+	var source string
+	if err := tx.QueryRow(ctx, `SELECT file_path FROM file_metadata WHERE uuid=$1 AND NOT is_deleted FOR UPDATE`, uuid).Scan(&source); err != nil {
+		return err
+	}
+	_, err = tx.Exec(ctx, `UPDATE file_metadata SET moved_from=$2,file_path=$3,updated_at=NOW() WHERE uuid=$1 AND NOT is_deleted`, uuid, source, target)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return ErrKeyExists
+		}
+		return err
+	}
+	if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM intake_operations WHERE uuid=$1 AND status='reserved') OR EXISTS(SELECT 1 FROM move_operations WHERE uuid=$1 AND status='pending')`, uuid).Scan(&exists); err != nil {
+		return err
+	}
+	if exists {
+		return manager.ErrPending
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO directory_files(file_uuid,parent_uuid,name) VALUES($1,$2,$3) ON CONFLICT(file_uuid) DO UPDATE SET parent_uuid=$2,name=$3`, uuid, parentUUID, name); err != nil {
+		return err
+	}
+	if path.Ext(source) != path.Ext(target) {
+		tag, err := tx.Exec(ctx, `INSERT INTO move_operations(uuid,source_path,target_path,parent_uuid,display_name,source_extension,target_extension,status) VALUES($1,$2,$3,$4,$5,$6,$7,'pending') ON CONFLICT(uuid) DO UPDATE SET source_path=$2,target_path=$3,status='pending',parent_uuid=$4,display_name=$5,source_extension=$6,target_extension=$7,updated_at=NOW() WHERE move_operations.status='completed'`, uuid, source, target, parentUUID, name, path.Ext(source), path.Ext(target))
+		if err != nil {
+			return err
+		}
+		if tag.RowsAffected() != 1 {
+			return manager.ErrPending
+		}
+	}
+	if _, err := tx.Exec(ctx, `UPDATE intake_operations SET file_path=$2 WHERE uuid=$1 AND status='stored'`, uuid, target); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // IncrementDownloadCount 递增下载计数并刷新最后访问时间。
@@ -360,13 +461,26 @@ func (s *pgxStore) IncrementDownloadCount(ctx context.Context, filePath string) 
 // limit 条未软删元数据。sincePath 传空串从头开始。T2 回填的扫描入口——
 // 游标分页可中断续跑，深分页无 OFFSET 性能悬崖。
 func (s *pgxStore) ListMetadataPage(ctx context.Context, sincePath string, limit int) ([]FileMetadata, error) {
+	return s.listMetadataPage(ctx, sincePath, limit, false)
+}
+
+// ListMetadataPageAll 与回填分页相同，但包含软删除行，供管理机 audit 只读对账。
+func (s *pgxStore) ListMetadataPageAll(ctx context.Context, sincePath string, limit int) ([]FileMetadata, error) {
+	return s.listMetadataPage(ctx, sincePath, limit, true)
+}
+
+func (s *pgxStore) listMetadataPage(ctx context.Context, sincePath string, limit int, includeDeleted bool) ([]FileMetadata, error) {
 	if limit <= 0 {
 		limit = 100
 	}
+	where := "is_deleted = FALSE AND NOT EXISTS(SELECT 1 FROM intake_operations i WHERE i.uuid=file_metadata.uuid AND i.status='reserved') AND NOT EXISTS(SELECT 1 FROM move_operations m WHERE m.uuid=file_metadata.uuid AND m.status='pending') AND"
+	if includeDeleted {
+		where = ""
+	}
 	rows, err := s.pool.Query(ctx,
 		`SELECT `+metaColumns+` FROM file_metadata
-		 WHERE is_deleted = FALSE AND file_path > $1
-		 ORDER BY file_path ASC LIMIT $2`, sincePath, limit)
+			 WHERE `+where+` file_path > $1
+			 ORDER BY file_path ASC LIMIT $2`, sincePath, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -383,17 +497,213 @@ func (s *pgxStore) ListMetadataPage(ctx context.Context, sincePath string, limit
 	return items, rows.Err()
 }
 
-// ReserveMeta 入库占位行：按逻辑键幂等拿 uuid（manager intake 域——
-// uuid 先于盘写存在，物理路径由它派生）。最小 INSERT（scope/attributes/
-// visibility 等走 DDL 默认值），冲突即复用既有 uuid；写入即存在证据，
-// missing_rounds 清零。
+// ReserveMeta 原子占用新逻辑键；包含软删除行在内的重名均拒绝，且不修改旧行。
+// UUID 先于盘写存在；唯一约束保证并发创建只有一个调用取得占位权。
 func (s *pgxStore) ReserveMeta(ctx context.Context, logicPath string) (string, error) {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return "", err
+	}
+	defer tx.Rollback(ctx)
 	var uuid string
-	err := s.pool.QueryRow(ctx,
+	err = tx.QueryRow(ctx,
 		`INSERT INTO file_metadata (file_path) VALUES ($1)
-		 ON CONFLICT (file_path) DO UPDATE SET missing_rounds = 0, updated_at = NOW()
+		 ON CONFLICT (file_path) DO NOTHING
 		 RETURNING uuid`, logicPath).Scan(&uuid)
-	return uuid, err
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", ErrKeyExists
+	}
+	if err != nil {
+		return "", err
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO intake_operations (uuid, file_path, status) VALUES ($1, $2, 'reserved')`, uuid, logicPath); err != nil {
+		return "", err
+	}
+	if intake, ok := manager.DirectoryIntakeFrom(ctx); ok {
+		var parentPath string
+		if err := tx.QueryRow(ctx, `SELECT file_path FROM logical_directories WHERE uuid=$1 AND NOT is_deleted FOR SHARE`, intake.ParentUUID).Scan(&parentPath); err != nil {
+			return "", err
+		}
+		owner := ""
+		if strings.HasPrefix(parentPath, "~") {
+			owner = strings.SplitN(strings.TrimPrefix(parentPath, "~"), "/", 2)[0]
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO directory_files(parent_uuid,file_uuid,name) VALUES($1,$2,$3)`, intake.ParentUUID, uuid, intake.Name); err != nil {
+			return "", err
+		}
+		if _, err := tx.Exec(ctx, `UPDATE file_metadata SET title=$2,owner_id=NULLIF($3,''),visibility='private' WHERE uuid=$1`, uuid, intake.Name, owner); err != nil {
+			return "", err
+		}
+		if source, ok := manager.DirectoryCopyFrom(ctx); ok {
+			var sourcePath string
+			if err := tx.QueryRow(ctx, `SELECT file_path FROM file_metadata WHERE uuid=$1 AND NOT is_deleted FOR SHARE`, source).Scan(&sourcePath); err != nil {
+				return "", err
+			}
+			var pending bool
+			if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM intake_operations WHERE uuid=$1 AND status='reserved') OR EXISTS(SELECT 1 FROM move_operations WHERE uuid=$1 AND status='pending')`, source).Scan(&pending); err != nil {
+				return "", err
+			}
+			if pending {
+				return "", manager.ErrPending
+			}
+			tag, err := tx.Exec(ctx, `UPDATE file_metadata SET copied_from=$2 WHERE uuid=$1`, uuid, sourcePath)
+			if err != nil {
+				return "", err
+			}
+			if tag.RowsAffected() != 1 {
+				return "", manager.ErrNotFound
+			}
+		}
+	}
+	return uuid, tx.Commit(ctx)
+}
+
+func (s *pgxStore) CompleteIntake(ctx context.Context, logicPath, uuid string) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE intake_operations SET status='stored', updated_at=NOW() WHERE file_path=$1 AND uuid=$2 AND status='reserved'`, logicPath, uuid)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("intake reservation changed: %s", uuid)
+	}
+	return nil
+}
+
+func (s *pgxStore) ListPendingIntakes(ctx context.Context) ([]manager.IntakeOperation, error) {
+	rows, err := s.pool.Query(ctx, `SELECT file_path, uuid FROM intake_operations WHERE status='reserved' ORDER BY created_at`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []manager.IntakeOperation{}
+	for rows.Next() {
+		var item manager.IntakeOperation
+		if err := rows.Scan(&item.LogicPath, &item.UUID); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (s *pgxStore) IsIntakePending(ctx context.Context, uuid string) (bool, error) {
+	var pending bool
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM intake_operations WHERE uuid=$1 AND status='reserved') OR EXISTS(SELECT 1 FROM move_operations WHERE uuid=$1 AND status='pending')`, uuid).Scan(&pending)
+	return pending, err
+}
+
+func (s *pgxStore) ListPendingMoves(ctx context.Context) ([]manager.MoveOperation, error) {
+	rows, err := s.pool.Query(ctx, `SELECT uuid,source_path,target_path,COALESCE(parent_uuid::text,''),display_name FROM move_operations WHERE status='pending' ORDER BY uuid`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	ops := []manager.MoveOperation{}
+	for rows.Next() {
+		var op manager.MoveOperation
+		if err := rows.Scan(&op.UUID, &op.From, &op.To, &op.ParentUUID, &op.Name); err != nil {
+			return nil, err
+		}
+		ops = append(ops, op)
+	}
+	return ops, rows.Err()
+}
+
+func (s *pgxStore) CompleteMove(ctx context.Context, uuid, to string) error {
+	tag, err := s.pool.Exec(ctx, `UPDATE move_operations SET status='completed',updated_at=NOW() WHERE uuid=$1 AND target_path=$2 AND status='pending' AND EXISTS(SELECT 1 FROM file_metadata WHERE uuid=$1 AND file_path=$2 AND NOT is_deleted)`, uuid, to)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("move reservation changed: %s", uuid)
+	}
+	return nil
+}
+
+func (s *pgxStore) ResetMissing(ctx context.Context, uuid string) error {
+	_, err := s.pool.Exec(ctx, `UPDATE file_metadata SET missing_rounds=0 WHERE uuid=$1 AND missing_rounds<>0 AND NOT is_deleted`, uuid)
+	return err
+}
+
+func (s *pgxStore) AnalysisName(ctx context.Context, uuid string) (string, error) {
+	var name string
+	err := s.pool.QueryRow(ctx, `SELECT COALESCE((SELECT name FROM directory_files WHERE file_uuid=f.uuid),f.file_path) FROM file_metadata f WHERE f.uuid=$1`, uuid).Scan(&name)
+	return name, err
+}
+
+func (s *pgxStore) CreateDirectory(ctx context.Context, logicPath string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, logicPath); err != nil {
+		return err
+	}
+	var occupied bool
+	if err := tx.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM file_metadata WHERE file_path=$1)`, logicPath).Scan(&occupied); err != nil {
+		return err
+	}
+	if occupied {
+		return ErrKeyExists
+	}
+	tag, err := tx.Exec(ctx, `INSERT INTO logical_directories (file_path) VALUES ($1) ON CONFLICT (file_path) DO NOTHING`, logicPath)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return ErrKeyExists
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *pgxStore) ListDirectoryPaths(ctx context.Context) ([]string, error) {
+	rows, err := s.pool.Query(ctx, `SELECT file_path FROM logical_directories WHERE is_deleted=FALSE ORDER BY file_path`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	paths := []string{}
+	for rows.Next() {
+		var path string
+		if err := rows.Scan(&path); err != nil {
+			return nil, err
+		}
+		paths = append(paths, path)
+	}
+	return paths, rows.Err()
+}
+
+func (s *pgxStore) DirectoryExists(ctx context.Context, logicPath string) (bool, error) {
+	var exists bool
+	err := s.pool.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM logical_directories WHERE file_path=$1 AND is_deleted=FALSE)`, logicPath).Scan(&exists)
+	return exists, err
+}
+
+// ArchiveFailedIntake 条件更新防止归档其他请求；失败记录软删保留，物理位置不变。
+func (s *pgxStore) ArchiveFailedIntake(ctx context.Context, logicPath, uuid string) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	archivePath := "旧内容/失败入库/" + uuid + "/" + path.Base(logicPath)
+	tag, err := tx.Exec(ctx, `UPDATE file_metadata SET file_path=$3, is_deleted=TRUE
+	 WHERE file_path=$1 AND uuid=$2 AND checksum IS NULL`, logicPath, uuid, archivePath)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("failed intake reservation changed: %s", uuid)
+	}
+	tag, err = tx.Exec(ctx, `UPDATE intake_operations SET file_path=$3, status='archived', updated_at=NOW() WHERE file_path=$1 AND uuid=$2 AND status='reserved'`, logicPath, uuid, archivePath)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() != 1 {
+		return fmt.Errorf("intake operation changed: %s", uuid)
+	}
+	return tx.Commit(ctx)
 }
 
 // MarkMissingRound 盘上缺失计数 +1，返回累计轮次（manager updater 的幽灵存续：

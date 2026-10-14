@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/search/search.go —— 检索抽象：Query 结构 + Searcher 接口（与 SQL 实现解耦）
-// 修改：2026-09-06（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-11（日期由 fresh-header.ps1 刷新）
 
 package search
 
@@ -25,6 +25,12 @@ type Query struct {
 	ViewerName   string // 空 = 不过滤（admin / 匿名开发直通）
 	ViewerAdmin  bool
 	ViewerGroups []int64
+	// 结果排序（检索语言扩展 2026-09-10）：OrderBy 为属性字段名时按该值
+	// 排序（Order asc/desc，空 = desc）——「取最大/Top-N」由此表达，
+	// 免掉 agent 手动二分。空 OrderBy = 默认 updated_at 倒序（现状口径）。
+	// 缺键行恒排末尾；跨型值比较无意义，排序字段应选数值字段。
+	OrderBy string
+	Order   string
 }
 
 // Searcher 检索接口。当前实现是 SQLSearcher（PostgreSQL 关键词/标签/属性检索），

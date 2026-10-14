@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/copyfile/copyfile.go —— MCP 工具 copy_file：内容 + 元数据一起复制（KindCopy 事件喂索引）
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
 
 package copyfile
 
@@ -13,6 +13,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
 )
 
@@ -22,25 +23,25 @@ func init() {
 
 func register(s *server.MCPServer, deps tools.Deps) {
 	tool := mcp.NewTool("copy_file",
-		mcp.WithDescription("Copy a file (content and metadata) to a new path."),
+		mcp.WithDescription("Copy a file (content and metadata) to an unused path. Existing paths, including soft-deleted files, are rejected without overwriting. Lineage is tracked (copied_from)."),
+		mcp.WithString("source_path",
+			mcp.Description("Source file path, relative to workspace or ~username/path. Also accepts 'source'."),
+		),
+		mcp.WithString("target_path",
+			mcp.Description("Target file path in your space. Also accepts 'target'."),
+		),
 		mcp.WithString("source",
-			mcp.Required(),
-			mcp.Description("Source file path, relative to the data directory."),
+			mcp.Description("Alias for source_path."),
 		),
 		mcp.WithString("target",
-			mcp.Required(),
-			mcp.Description("Target file path, relative to the data directory."),
+			mcp.Description("Alias for target_path."),
 		),
 	)
 
 	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		source, err := req.RequireString("source")
+		source, target, err := tools.GetSourceTarget(req)
 		if err != nil {
-			return tools.ResultError("invalid source: " + err.Error()), nil
-		}
-		target, err := req.RequireString("target")
-		if err != nil {
-			return tools.ResultError("invalid target: " + err.Error()), nil
+			return tools.ResultError("invalid parameters: " + err.Error()), nil
 		}
 		if source == target {
 			return tools.ResultError("source and target must differ"), nil
@@ -81,7 +82,10 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		if rerr != nil {
 			return tools.ResultError(rerr.Error()), nil
 		}
-		if _, err := deps.Manager.Write(ctx, dst, string(content)); err != nil {
+		copyReceipt, err := deps.Manager.Write(ctx, dst, string(content))
+		if err != nil {
+			slog.Error("copy_file failed", "tool", "copy_file", "source", src, "target", dst, "session", sessionID, "error", err, "duration", time.Since(start).String())
+			tools.RecordOperation(ctx, deps.Store, sessionID, "copy_file", dst, "failed", err.Error(), map[string]any{"source": src})
 			return tools.ResultError(err.Error()), nil
 		}
 
@@ -96,6 +100,12 @@ func register(s *server.MCPServer, deps tools.Deps) {
 				// 会从盘上重建目标元数据并喂索引（COALESCE 保留 copied_from 谱系列）
 				slog.Warn("copy metadata failed, orchestrator will rebuild target meta",
 					"source", src, "target", dst, "session", sessionID, "error", err)
+			}
+		}
+		// 持久化维护意图：盘写成功后先落库记录，进程重启后由 RetryMaintenance 接手。
+		if ms, ok := deps.Store.(repo.MaintenanceStore); ok {
+			if _, perr := ms.PrepareMaintenance(ctx, copyReceipt.UUID, "copy", sessionID, owner); perr != nil {
+				slog.Warn("copy_file prepare maintenance failed", "tool", "copy_file", "target", dst, "uuid", copyReceipt.UUID, "session", sessionID, "error", perr)
 			}
 		}
 		// 复制主路径原本的喂食洞（目标 uuid 从不挂索引）由此堵上：

@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/listdatafiles/listdatafiles.go —— MCP 工具 list_data_files：分页列表 + 路径过滤 + 简略元数据
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
 
 package listdatafiles
 
@@ -23,8 +23,136 @@ func init() {
 }
 
 func register(s *server.MCPServer, deps tools.Deps) {
-	tool := mcp.NewTool("list_data_files",
-		mcp.WithDescription("List files under the data directory with brief metadata, paginated to avoid flooding the context. Each item shows path/title/description/file_type/size/tags and has_description, so you can spot files lacking a description and maintain them via describe_file."),
+	handler := func(toolName string) func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			page := req.GetInt("page", 1)
+			if page < 1 {
+				page = 1
+			}
+			size := req.GetInt("size", 20)
+			if size < 1 || size > 100 {
+				size = 20
+			}
+			q := req.GetString("q", "")
+
+			sessionID := tools.SessionID(ctx)
+			begin := time.Now()
+
+			// 树源 = 管理机逻辑视图（物理盘枚举退役——盘上只有随机名）
+			if deps.Manager == nil {
+				return tools.ResultError("manager not wired"), nil
+			}
+			all, err := deps.Manager.LogicPaths(ctx)
+			if err != nil {
+				slog.Error(toolName+" failed", "q", q, "session", sessionID, "error", err, "duration", time.Since(begin).String())
+				tools.RecordOperation(ctx, deps.Store, sessionID, toolName, "", "failed", err.Error(), nil)
+				return tools.ResultError(err.Error()), nil
+			}
+
+			// 可选：按路径关键词过滤
+			filtered := all
+			if q != "" {
+				filtered = filtered[:0]
+				for _, p := range all {
+					if strings.Contains(p, q) {
+						filtered = append(filtered, p)
+					}
+				}
+			}
+
+			total := len(filtered)
+
+			// 可见性过滤（权限批次 2026-09-06）：非 admin 只见自己读得到的
+			// 文件（authz.CanRead；无行按存量 public 口径）。admin/管家全量。
+			if p := tools.Principal(ctx); p != nil && !p.IsAdmin() && deps.Store != nil {
+				metas, err := deps.Store.GetMetadataByPaths(ctx, filtered)
+				if err != nil {
+					slog.Warn(toolName+" fetch metadata for filter failed", "error", err)
+				} else {
+					kept := filtered[:0]
+					for _, fp := range filtered {
+						m := metas[fp]
+						if m == nil {
+							kept = append(kept, fp) // 无行 = 存量 public（与 CanRead 空 ACL 一致）
+							continue
+						}
+						if m.IsDeleted {
+							continue // 软删文件不列出
+						}
+						if ok, _ := authz.CanRead(p, authz.ACLOf(m.OwnerID, m.Visibility, m.GroupID)); ok {
+							kept = append(kept, fp)
+						}
+					}
+					filtered = kept
+					total = len(filtered)
+				}
+			}
+
+			start := (page - 1) * size
+			if start >= total {
+				tools.RecordOperation(ctx, deps.Store, sessionID, toolName, "", "success", "", map[string]any{"count": 0, "page": page, "total": total})
+				return tools.Result(map[string]any{
+					"success": true,
+					"page":    page,
+					"size":    size,
+					"total":   total,
+					"files":   []any{},
+				}), nil
+			}
+			end := start + size
+			if end > total {
+				end = total
+			}
+			pagePaths := filtered[start:end]
+
+			// 批量联表：仅查本页 N 条元数据，避免全表扫描
+			var metas map[string]*repo.FileMetadata
+			if deps.Store != nil {
+				metas, _ = deps.Store.GetMetadataByPaths(ctx, pagePaths)
+			}
+
+			items := make([]map[string]any, 0, len(pagePaths))
+			for _, p := range pagePaths {
+				m := metas[p]
+				if m != nil && m.IsDeleted {
+					continue // 软删文件不列出
+				}
+				item := map[string]any{
+					"path":            p,
+					"has_description": false,
+				}
+				if m != nil {
+					title := common.DerefStr(m.Title)
+					desc := common.DerefStr(m.Description)
+					tags := m.Tags
+					if tags == nil {
+						tags = []string{}
+					}
+					item["title"] = title
+					item["description"] = desc
+					item["file_type"] = common.DerefStr(m.FileType)
+					item["size_bytes"] = common.DerefInt64(m.SizeBytes)
+					item["tags"] = tags
+					item["updated_at"] = m.UpdatedAt
+					item["has_description"] = title != "" || desc != "" || len(tags) > 0
+				}
+				items = append(items, item)
+			}
+
+			slog.Info(toolName+" ok", "page", page, "size", size, "q", q, "returned", len(items), "total", total, "session", sessionID, "duration", time.Since(begin).String())
+			tools.RecordOperation(ctx, deps.Store, sessionID, toolName, "", "success", "", map[string]any{"count": len(items), "page": page, "total": total})
+			return tools.Result(map[string]any{
+				"success": true,
+				"page":    page,
+				"size":    size,
+				"total":   total,
+				"files":   items,
+			}), nil
+		}
+	}
+
+	toolOpts := []mcp.ToolOption{
+		mcp.WithDescription("List files with brief metadata, paginated to avoid flooding the context. Each item shows path/title/description/file_type/size_bytes/tags and has_description, so you can spot files lacking a description and maintain them via describe_file."),
 		mcp.WithNumber("page",
 			mcp.Description("Page number, 1-based (default 1)."),
 		),
@@ -34,131 +162,8 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		mcp.WithString("q",
 			mcp.Description("Optional keyword to filter by file path (substring match)."),
 		),
-	)
+	}
 
-	s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		page := req.GetInt("page", 1)
-		if page < 1 {
-			page = 1
-		}
-		size := req.GetInt("size", 20)
-		if size < 1 || size > 100 {
-			size = 20
-		}
-		q := req.GetString("q", "")
-
-		sessionID := tools.SessionID(ctx)
-		begin := time.Now()
-
-		// 树源 = 管理机逻辑视图（物理盘枚举退役——盘上只有随机名）
-		if deps.Manager == nil {
-			return tools.ResultError("manager not wired"), nil
-		}
-		all, err := deps.Manager.LogicPaths(ctx)
-		if err != nil {
-			slog.Error("list_data_files failed", "q", q, "session", sessionID, "error", err, "duration", time.Since(begin).String())
-			tools.RecordOperation(ctx, deps.Store, sessionID, "list_data_files", "", "failed", err.Error(), nil)
-			return tools.ResultError(err.Error()), nil
-		}
-
-		// 可选：按路径关键词过滤
-		filtered := all
-		if q != "" {
-			filtered = filtered[:0]
-			for _, p := range all {
-				if strings.Contains(p, q) {
-					filtered = append(filtered, p)
-				}
-			}
-		}
-
-		total := len(filtered)
-
-		// 可见性过滤（权限批次 2026-09-06）：非 admin 只见自己读得到的
-		// 文件（authz.CanRead；无行按存量 public 口径）。admin/管家全量。
-		if p := tools.Principal(ctx); p != nil && !p.IsAdmin() && deps.Store != nil {
-			metas, err := deps.Store.GetMetadataByPaths(ctx, filtered)
-			if err != nil {
-				slog.Warn("list_data_files fetch metadata for filter failed", "error", err)
-			} else {
-				kept := filtered[:0]
-				for _, fp := range filtered {
-					m := metas[fp]
-					if m == nil {
-						kept = append(kept, fp) // 无行 = 存量 public（与 CanRead 空 ACL 一致）
-						continue
-					}
-					if m.IsDeleted {
-						continue // 软删文件不列出
-					}
-					if ok, _ := authz.CanRead(p, authz.ACLOf(m.OwnerID, m.Visibility, m.GroupID)); ok {
-						kept = append(kept, fp)
-					}
-				}
-				filtered = kept
-				total = len(filtered)
-			}
-		}
-
-		start := (page - 1) * size
-		if start >= total {
-			tools.RecordOperation(ctx, deps.Store, sessionID, "list_data_files", "", "success", "", map[string]any{"count": 0, "page": page, "total": total})
-			return tools.Result(map[string]any{
-				"success": true,
-				"page":    page,
-				"size":    size,
-				"total":   total,
-				"files":   []any{},
-			}), nil
-		}
-		end := start + size
-		if end > total {
-			end = total
-		}
-		pagePaths := filtered[start:end]
-
-		// 批量联表：仅查本页 N 条元数据，避免全表扫描
-		var metas map[string]*repo.FileMetadata
-		if deps.Store != nil {
-			metas, _ = deps.Store.GetMetadataByPaths(ctx, pagePaths)
-		}
-
-		items := make([]map[string]any, 0, len(pagePaths))
-		for _, p := range pagePaths {
-			m := metas[p]
-			if m != nil && m.IsDeleted {
-				continue // 软删文件不列出
-			}
-			item := map[string]any{
-				"path":            p,
-				"has_description": false,
-			}
-			if m != nil {
-				title := common.DerefStr(m.Title)
-				desc := common.DerefStr(m.Description)
-				tags := m.Tags
-				if tags == nil {
-					tags = []string{}
-				}
-				item["title"] = title
-				item["description"] = desc
-				item["file_type"] = common.DerefStr(m.FileType)
-				item["size_bytes"] = common.DerefInt64(m.SizeBytes)
-				item["tags"] = tags
-				item["updated_at"] = m.UpdatedAt
-				item["has_description"] = title != "" || desc != "" || len(tags) > 0
-			}
-			items = append(items, item)
-		}
-
-		slog.Info("list_data_files ok", "page", page, "size", size, "q", q, "returned", len(items), "total", total, "session", sessionID, "duration", time.Since(begin).String())
-		tools.RecordOperation(ctx, deps.Store, sessionID, "list_data_files", "", "success", "", map[string]any{"count": len(items), "page": page, "total": total})
-		return tools.Result(map[string]any{
-			"success": true,
-			"page":    page,
-			"size":    size,
-			"total":   total,
-			"files":   items,
-		}), nil
-	})
+	s.AddTool(mcp.NewTool("list_files", toolOpts...), handler("list_files"))
+	s.AddTool(mcp.NewTool("list_data_files", toolOpts...), handler("list_data_files"))
 }

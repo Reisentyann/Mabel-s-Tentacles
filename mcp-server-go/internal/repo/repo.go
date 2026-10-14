@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/repo/repo.go —— 数据访问接口 Store + pgx 连接池实现（可 mock）
-// 修改：2026-09-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
 
 package repo
 
@@ -9,10 +9,15 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	manager "github.com/Reisentyann/Mabel-s-Tentacles/manager-go"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 )
 
 // Store 是数据访问层接口，便于 mock 测试与替换实现。
 type Store interface {
+	manager.DirectoryStore
+	repoMaintenanceStore
 	// 用户
 	GetUserByUsername(ctx context.Context, username string) (*User, error)
 	GetUserByID(ctx context.Context, id int64) (*User, error)
@@ -59,6 +64,7 @@ type Store interface {
 	// 无行 = ErrNoRows / 批量缺失不入 map）。
 	GetMetadataByUUID(ctx context.Context, uuid string) (*FileMetadata, error)
 	GetMetadataByUUIDs(ctx context.Context, uuids []string) (map[string]*FileMetadata, error)
+	ReverseCopiedFrom(ctx context.Context, path string) ([]FileMetadata, error)
 	SearchFiles(ctx context.Context, fs FileSearch) ([]FileMetadata, int, error)
 	CopyMetadata(ctx context.Context, source, target, owner, sessionID string) error
 	SoftDeleteMetadata(ctx context.Context, filePath string) error
@@ -66,19 +72,43 @@ type Store interface {
 	// ListMetadataPage 按 file_path 升序的游标分页（sincePath 之后 limit 条，
 	// 不含软删）——manager updater T2 回填扫描用。
 	ListMetadataPage(ctx context.Context, sincePath string, limit int) ([]FileMetadata, error)
+	ListMetadataPageAll(ctx context.Context, sincePath string, limit int) ([]FileMetadata, error)
 	// MarkMissingRound 盘上缺失计数 +1 并返回累计轮次（连续 3 轮触发软删除，
 	// manager updater 的幽灵存续状态；Upsert 即文件存在证据，会清零）。
 	MarkMissingRound(ctx context.Context, filePath string) (rounds int, err error)
 	// ReserveMeta 入库占位行（manager intake 域 Write 的支撑）：按逻辑键
-	// 幂等拿 uuid——存在即复用（missing_rounds 清零），不存在则落最小占位行
+	// 原子创建——存在（含软删）返回 ErrKeyExists，不存在则落最小占位行
 	// （其余列走 DDL 默认值）。uuid 生成权归 DB（gen_random_uuid）。
 	ReserveMeta(ctx context.Context, logicPath string) (string, error)
+	CompleteIntake(ctx context.Context, logicPath, uuid string) error
+	ArchiveFailedIntake(ctx context.Context, logicPath, uuid string) error
+	ListPendingIntakes(ctx context.Context) ([]manager.IntakeOperation, error)
+	IsIntakePending(ctx context.Context, uuid string) (bool, error)
+	ResetMissing(ctx context.Context, uuid string) error
+	AnalysisName(ctx context.Context, uuid string) (string, error)
+	ListPendingMoves(context.Context) ([]manager.MoveOperation, error)
+	CompleteMove(context.Context, string, string) error
+	CreateDirectory(ctx context.Context, logicPath string) error
+	ListDirectoryPaths(ctx context.Context) ([]string, error)
+	DirectoryExists(ctx context.Context, logicPath string) (bool, error)
 	// MoveMetadata 逻辑键改（manager intake 域 Move 的支撑，文件管理域
 	// 2026-09-08）：from 行键改 to + moved_from 记谱系，返回行 uuid。
 	// 无行/软删 → pgx.ErrNoRows；to 占用 → ErrKeyExists（UNIQUE 兜底并发）。
 	MoveMetadata(ctx context.Context, from, to string) (string, error)
+	MoveMetadataByUUID(context.Context, string, string, string, string) error
+
+	// 短链服务
+	CreateShortLink(ctx context.Context, code, filePath, uuid string, expiresAt time.Time) error
+	GetShortLink(ctx context.Context, code string) (*service.ShortLink, error)
 
 	Close()
+}
+
+type repoMaintenanceStore interface {
+	PrepareMaintenance(context.Context, string, string, string, string) (int64, error)
+	FinishMaintenance(context.Context, int64, string, string) error
+	PendingMaintenance(context.Context, int) ([]MaintenanceJob, error)
+	RecoverMaintenanceClaims(context.Context) error
 }
 
 type pgxStore struct {
@@ -254,6 +284,52 @@ var migrations = []string{
 		created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
 	`ALTER TABLE agent_keys ADD COLUMN IF NOT EXISTS uuid UUID NOT NULL DEFAULT gen_random_uuid()`,
+
+	// ---- 短链表（下载短码服务）----
+	`CREATE TABLE IF NOT EXISTS short_links (
+		code         VARCHAR(16) PRIMARY KEY,
+		file_path    TEXT NOT NULL,
+		uuid         UUID NOT NULL,
+		expires_at   TIMESTAMPTZ NOT NULL,
+		created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_short_links_exp ON short_links (expires_at)`,
+	`CREATE TABLE IF NOT EXISTS intake_operations (
+		uuid UUID PRIMARY KEY, file_path TEXT UNIQUE NOT NULL,
+		status TEXT NOT NULL CHECK (status IN ('reserved', 'stored', 'archived')),
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`,
+	`CREATE INDEX IF NOT EXISTS idx_intake_operations_pending ON intake_operations (status) WHERE status = 'reserved'`,
+	`CREATE TABLE IF NOT EXISTS move_operations (
+		uuid UUID PRIMARY KEY, source_path TEXT NOT NULL, target_path TEXT NOT NULL,
+		parent_uuid UUID, display_name TEXT NOT NULL DEFAULT '', source_extension TEXT NOT NULL DEFAULT '', target_extension TEXT NOT NULL DEFAULT '',
+		status TEXT NOT NULL CHECK(status IN ('pending','completed')), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`,
+	`ALTER TABLE move_operations ADD COLUMN IF NOT EXISTS parent_uuid UUID`,
+	`ALTER TABLE move_operations ADD COLUMN IF NOT EXISTS display_name TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE move_operations ADD COLUMN IF NOT EXISTS source_extension TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE move_operations ADD COLUMN IF NOT EXISTS target_extension TEXT NOT NULL DEFAULT ''`,
+	`CREATE TABLE IF NOT EXISTS logical_directories (
+		file_path TEXT PRIMARY KEY, is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`,
+	`ALTER TABLE logical_directories ADD COLUMN IF NOT EXISTS uuid UUID NOT NULL DEFAULT gen_random_uuid()`,
+	`CREATE UNIQUE INDEX IF NOT EXISTS logical_directories_uuid ON logical_directories(uuid)`,
+	`CREATE TABLE IF NOT EXISTS directory_files (
+		file_uuid UUID PRIMARY KEY REFERENCES file_metadata(uuid),
+		parent_uuid UUID NOT NULL REFERENCES logical_directories(uuid), name TEXT NOT NULL
+	)`,
+	`CREATE TABLE IF NOT EXISTS metadata_maintenance_jobs (
+		id BIGSERIAL PRIMARY KEY, uuid UUID NOT NULL, kind TEXT NOT NULL,
+		session_id TEXT NOT NULL DEFAULT '', actor TEXT NOT NULL DEFAULT '',
+		status TEXT NOT NULL CHECK(status IN ('prepared','ready','processing','retry','done','cancelled')),
+		attempts INT NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '',
+		next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	)`,
+	`ALTER TABLE metadata_maintenance_jobs DROP CONSTRAINT IF EXISTS metadata_maintenance_jobs_status_check`,
+	`ALTER TABLE metadata_maintenance_jobs ADD CONSTRAINT metadata_maintenance_jobs_status_check CHECK (status IN ('prepared','ready','processing','retry','done','cancelled'))`,
+	`CREATE INDEX IF NOT EXISTS metadata_maintenance_pending ON metadata_maintenance_jobs(id) WHERE status NOT IN ('done','cancelled')`,
 }
 
 func New(ctx context.Context, dsn string, maxConns int32) (Store, error) {
