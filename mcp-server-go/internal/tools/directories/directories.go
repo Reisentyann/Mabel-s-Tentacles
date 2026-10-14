@@ -20,9 +20,14 @@ import (
 func init() { tools.Register(register) }
 
 func register(s *server.MCPServer, deps tools.Deps) {
+	descByOp := map[string]string{
+		"list_directory":         "List direct child entries (files and subdirectories with their UUIDs) of a directory by its directory_uuid. [BOUNDARY] UUID-based directory listing; for workspace-wide path browsing use list_files.",
+		"create_child_directory": "Create a child directory inside a parent directory specified by directory_uuid and name. [BOUNDARY] UUID-based child folder creation; for path-based creation (e.g. 'notes/2026') use create_directory.",
+		"write_directory_file":   "Create a text file inside a directory specified by directory_uuid and display name (supports optional request_id for idempotency and allows duplicate display names with distinct UUIDs). [BOUNDARY] UUID-directory text upload; for standard path-based text creation use write_file, or upload_file for images/binary.",
+	}
 	for _, op := range []string{"list_directory", "create_child_directory", "write_directory_file"} {
 		op := op
-		tool := mcp.NewTool(op, mcp.WithDescription("Operate on a directory by UUID. Same-name uploads are independent files; use returned UUID to retrieve."), mcp.WithString("directory_uuid", mcp.Required()), mcp.WithString("name"), mcp.WithString("content"), mcp.WithString("request_id", mcp.Description("Optional idempotency key for text uploads; reuse on retry before editing, moving or deleting the result.")))
+		tool := mcp.NewTool(op, mcp.WithDescription(descByOp[op]), mcp.WithString("directory_uuid", mcp.Required()), mcp.WithString("name"), mcp.WithString("content"), mcp.WithString("request_id", mcp.Description("Optional idempotency key for text uploads; reuse on retry before editing, moving or deleting the result.")))
 		s.AddTool(tool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			if deps.Manager == nil {
 				return tools.ResultError("manager not wired"), nil

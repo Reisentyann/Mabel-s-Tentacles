@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/mcp/resources.go —— MCP Resources 资源注册：字段目录、检索契约与助手人设
-// 修改：2026-09-17（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 package mcp
 
@@ -154,6 +154,58 @@ func registerResources(s *server.MCPServer, orch *core.Orchestrator) {
 					URI:      "mabel://persona/system",
 					MIMEType: "text/markdown",
 					Text:     text,
+				},
+			}, nil
+		},
+	)
+
+	// 4. 操作与工具边界总览：mabel://guide/workflow
+	const workflowGuide = `# Mabel-s-Tentacles 操作指南与工具边界矩阵
+
+## 一、 我该调用哪个工具？（边界速查表）
+
+| 你的意图 | 必须使用的工具 | 严禁混用的工具与边界说明 |
+|---|---|---|
+| **新建纯文本/代码文件** | ` + "`write_file`" + ` | 仅限新路径；已存在路径会报错拒绝。支持内联传 title/description/tags/attributes |
+| **上传图片/二进制/压缩包** | ` + "`upload_file`" + ` | 传 ` + "`content_base64`" + `（支持 data:image/...;base64,...）或宿主机 ` + "`source_path`" + `（限管理员）。上传后自动提取图片宽高/主色调/EXIF 等 ` + "`cod-image-*`" + ` 属性并入索引 |
+| **局部修改已有文本/代码** | ` + "`patch_file`" + ` | 基于唯一 ` + "`old_string -> new_string`" + ` 锚点替换，最安全、不丢上下文 |
+| **向已有文件追加或整篇重写** | ` + "`modify_file`" + ` | ` + "`mode='append'`" + `（追加）或 ` + "`mode='overwrite'`" + `（覆盖）；不要用 ` + "`write_file`" + ` |
+| **补充标题/标签/LLM语义字段** | ` + "`describe_file`" + ` | 写 ` + "`title/description/tags`" + ` 及 ` + "`llm-*`" + ` / ` + "`sp-llm-*`" + ` 属性；**严禁传 ` + "`cod-*`" + ` 只读属性** |
+| **重新运行引擎提取物理特征** | ` + "`analyze_file`" + ` | 仅在文件被外部命令修改或引擎升级后使用；不会修改 ` + "`llm-*`" + ` 人工标注 |
+| **按属性/条件精确查找文件** | ` + "`list_index_fields`" + ` → ` + "`search_files`" + ` | 先查一次目录获知字段名与 ` + "`bench`" + ` 分档，再用布尔树查询 |
+| **浏览文件列表 / 查缺描述文件** | ` + "`list_files`" + ` | 分页浏览文件简表，通过 ` + "`has_description: false`" + ` 找出未标注文件 |
+| **查看单文件完整 90+ 属性** | ` + "`get_file_info`" + ` | 已知文件路径时直查其全部 ` + "`cod-*`" + ` 与 ` + "`llm-*`" + ` 详情，无需走 ` + "`search_files`" + ` |
+| **读取文件正文内容** | ` + "`read_file`" + ` | 仅用于读文本内容（1MB 截断）；支持传 ` + "`uuid`" + ` 或 ` + "`file_path`" + ` |
+| **重命名 / 移动 / 复制 / 软删除** | ` + "`move_file`" + ` / ` + "`copy_file`" + ` / ` + "`delete_file`" + ` | 自动同步数据库、谱系（lineage）与内存索引 |
+
+## 二、 图片上传与管理标准工作流（Image Upload & Management SOP）
+
+1. **上传并内联标注**：
+   调用 ` + "`upload_file`" + `：
+   - ` + "`file_path`" + `: 例如 ` + "`\"illustrations/mabel-argon.png\"`" + `
+   - ` + "`content_base64`" + `: 图片的 Base64 编码或 Data URL
+   - ` + "`title`" + ` / ` + "`description`" + ` / ` + "`tags`" + `: 随上传一并填入
+   - ` + "`attributes`" + `: 例如 ` + "`{\"llm-semantic-type\":\"illustration\",\"llm-characters\":[\"梅贝尔\"],\"llm-style\":\"赛博机能\"}`" + `
+2. **自动量化分析（零干预）**：
+   管理机落盘后，编排机自动调用描述机算出 ` + "`cod-image-width`" + `、` + "`cod-image-height`" + `、` + "`cod-image-aspect-ratio`" + `、` + "`cod-image-dominant-color`" + `、` + "`cod-image-brightness`" + ` 等事实并挂载到内存索引。
+3. **验证与检索**：
+   - 调用 ` + "`get_file_info`" + ` 查看刚上传图片的完整 ` + "`cod-image-*`" + ` 与 ` + "`llm-*`" + ` 属性及下载短链。
+   - 调用 ` + "`search_files`" + ` 按色调、宽高比、像素量或角色标签随时检索图片。
+`
+
+	s.AddResource(
+		mcp.NewResource(
+			"mabel://guide/workflow",
+			"操作指南与工具边界矩阵",
+			mcp.WithResourceDescription("文件与图片上传、编辑、语义描述、确定性分析、布尔检索的标准工作流与工具边界表"),
+			mcp.WithMIMEType("text/markdown"),
+		),
+		func(ctx context.Context, req mcp.ReadResourceRequest) ([]mcp.ResourceContents, error) {
+			return []mcp.ResourceContents{
+				mcp.TextResourceContents{
+					URI:      "mabel://guide/workflow",
+					MIMEType: "text/markdown",
+					Text:     workflowGuide,
 				},
 			}, nil
 		},

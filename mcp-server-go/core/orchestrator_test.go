@@ -1413,3 +1413,42 @@ func TestBoundManagerAnalyzeAndBackfillNoDeadlockAndPreserveLLM(t *testing.T) {
 		t.Fatalf("cod-basic-textish not indexed: %v %v", gotCod, err)
 	}
 }
+
+func TestWriteEventMergesInlineLLMAttributes(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	store := newMemStore()
+	ix := indexer.New()
+	o, err := New(Options{DataDir: dir, Store: store, Sink: ix})
+	if err != nil {
+		t.Fatal(err)
+	}
+	uuid := intakeSeed(t, store, dir, "inline-llm.txt", "hello inline llm\n")
+	o.Start(ctx)
+	o.Submit(Event{
+		Kind: KindWrite,
+		Path: "inline-llm.txt",
+		UUID: uuid,
+		Agent: &AgentMeta{
+			Attributes: map[string]any{
+				"llm-semantic-type": "note",
+				"sp-llm-character":  "Mabel",
+				"cod-text-lines":    9999, // read-only cod-* must be rejected by LLMStore
+			},
+		},
+	})
+	o.Stop()
+
+	gotSem, err := ix.Query(indexer.Leaf("llm-semantic-type", indexer.OpEq, "note"))
+	if err != nil || len(gotSem) != 1 || gotSem[0] != uuid {
+		t.Fatalf("inline llm-semantic-type not indexed: %v %v", gotSem, err)
+	}
+	gotCustom, err := ix.Query(indexer.Leaf("sp-llm-character", indexer.OpEq, "Mabel"))
+	if err != nil || len(gotCustom) != 1 || gotCustom[0] != uuid {
+		t.Fatalf("inline sp-llm-character not indexed: %v %v", gotCustom, err)
+	}
+	gotSpoof, err := ix.Query(indexer.Leaf("cod-text-lines", indexer.OpEq, 9999))
+	if err != nil || len(gotSpoof) != 0 {
+		t.Fatalf("cod-text-lines spoof should be rejected: %v %v", gotSpoof, err)
+	}
+}

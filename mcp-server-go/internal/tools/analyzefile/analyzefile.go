@@ -21,9 +21,8 @@ func init() {
 
 func register(s *server.MCPServer, deps tools.Deps) {
 	tool := mcp.NewTool("analyze_file",
-		mcp.WithDescription("Re-run the deterministic describer on an existing file and store fresh cod-* facts (metadata refresh). "+
-			"Use this when a file was changed outside write_file/modify_file (e.g. by execute_command), or to upgrade old metadata to current engine version. "+
-			"Returns the fact families hit and newly produced attributes."),
+		mcp.WithDescription("Re-run the deterministic describer on an existing file's disk bytes to refresh 'cod-*' physical facts ( preserving all existing 'llm-*' semantic annotations). "+
+			"[BOUNDARY] Only needed when a file was changed outside MCP tools (e.g. by execute_command) or after a describer engine upgrade. To add human/LLM tags, descriptions or 'llm-*' attributes, use describe_file instead."),
 		mcp.WithString("file_path",
 			mcp.Description("Path of the file to analyze, relative to workspace. Also accepts 'path'."),
 		),

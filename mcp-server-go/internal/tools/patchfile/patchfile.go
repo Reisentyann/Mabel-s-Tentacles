@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/patchfile/patchfile.go —— MCP 工具 patch_file：基于唯一锚点文本的微创局部替换
-// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 package patchfile
 
@@ -22,7 +22,8 @@ func init() {
 
 func register(s *server.MCPServer, deps tools.Deps) {
 	tool := mcp.NewTool("patch_file",
-		mcp.WithDescription("Perform an exact string replacement in a file. Safer and faster than whole-file overwrite for small edits. The old_string must match exactly once in the file."),
+		mcp.WithDescription("Perform an exact string replacement in an existing text/code file. "+
+			"[BOUNDARY] Preferred over modify_file(mode='overwrite') for surgical edits. The old_string must match exactly once in the file; to append to the end of a file use modify_file(mode='append')."),
 		mcp.WithString("file_path",
 			mcp.Description("Path of the file to patch (must be in your space). Also accepts 'path'."),
 		),

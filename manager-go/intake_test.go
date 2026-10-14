@@ -1,5 +1,5 @@
 // 文件：manager-go/intake_test.go —— 入库域 L1：新建重名保护、外部文件导入、修改与逻辑视图
-// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 package manager_test
 
@@ -658,4 +658,24 @@ func TestMoveGuards(t *testing.T) {
 		t.Fatal("soft-deleted row must be rejected")
 	}
 	_ = st
+}
+
+func TestWriteBytesBinaryRoundTrip(t *testing.T) {
+	m, _, _, dir := newTestManager(t)
+	ctx := context.Background()
+	raw := []byte{0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0xFF, 0x42}
+	r, err := m.WriteBytes(ctx, "images/sample.png", raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.SizeBytes != int64(len(raw)) {
+		t.Fatalf("size_bytes = %d, want %d", r.SizeBytes, len(raw))
+	}
+	got, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(r.StorageRel)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(raw) {
+		t.Fatalf("binary content mismatch: got %x, want %x", got, raw)
+	}
 }

@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/modifydatafile/modifydatafile.go —— MCP 工具 modify_data_file：append/overwrite + 编排机事件异步刷新元数据
-// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 package modifydatafile
 
@@ -68,7 +68,8 @@ func register(s *server.MCPServer, deps tools.Deps) {
 	}
 
 	toolOpts := []mcp.ToolOption{
-		mcp.WithDescription("Modify an existing file. mode='append' appends content to the end of the file, mode='overwrite' replaces the whole file. Pass file_path (or path)."),
+		mcp.WithDescription("Modify an existing text file by appending or overwriting. " +
+			"[BOUNDARY] Only for existing files (to create a new file use write_file or upload_file; for small targeted edits prefer patch_file to avoid whole-file replacement errors)."),
 		mcp.WithString("file_path",
 			mcp.Description("Path of the file to modify, relative to your workspace (e.g. 'notes/todo.txt')."),
 		),

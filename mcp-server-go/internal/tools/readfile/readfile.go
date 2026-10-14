@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/readfile/readfile.go —— MCP 工具 read_file：读文件（1MB 截断防上下文撑爆）
-// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
 
 package readfile
 
@@ -24,10 +24,8 @@ func init() {
 
 func register(s *server.MCPServer, deps tools.Deps) {
 	tool := mcp.NewTool("read_file",
-		mcp.WithDescription("Read the text content of a file in the data directory. "+
-			"Recommended workflow: call list_files (or list_data_files) first (optionally with keyword q) to check each file's title/description/tags, "+
-			"confirm this is really the file you need, then call read_file on it. "+
-			"Avoid blind reads: wrong files waste context, and large files come back truncated (1MB max)."),
+		mcp.WithDescription("Read the text content of a file (up to 1MB) by file_path or stable uuid. "+
+			"[BOUNDARY] Only for reading file content. To inspect a file's 90+ metadata attributes (like image resolution, line count, tags) without loading its content, use get_file_info instead."),
 		mcp.WithString("file_path",
 			mcp.Description("File path to read, relative to the data directory (e.g. 'notes/todo.txt' or '~other_user/public.md'). Also accepts 'path'."),
 		),
