@@ -5,12 +5,16 @@ package directories
 
 import (
 	"context"
-	"github.com/Reisentyann/Mabel-s-Tentacles/common"
-	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
-	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
+	"log/slog"
+	"strings"
+
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
-	"strings"
+
+	"github.com/Reisentyann/Mabel-s-Tentacles/common"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
 )
 
 func init() { tools.Register(register) }
@@ -74,8 +78,16 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			if err != nil {
 				return tools.ResultError(err.Error()), nil
 			}
+			sessID := tools.SessionID(ctx)
+			actor := tools.Actor(ctx)
+			// 持久化维护意图：盘写成功后先落库记录，进程重启后由 RetryMaintenance 接手。
+			if ms, ok := deps.Store.(repo.MaintenanceStore); ok {
+				if _, perr := ms.PrepareMaintenance(ctx, r.UUID, "write", sessID, actor.Name); perr != nil {
+					slog.Warn("write_directory_file prepare maintenance failed", "tool", op, "path", r.LogicPath, "uuid", r.UUID, "session", sessID, "error", perr)
+				}
+			}
 			if deps.Orch != nil {
-				deps.Orch.Submit(core.Event{Kind: core.KindWrite, Path: r.LogicPath, Actor: tools.Actor(ctx), SessionID: tools.SessionID(ctx), Agent: &core.AgentMeta{Title: common.StrPtr(name)}})
+				deps.Orch.Submit(core.Event{Kind: core.KindWrite, Path: r.LogicPath, Actor: actor, SessionID: sessID, Agent: &core.AgentMeta{Title: common.StrPtr(name)}})
 			}
 			return tools.Result(map[string]any{"success": true, "uuid": r.UUID, "name": name}), nil
 		})

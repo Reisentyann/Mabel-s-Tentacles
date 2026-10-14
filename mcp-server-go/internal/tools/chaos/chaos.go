@@ -25,6 +25,7 @@ import (
 	"github.com/Reisentyann/Mabel-s-Tentacles/common"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/config"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
 )
@@ -177,7 +178,14 @@ func postProcessJMComic(ctx context.Context, deps tools.Deps, sessionID string, 
 	out["archive_path"] = ""
 	out["save_dir"] = ""
 
-	// 4. 编排机接管异步分析（T1：落库元数据、计算 Hash、喂索引机）
+	// 4. 持久化维护意图：导入成功后先落库记录，进程重启后由 RetryMaintenance 接手。
+	if ms, ok := deps.Store.(repo.MaintenanceStore); ok {
+		if _, perr := ms.PrepareMaintenance(ctx, receipt.UUID, "write", sessionID, tools.Actor(ctx).Name); perr != nil {
+			slog.Warn("jm_comic prepare maintenance failed", "feature", "jm_comic", "path", logicKey, "uuid", receipt.UUID, "session", sessionID, "error", perr)
+		}
+	}
+
+	// 5. 编排机接管异步分析（T1：落库元数据、计算 Hash、喂索引机）
 	if deps.Orch != nil {
 		title, _ := out["title"].(string)
 		deps.Orch.Submit(core.Event{
@@ -195,7 +203,7 @@ func postProcessJMComic(ctx context.Context, deps tools.Deps, sessionID string, 
 		})
 	}
 
-	// 5. 生成 24 小时有效的 Mabel 极简短链（/d/{code}）与防篡改票据下载链接
+	// 6. 生成 24 小时有效的 Mabel 极简短链（/d/{code}）与防篡改票据下载链接
 	var dlURL string
 	if deps.Store != nil && deps.Cfg != nil {
 		dlBase := strings.TrimRight(deps.Cfg.API.DownloadBaseURL, "/")

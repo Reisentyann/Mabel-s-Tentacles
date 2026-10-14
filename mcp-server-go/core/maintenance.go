@@ -23,7 +23,13 @@ func (s managerIndexSink) Update(uuid string, old, next map[string]any) {
 	defer cancel()
 	rows, err := s.orch.opts.Store.GetMetadataByUUIDs(ctx, []string{uuid})
 	if err != nil {
-		slog.Error("manager index notification failed", "uuid", uuid, "error", err)
+		// Manager already committed a complete snapshot. Preserve the update if
+		// the authoritative read is temporarily unavailable; startup rebuild can
+		// reconcile any concurrent change later.
+		slog.Warn("manager index notification using committed snapshot", "uuid", uuid, "error", err)
+		if s.orch.opts.Sink != nil {
+			s.orch.opts.Sink.Update(uuid, old, next)
+		}
 		return
 	}
 	meta := rows[uuid]

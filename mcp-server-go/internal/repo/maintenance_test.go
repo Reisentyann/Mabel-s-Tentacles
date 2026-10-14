@@ -30,11 +30,29 @@ func TestMaintenancePostgres(t *testing.T) {
 	defer pool.Close()
 	for _, stmt := range migrations {
 		if strings.HasPrefix(stmt, "CREATE TABLE IF NOT EXISTS metadata_maintenance_jobs") {
-			stmt = strings.Replace(stmt, "CREATE TABLE IF NOT EXISTS", "CREATE TEMP TABLE", 1)
-			if _, err := pool.Exec(ctx, stmt); err != nil {
+			_, err := pool.Exec(ctx, `CREATE TEMP TABLE metadata_maintenance_jobs (
+				id BIGSERIAL PRIMARY KEY, uuid UUID NOT NULL, kind TEXT NOT NULL,
+				session_id TEXT NOT NULL DEFAULT '', actor TEXT NOT NULL DEFAULT '',
+				status TEXT NOT NULL CHECK(status IN ('prepared','ready','retry','done','cancelled')),
+				attempts INT NOT NULL DEFAULT 0, last_error TEXT NOT NULL DEFAULT '',
+				next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+				created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+			)`)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := pool.Exec(ctx, `INSERT INTO metadata_maintenance_jobs(uuid,kind,status) VALUES($1,'legacy','done')`, "00000000-0000-0000-0000-000000000099"); err != nil {
 				t.Fatal(err)
 			}
 		}
+		if strings.HasPrefix(stmt, "ALTER TABLE metadata_maintenance_jobs DROP CONSTRAINT") || strings.HasPrefix(stmt, "ALTER TABLE metadata_maintenance_jobs ADD CONSTRAINT") {
+			if _, err := pool.Exec(ctx, stmt); err != nil {
+				t.Fatalf("upgrade old maintenance status constraint: %v", err)
+			}
+		}
+	}
+	if _, err := pool.Exec(ctx, `INSERT INTO metadata_maintenance_jobs(uuid,kind,status) VALUES($1,'processing-check','processing')`, "00000000-0000-0000-0000-000000000098"); err != nil {
+		t.Fatalf("upgraded constraint rejects processing: %v", err)
 	}
 	st := &pgxStore{pool: pool}
 	id, err := st.PrepareMaintenance(ctx, "00000000-0000-0000-0000-000000000001", "modify", "s", "alice")
@@ -79,5 +97,31 @@ func TestMaintenancePostgres(t *testing.T) {
 	jobs, err = st.PendingMaintenance(ctx, 10)
 	if err != nil || len(jobs) != 0 {
 		t.Fatalf("completed task revived: %v %v", jobs, err)
+	}
+
+	// Multiple operations for a UUID keep independent completion state.
+	id1, err := st.PrepareMaintenance(ctx, "00000000-0000-0000-0000-000000000002", "modify", "s1", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.FinishMaintenance(ctx, id1, "ready", ""); err != nil {
+		t.Fatal(err)
+	}
+	id2, err := st.PrepareMaintenance(ctx, "00000000-0000-0000-0000-000000000002", "move", "s2", "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.FinishMaintenance(ctx, id2, "ready", ""); err != nil {
+		t.Fatal(err)
+	}
+	jobs, err = st.PendingMaintenance(ctx, 10)
+	if err != nil || len(jobs) != 2 {
+		t.Fatalf("same-UUID jobs=%v err=%v", jobs, err)
+	}
+	if err := st.FinishMaintenance(ctx, id1, "done", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.FinishMaintenance(ctx, id2, "done", ""); err != nil {
+		t.Fatal(err)
 	}
 }

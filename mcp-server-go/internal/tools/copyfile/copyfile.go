@@ -13,6 +13,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
 )
 
@@ -81,7 +82,8 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		if rerr != nil {
 			return tools.ResultError(rerr.Error()), nil
 		}
-		if _, err := deps.Manager.Write(ctx, dst, string(content)); err != nil {
+		copyReceipt, err := deps.Manager.Write(ctx, dst, string(content))
+		if err != nil {
 			slog.Error("copy_file failed", "tool", "copy_file", "source", src, "target", dst, "session", sessionID, "error", err, "duration", time.Since(start).String())
 			tools.RecordOperation(ctx, deps.Store, sessionID, "copy_file", dst, "failed", err.Error(), map[string]any{"source": src})
 			return tools.ResultError(err.Error()), nil
@@ -98,6 +100,12 @@ func register(s *server.MCPServer, deps tools.Deps) {
 				// 会从盘上重建目标元数据并喂索引（COALESCE 保留 copied_from 谱系列）
 				slog.Warn("copy metadata failed, orchestrator will rebuild target meta",
 					"source", src, "target", dst, "session", sessionID, "error", err)
+			}
+		}
+		// 持久化维护意图：盘写成功后先落库记录，进程重启后由 RetryMaintenance 接手。
+		if ms, ok := deps.Store.(repo.MaintenanceStore); ok {
+			if _, perr := ms.PrepareMaintenance(ctx, copyReceipt.UUID, "copy", sessionID, owner); perr != nil {
+				slog.Warn("copy_file prepare maintenance failed", "tool", "copy_file", "target", dst, "uuid", copyReceipt.UUID, "session", sessionID, "error", perr)
 			}
 		}
 		// 复制主路径原本的喂食洞（目标 uuid 从不挂索引）由此堵上：

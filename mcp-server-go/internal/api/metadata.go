@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/search"
 )
 
@@ -252,7 +253,8 @@ func (s *Server) copyFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, rerr.Error())
 		return
 	}
-	if _, err := s.manager.Write(r.Context(), req.Target, string(content)); err != nil {
+	copyReceipt, err := s.manager.Write(r.Context(), req.Target, string(content))
+	if err != nil {
 		slog.Error("copy file failed", "method", r.Method, "path", r.URL.Path, "user", principalOf(r).Subject(), "source", req.Source, "target", req.Target, "error", err, "duration", time.Since(start).String())
 		status := http.StatusInternalServerError
 		if errors.Is(err, manager.ErrKeyExists) {
@@ -272,6 +274,12 @@ func (s *Server) copyFile(w http.ResponseWriter, r *http.Request) {
 			// 源文件可能没有元数据，复制失败不致命：编排机 KindCopy 事件的
 			// 执行器会从盘上重建目标元数据并喂索引（COALESCE 保留 copied_from 等复制列）
 			slog.Warn("copy metadata failed, orchestrator will rebuild target meta", "source", req.Source, "error", err)
+		}
+		// 持久化维护意图：盘写成功后先落库记录，进程重启后由 RetryMaintenance 接手。
+		if ms, ok := s.repo.(repo.MaintenanceStore); ok {
+			if _, perr := ms.PrepareMaintenance(r.Context(), copyReceipt.UUID, "copy", "", owner); perr != nil {
+				slog.Warn("copy file prepare maintenance failed", "source", req.Source, "target", req.Target, "uuid", copyReceipt.UUID, "error", perr)
+			}
 		}
 	}
 	if s.orch != nil {

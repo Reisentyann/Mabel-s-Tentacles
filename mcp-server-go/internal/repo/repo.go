@@ -327,6 +327,8 @@ var migrations = []string{
 		next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	)`,
+	`ALTER TABLE metadata_maintenance_jobs DROP CONSTRAINT IF EXISTS metadata_maintenance_jobs_status_check`,
+	`ALTER TABLE metadata_maintenance_jobs ADD CONSTRAINT metadata_maintenance_jobs_status_check CHECK (status IN ('prepared','ready','processing','retry','done','cancelled'))`,
 	`CREATE INDEX IF NOT EXISTS metadata_maintenance_pending ON metadata_maintenance_jobs(id) WHERE status NOT IN ('done','cancelled')`,
 }
 

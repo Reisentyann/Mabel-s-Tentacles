@@ -5,13 +5,16 @@ package api
 
 import (
 	"fmt"
-	manager "github.com/Reisentyann/Mabel-s-Tentacles/manager-go"
-	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
-	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/authz"
 	"io"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
+
+	manager "github.com/Reisentyann/Mabel-s-Tentacles/manager-go"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/authz"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
 )
 
 func (s *Server) directoryAccess(w http.ResponseWriter, r *http.Request, id string) bool {
@@ -118,14 +121,28 @@ func (s *Server) directoryImport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	items, err := s.manager.ImportDirectory(r.Context(), id, req.Source)
+	actor := ""
+	if p := principalOf(r); p != nil {
+		actor = p.Name
+	}
 	failed := 0
 	for _, item := range items {
 		if item.Error != "" {
 			failed++
 			continue
 		}
-		if ref, e := s.manager.Locate(r.Context(), item.UUID); e == nil && s.orch != nil {
-			s.orch.Submit(core.Event{Kind: core.KindWrite, Path: ref.Path, Actor: core.Actor{Name: principalOf(r).Name}})
+		ref, e := s.manager.Locate(r.Context(), item.UUID)
+		if e != nil {
+			continue
+		}
+		// 持久化维护意图：导入成功后先落库记录，进程重启后由 RetryMaintenance 接手。
+		if ms, ok := s.repo.(repo.MaintenanceStore); ok {
+			if _, perr := ms.PrepareMaintenance(r.Context(), item.UUID, "write", "", actor); perr != nil {
+				slog.Warn("directory import prepare maintenance failed", "uuid", item.UUID, "path", ref.Path, "error", perr)
+			}
+		}
+		if s.orch != nil {
+			s.orch.Submit(core.Event{Kind: core.KindWrite, Path: ref.Path, Actor: core.Actor{Name: actor}})
 		}
 	}
 	if err != nil {

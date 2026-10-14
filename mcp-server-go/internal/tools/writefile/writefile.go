@@ -14,6 +14,7 @@ import (
 
 	"github.com/Reisentyann/Mabel-s-Tentacles/common"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/core"
+	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/repo"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/service"
 	"github.com/Reisentyann/Mabel-s-Tentacles/mcp-server-go/internal/tools"
 )
@@ -106,6 +107,14 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		}
 
 		slog.Info("write_file ok", "tool", "write_file", "path", key, "bytes", len(content), "uuid", receipt.UUID, "session", sessionID, "duration", time.Since(start).String())
+
+		// 持久化维护意图：盘写成功后先落库记录，进程重启后由 RetryMaintenance 接手。
+		// 与后续 Submit 不冲突：Submit 是异步快路径，PrepareMaintenance 是持久兜底。
+		if ms, ok := deps.Store.(repo.MaintenanceStore); ok {
+			if _, perr := ms.PrepareMaintenance(ctx, receipt.UUID, "write", sessionID, tools.Actor(ctx).Name); perr != nil {
+				slog.Warn("write_file prepare maintenance failed", "tool", "write_file", "path", key, "uuid", receipt.UUID, "session", sessionID, "error", perr)
+			}
+		}
 
 		// 编排机异步接管 T1（盘写成功即回，agent 不等描述）：agent 顺带
 		// 描述字段随事件走，执行器单次 Upsert 落库并喂索引——旧的双 upsert 已灭。
