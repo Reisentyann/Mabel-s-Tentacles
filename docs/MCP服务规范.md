@@ -2,7 +2,7 @@
 
 > 本文档规范 Mabel-s-Tentacles 的 MCP（Model Context Protocol）服务面设计。
 > 包含工具（Tools）命名体系、入参契约、Prompt 模版、Resource 资源、以及新增能力的演进路线。
-> 状态：规范定稿，待按此推进 `mcp-server-go` 重构。
+> 状态：现行 MCP 服务面设计与演进规范；工具、Resources、Prompts 已部分落地，未实现条目以代码和测试为准。
 
 ---
 
@@ -124,7 +124,7 @@
   ```json
   {
     "file_path": "string (必填，目标逻辑路径，含扩展名，如 'images/mabel.png')",
-    "content_base64": "string (可选，Base64 编码字节或 data:image/...;base64,... URL，解码后上限 5MB)",
+    "content_base64": "string (可选，Base64 编码字节或 data:image/...;base64,... URL；大文件优先使用 source_path)",
     "source_path": "string (可选，宿主机本地文件路径导入，与 content_base64 二选一，限管理员/Master Key)",
     "title": "string (可选，标题)",
     "description": "string (可选，描述)",

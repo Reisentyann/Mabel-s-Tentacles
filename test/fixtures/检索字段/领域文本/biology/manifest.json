@@ -1,0 +1,338 @@
+{
+  "schema_version": 1,
+  "domain_id": "biology",
+  "domain_name": "生物",
+  "path_base": ".",
+  "generated_by": "subagent:domain-batch-life-ocean-v2",
+  "files": [
+    {
+      "path": "01-report.md",
+      "archetype": "markdown-report",
+      "bytes": 633,
+      "sha256": "dace77555b969a820045583cec1f9510663b1fc9041c6a1950076925cbfdcd9b",
+      "marker": "SEARCH_DOMAIN_BIOLOGY_REPORT_2026",
+      "purpose": "验证 Markdown 报告、批次字段覆盖与结构字段",
+      "expected_coverage": [
+        "cod-basic-textish",
+        "cod-basic-mime",
+        "cod-basic-name-pattern",
+        "cod-basic-entropy",
+        "cod-text-at",
+        "cod-text-ver",
+        "cod-text-partial",
+        "cod-text-encoding",
+        "cod-text-lines",
+        "cod-text-chars",
+        "cod-text-cjk-ratio",
+        "cod-text-language",
+        "cod-text-title-line",
+        "cod-text-final-newline",
+        "cod-text-non-ascii-ratio",
+        "cod-text-upper-ratio",
+        "cod-text-word-count",
+        "cod-text-avg-word-len",
+        "cod-text-blank-ratio",
+        "cod-text-table-blocks",
+        "cod-text-table-rows",
+        "cod-text-table-cols",
+        "cod-text-list-items",
+        "cod-text-list-nesting-max",
+        "cod-text-code-lines",
+        "cod-text-quote-lines",
+        "cod-text-checkboxes",
+        "cod-text-indent-max",
+        "cod-text-trailing-space-lines",
+        "cod-text-consecutive-blank-max",
+        "cod-text-indent-style",
+        "cod-text-avg-line-len",
+        "cod-text-line-len-std",
+        "cod-text-digit-ratio",
+        "cod-text-timestamp-count",
+        "cod-text-repeat-line-ratio",
+        "cod-text-paragraphs",
+        "cod-text-avg-para-len",
+        "cod-text-sentences",
+        "cod-text-avg-sent-len",
+        "cod-text-dialog-ratio",
+        "cod-text-punct-density",
+        "cod-text-char-diversity",
+        "cod-text-url-count",
+        "cod-text-email-count",
+        "cod-text-mention-count",
+        "cod-text-hashtag-count",
+        "cod-text-emoji-count",
+        "cod-text-link-count",
+        "cod-text-eol",
+        "cod-text-has-bom",
+        "cod-text-longest-line",
+        "cod-text-minified",
+        "cod-text-timestamp-line-ratio",
+        "cod-text-top-keywords",
+        "cod-text-headings",
+        "cod-text-structure",
+        "cod-text-ordered-ratio",
+        "cod-text-link-domains",
+        "cod-text-link-domains-truncated",
+        "cod-text-code-languages",
+        "cod-text-code-languages-truncated",
+        "cod-text-section-paths",
+        "cod-text-section-paths-truncated",
+        "cod-text-table-headers",
+        "cod-text-table-headers-truncated",
+        "cod-text-bracket-balance"
+      ],
+      "expect": {
+        "cod-text-structure": [
+          "frontmatter",
+          "lists",
+          "code-blocks",
+          "tables",
+          "headings"
+        ],
+        "cod-text-table-blocks": 1,
+        "cod-text-table-rows": 3,
+        "cod-text-table-cols": 3,
+        "cod-text-list-items": 5,
+        "cod-text-list-nesting-max": 2,
+        "cod-text-ordered-ratio": 0.2,
+        "cod-text-checkboxes": 2,
+        "cod-text-code-lines": 1,
+        "cod-text-quote-lines": 1,
+        "cod-text-link-count": 1,
+        "cod-text-link-domains": [
+          "docs.example.org"
+        ],
+        "cod-text-code-languages": [
+          "json"
+        ],
+        "cod-text-table-headers": [
+          "metric",
+          "value",
+          "note"
+        ],
+        "cod-text-bracket-balance": 1
+      },
+      "expected_absent_fields": [],
+      "notes": "由主代理依据固定模板生成；v2 子代理因清单体积误解停止，未自行写入文件。"
+    },
+    {
+      "path": "02-observation-log.txt",
+      "archetype": "timestamp-log",
+      "bytes": 767,
+      "sha256": "eab62e8ce0cd9f79db5eb35c8020a0819cdb3c0ccc09b3453ccab64776cc2581",
+      "marker": "SEARCH_DOMAIN_BIOLOGY_OBSERVATION-LOG_2026",
+      "purpose": "验证时间戳日志与精确重复行",
+      "expected_coverage": [
+        "cod-text-top-keywords",
+        "cod-text-time-span"
+      ],
+      "expect": {
+        "cod-text-lines": 9,
+        "cod-text-timestamp-count": 8,
+        "cod-text-time-span": 30,
+        "cod-text-timestamp-line-ratio": 1,
+        "cod-text-repeat-line-ratio": 0.25,
+        "cod-text-url-count": 1,
+        "cod-text-email-count": 1,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": [
+        "cod-text-shebang",
+        "cod-text-headings",
+        "cod-text-structure"
+      ],
+      "notes": "由主代理依据固定模板生成；v2 子代理因清单体积误解停止，未自行写入文件。"
+    },
+    {
+      "path": "03-collaboration-chat.txt",
+      "archetype": "social-chat",
+      "bytes": 623,
+      "sha256": "492b467c0f927b11968651ca1c63bc3114cfd05ce80bddfb8026d5079ba52db2",
+      "marker": "SEARCH_DOMAIN_BIOLOGY_COLLABORATION-CHAT_2026",
+      "purpose": "验证混合语言聊天与社交标记",
+      "expected_coverage": [
+        "cod-text-top-keywords",
+        "cod-text-time-span"
+      ],
+      "expect": {
+        "cod-text-lines": 7,
+        "cod-text-language": "mixed",
+        "cod-text-timestamp-count": 6,
+        "cod-text-time-span": 120,
+        "cod-text-timestamp-line-ratio": 0,
+        "cod-text-mention-count": 6,
+        "cod-text-hashtag-count": 2,
+        "cod-text-emoji-count": 4,
+        "cod-text-url-count": 1,
+        "cod-text-email-count": 1,
+        "cod-text-link-count": 1,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": [
+        "cod-text-shebang",
+        "cod-text-headings",
+        "cod-text-structure"
+      ],
+      "notes": "由主代理依据固定模板生成；v2 子代理因清单体积误解停止，未自行写入文件。"
+    },
+    {
+      "path": "04-records.csv",
+      "archetype": "regular-csv",
+      "bytes": 362,
+      "sha256": "d0bc3dbe2e942cc04ef86b64f7c10d73fff90d8766e93e8149b85adbabab5bd7",
+      "marker": "SEARCH_DOMAIN_BIOLOGY_RECORDS_2026",
+      "purpose": "验证规则 CSV 与括号配平",
+      "expected_coverage": [
+        "cod-text-top-keywords",
+        "cod-text-bracket-balance"
+      ],
+      "expect": {
+        "cod-text-lines": 7,
+        "cod-text-language": "mixed",
+        "cod-text-title-line": "id,domain,metric,value,note",
+        "cod-text-bracket-balance": 1,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": [
+        "cod-text-table-headers",
+        "cod-text-structure",
+        "cod-text-shebang"
+      ],
+      "notes": "由主代理依据固定模板生成；v2 子代理因清单体积误解停止，未自行写入文件。"
+    },
+    {
+      "path": "05-records-broken.csv",
+      "archetype": "broken-csv",
+      "bytes": 261,
+      "sha256": "d077ea9b8d67e1a613e1ee0386b45244e92a9bedf74ff2437749db12f1b34d43",
+      "marker": "SEARCH_DOMAIN_BIOLOGY_RECORDS-BROKEN_2026",
+      "purpose": "验证损坏 CSV 列数与括号失衡",
+      "expected_coverage": [
+        "cod-text-bracket-balance"
+      ],
+      "expect": {
+        "cod-text-lines": 6,
+        "cod-text-title-line": "id,domain,metric,value,note",
+        "cod-text-bracket-balance": 0,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": [
+        "cod-text-table-headers",
+        "cod-text-structure",
+        "cod-text-shebang"
+      ],
+      "notes": "由主代理依据固定模板生成；v2 子代理因清单体积误解停止，未自行写入文件。"
+    },
+    {
+      "path": "06-minified.json",
+      "archetype": "minified-json",
+      "bytes": 1239,
+      "sha256": "92072f85e4d337037767550b57813b5389eb6173a71607c59a922bffc7864017",
+      "marker": "SEARCH_DOMAIN_BIOLOGY_MINIFIED_2026",
+      "purpose": "验证单行压缩 JSON 与长行边界",
+      "expected_coverage": [
+        "cod-text-bracket-balance"
+      ],
+      "expect": {
+        "cod-text-lines": 1,
+        "cod-text-language": "en",
+        "cod-text-minified": true,
+        "cod-text-eol": "none",
+        "cod-text-final-newline": false,
+        "cod-text-bracket-balance": 1
+      },
+      "expected_absent_fields": [
+        "cod-text-headings",
+        "cod-text-structure",
+        "cod-text-shebang"
+      ],
+      "notes": "由主代理依据固定模板生成；v2 子代理因清单体积误解停止，未自行写入文件。"
+    },
+    {
+      "path": "07-boundary.txt",
+      "archetype": "mixed-eol-boundary",
+      "bytes": 333,
+      "sha256": "5c43a1cc97f7b7f220bc9a68c605d4d54405f3a883cba639c6893c9868f3249c",
+      "marker": "SEARCH_DOMAIN_BIOLOGY_BOUNDARY_2026",
+      "purpose": "验证混合行尾与连续空行",
+      "expected_coverage": [],
+      "expect": {
+        "cod-text-lines": 5,
+        "cod-text-blank-ratio": 0.4,
+        "cod-text-consecutive-blank-max": 2,
+        "cod-text-trailing-space-lines": 2,
+        "cod-text-eol": "mixed",
+        "cod-text-final-newline": false
+      },
+      "expected_absent_fields": [
+        "cod-text-shebang",
+        "cod-text-headings",
+        "cod-text-structure"
+      ],
+      "notes": "由主代理依据固定模板生成；v2 子代理因清单体积误解停止，未自行写入文件。"
+    },
+    {
+      "path": "08-long-index.md",
+      "archetype": "domain-special",
+      "bytes": 2785,
+      "sha256": "179493981d81eae0e04ce006e01285741147b30e8bf127aeacbfa7c21c727b46",
+      "marker": "SEARCH_DOMAIN_BIOLOGY_SPECIAL_2026",
+      "purpose": "验证生物专用变体",
+      "expected_coverage": [
+        "cod-text-headings",
+        "cod-text-structure",
+        "cod-text-link-domains",
+        "cod-text-link-domains-truncated",
+        "cod-text-code-languages",
+        "cod-text-code-languages-truncated",
+        "cod-text-section-paths",
+        "cod-text-section-paths-truncated",
+        "cod-text-table-headers",
+        "cod-text-table-headers-truncated"
+      ],
+      "expect": {
+        "cod-text-table-blocks": 1,
+        "cod-text-table-rows": 3,
+        "cod-text-table-cols": 31,
+        "cod-text-link-domains-truncated": true,
+        "cod-text-code-languages-truncated": true,
+        "cod-text-section-paths-truncated": true,
+        "cod-text-table-headers-truncated": true,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": [],
+      "notes": "由主代理依据固定模板生成；v2 子代理因清单体积误解停止，未自行写入文件。"
+    },
+    {
+      "path": "09-pseudo-table.md",
+      "archetype": "pseudo-table-negative",
+      "bytes": 362,
+      "sha256": "96ae28f90cd5d504c1f7ad89b1ab8b6d466320bd05a6f664ebe28f8eb8ed47f2",
+      "marker": "SEARCH_DOMAIN_BIOLOGY_PSEUDO-TABLE_2026",
+      "purpose": "验证伪表格负例与逐单元格换行",
+      "expected_coverage": [],
+      "expect": {
+        "cod-text-lines": 21,
+        "cod-text-language": "mixed",
+        "cod-text-title-line": "序号",
+        "cod-text-table-blocks": 0,
+        "cod-text-table-rows": 0,
+        "cod-text-table-cols": 0,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": [
+        "cod-text-table-headers",
+        "cod-text-structure",
+        "cod-text-headings",
+        "cod-text-shebang"
+      ],
+      "notes": "由主代理依据固定模板生成；v2 子代理因清单体积误解停止，未自行写入文件。"
+    }
+  ]
+}

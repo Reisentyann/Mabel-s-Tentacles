@@ -1,0 +1,20 @@
+序号
+领域
+指标
+数值
+说明
+1
+geology
+stratum
+2
+地层年代台账已核对，并保留一条用于字段回查的完整中文说明。
+2
+geology
+fault
+5
+SEARCH_DOMAIN_GEOLOGY_PSEUDO-TABLE_2026 断层活动材料已归档，并保留原始记录顺序。
+3
+geology
+mineral
+8
+矿物鉴定与火山喷发记录已复核，最后一行以中文句号结束。

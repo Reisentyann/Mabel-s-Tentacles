@@ -1,0 +1,20 @@
+序号
+领域
+指标
+数值
+说明
+1
+oceanography
+current
+2
+洋流方向台账已核对，并保留一条用于字段回查的完整中文说明。
+2
+oceanography
+tide
+5
+SEARCH_DOMAIN_OCEANOGRAPHY_PSEUDO-TABLE_2026 潮汐周期材料已归档，并保留原始记录顺序。
+3
+oceanography
+salinity
+8
+盐度分布与深海探测记录已复核，最后一行以中文句号结束。

@@ -1,5 +1,5 @@
 // 文件：manager-go/modify.go —— 既有文件的追加、覆盖与原子替换
-// 修改：2026-10-09（日期由 fresh-header.ps1 刷新）
+// 修改：2026-11-28（日期由 fresh-header.ps1 刷新）
 
 package manager
 
@@ -42,9 +42,6 @@ func (m *Manager) modifyRef(ctx context.Context, ref *FileRef, content, mode str
 	logicPath := ref.Path
 	if err := validLogicPath(logicPath); err != nil {
 		return err
-	}
-	if len(content) > maxIntakeBytes {
-		return fmt.Errorf("security error: file content exceeds 5MB limit")
 	}
 	if mode != "append" && mode != "overwrite" {
 		return fmt.Errorf("error: invalid mode '%s', must be 'append' or 'overwrite'", mode)

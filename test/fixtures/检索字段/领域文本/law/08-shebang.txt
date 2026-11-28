@@ -1,0 +1,8 @@
+#!/usr/bin/env law-notes
+SEARCH_DOMAIN_LAW_SPECIAL_2026
+FRANCHISE LAW NOTE: The franchise register lists the approved transit route.
+WETLAND LAW NOTE: The wetland permit file records the boat review.
+CHARGING LAW NOTE: The charging inspection marks the corridor risk.
+SORTING LAW NOTE: The sorting ledger separates four waste groups.
+LEGAL REVIEW NOTE: Each franchise term points to a dated source.
+RETRIEVAL NOTE: The wetland and charging records share one case identifier.

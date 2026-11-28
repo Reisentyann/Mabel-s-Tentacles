@@ -1,0 +1,270 @@
+{
+  "cod-domain": "geology",
+  "cod-domain-name": "地质学",
+  "cod-encoding": "UTF-8",
+  "cod-bom": false,
+  "cod-file-count": 8,
+  "cod-topics": [
+    "地层年代",
+    "断层活动",
+    "矿物鉴定",
+    "火山喷发"
+  ],
+  "files": [
+    {
+      "path": "01-report.md",
+      "bytes": 11563,
+      "sha256": "fc35ac590aed16fde077b4453a3987c8f060b331345c54f09b70e263ee525572",
+      "marker": "SEARCH_LONG_GEOLOGY_REPORT_2026",
+      "purpose": "验证frontmatter、多级标题、嵌套列表、表格、引用、JSON围栏与链接的联合检索，覆盖地质学的四个主题",
+      "expected_fields": [
+        "cod-marker",
+        "cod-topic-count",
+        "cod-frontmatter",
+        "cod-h1-count",
+        "cod-h2-count",
+        "cod-nested-list",
+        "cod-table-data-rows",
+        "cod-blockquote-count",
+        "cod-json-fence-count",
+        "cod-markdown-link-count"
+      ],
+      "expect": {
+        "cod-marker": "SEARCH_LONG_GEOLOGY_REPORT_2026",
+        "cod-topic-count": 4,
+        "cod-frontmatter": true,
+        "cod-h1-count": 1,
+        "cod-h2-count": 5,
+        "cod-nested-list": true,
+        "cod-table-data-rows": 4,
+        "cod-blockquote-count": 1,
+        "cod-json-fence-count": 1,
+        "cod-markdown-link-count": 1
+      },
+      "expected_absent_fields": [
+        "cod-chat-mention",
+        "cod-broken-csv-columns",
+        "cod-minified-json"
+      ]
+    },
+    {
+      "path": "02-observation-log.txt",
+      "bytes": 8465,
+      "sha256": "d1f867473ddd4b9b7f689da19c1427c80f0bede5c003ed11b390f3cfe0322073",
+      "marker": "SEARCH_LONG_GEOLOGY_OBSERVATION_LOG_2026",
+      "purpose": "验证八行ISO时间戳、重复末行、URL与email的长文本索引，覆盖地质学的四个主题",
+      "expected_fields": [
+        "cod-marker",
+        "cod-topic-count",
+        "cod-line-count",
+        "cod-iso-timestamp-count",
+        "cod-last-two-lines-identical",
+        "cod-url-count",
+        "cod-email-count"
+      ],
+      "expect": {
+        "cod-marker": "SEARCH_LONG_GEOLOGY_OBSERVATION_LOG_2026",
+        "cod-topic-count": 4,
+        "cod-line-count": 8,
+        "cod-iso-timestamp-count": 8,
+        "cod-last-two-lines-identical": true,
+        "cod-url-count": 1,
+        "cod-email-count": 1
+      },
+      "expected_absent_fields": [
+        "cod-frontmatter",
+        "cod-markdown-table",
+        "cod-markdown-link"
+      ]
+    },
+    {
+      "path": "03-collaboration-chat.txt",
+      "bytes": 6720,
+      "sha256": "4f4823b5f5cafb202308fb46221f24f4e7bf3b3c0339d6ccc7453484baa7df89",
+      "marker": "SEARCH_LONG_GEOLOGY_COLLABORATION_CHAT_2026",
+      "purpose": "验证六行方括号时间戳、mention、hashtag、emoji与链接提取，覆盖地质学的四个主题",
+      "expected_fields": [
+        "cod-marker",
+        "cod-topic-count",
+        "cod-line-count",
+        "cod-bracket-timestamp-count",
+        "cod-mention-count",
+        "cod-hashtag-line-count",
+        "cod-emoji-count",
+        "cod-url-count",
+        "cod-email-count",
+        "cod-markdown-link-count"
+      ],
+      "expect": {
+        "cod-marker": "SEARCH_LONG_GEOLOGY_COLLABORATION_CHAT_2026",
+        "cod-topic-count": 4,
+        "cod-line-count": 6,
+        "cod-bracket-timestamp-count": 6,
+        "cod-mention-count": 7,
+        "cod-hashtag-line-count": 2,
+        "cod-emoji-count": 4,
+        "cod-url-count": 2,
+        "cod-email-count": 1,
+        "cod-markdown-link-count": 1
+      },
+      "expected_absent_fields": [
+        "cod-frontmatter",
+        "cod-json-object",
+        "cod-csv-header"
+      ]
+    },
+    {
+      "path": "04-records.csv",
+      "bytes": 5656,
+      "sha256": "079e25456bca50ae5cf17521460c0e1fcf10a61b40dfaafa9379d80ca4caabde",
+      "marker": "SEARCH_LONG_GEOLOGY_RECORDS_2026",
+      "purpose": "验证五列表头与五条完整CSV数据记录，覆盖地质学的四个主题",
+      "expected_fields": [
+        "cod-marker",
+        "cod-topic-count",
+        "cod-line-count",
+        "cod-header-column-count",
+        "cod-data-row-count",
+        "cod-data-column-counts"
+      ],
+      "expect": {
+        "cod-marker": "SEARCH_LONG_GEOLOGY_RECORDS_2026",
+        "cod-topic-count": 4,
+        "cod-line-count": 6,
+        "cod-header-column-count": 5,
+        "cod-data-row-count": 5,
+        "cod-data-column-counts": [
+          5,
+          5,
+          5,
+          5,
+          5
+        ]
+      },
+      "expected_absent_fields": [
+        "cod-chat-mention",
+        "cod-json-object",
+        "cod-code-fence"
+      ]
+    },
+    {
+      "path": "05-records-broken.csv",
+      "bytes": 5395,
+      "sha256": "cc5dba7e1680d1bc05ee295326dd139db1edc2dd5f4489e672e2edb8ca54dbff",
+      "marker": "SEARCH_LONG_GEOLOGY_RECORDS_BROKEN_2026",
+      "purpose": "验证3/5/2/4列残缺CSV且全文没有右括号，覆盖地质学的四个主题",
+      "expected_fields": [
+        "cod-marker",
+        "cod-topic-count",
+        "cod-line-count",
+        "cod-column-counts",
+        "cod-right-parenthesis-count"
+      ],
+      "expect": {
+        "cod-marker": "SEARCH_LONG_GEOLOGY_RECORDS_BROKEN_2026",
+        "cod-topic-count": 4,
+        "cod-line-count": 4,
+        "cod-column-counts": [
+          3,
+          5,
+          2,
+          4
+        ],
+        "cod-right-parenthesis-count": 0
+      },
+      "expected_absent_fields": [
+        "cod-csv-header",
+        "cod-right-parenthesis",
+        "cod-frontmatter"
+      ]
+    },
+    {
+      "path": "06-minified.json",
+      "bytes": 5560,
+      "sha256": "cd5624c84574c8c949617de05cdec00b64f4ec3018c69b8aea78c6adeee096fc",
+      "marker": "SEARCH_LONG_GEOLOGY_MINIFIED_JSON_2026",
+      "purpose": "验证单行合法JSON、无末尾换行及超长rune计数，覆盖地质学的四个主题",
+      "expected_fields": [
+        "cod-marker",
+        "cod-topic-count",
+        "cod-line-count",
+        "cod-json-valid",
+        "cod-rune-count",
+        "cod-trailing-newline"
+      ],
+      "expect": {
+        "cod-marker": "SEARCH_LONG_GEOLOGY_MINIFIED_JSON_2026",
+        "cod-topic-count": 4,
+        "cod-line-count": 1,
+        "cod-json-valid": true,
+        "cod-rune-count": 2936,
+        "cod-trailing-newline": false
+      },
+      "expected_absent_fields": [
+        "cod-frontmatter",
+        "cod-markdown-table",
+        "cod-chat-mention"
+      ]
+    },
+    {
+      "path": "07-boundary.txt",
+      "bytes": 8192,
+      "sha256": "548ce6c83f35c6e61bc909cfabb63188da12d181741ef71cbef1d103ad1f7439",
+      "marker": "SEARCH_LONG_GEOLOGY_BOUNDARY_2026",
+      "purpose": "验证CRLF与LF混用、连续空行和末尾无换行，覆盖地质学的四个主题",
+      "expected_fields": [
+        "cod-marker",
+        "cod-topic-count",
+        "cod-has-crlf",
+        "cod-has-lf",
+        "cod-trailing-newline",
+        "cod-max-consecutive-empty-lines"
+      ],
+      "expect": {
+        "cod-marker": "SEARCH_LONG_GEOLOGY_BOUNDARY_2026",
+        "cod-topic-count": 4,
+        "cod-has-crlf": true,
+        "cod-has-lf": true,
+        "cod-trailing-newline": false,
+        "cod-max-consecutive-empty-lines": 2
+      },
+      "expected_absent_fields": [
+        "cod-frontmatter",
+        "cod-csv-header",
+        "cod-json-object"
+      ]
+    },
+    {
+      "path": "08-special.md",
+      "bytes": 22773,
+      "sha256": "9271b1993362e646f84b0f938a6d94999f9f5742b51a168477004290be7c73a3",
+      "marker": "SEARCH_LONG_GEOLOGY_SPECIAL_2026",
+      "purpose": "验证三十一个唯一H2、URL、空代码围栏与表格行，覆盖地质学的四个主题",
+      "expected_fields": [
+        "cod-marker",
+        "cod-topic-count",
+        "cod-h2-count",
+        "cod-unique-h2-count",
+        "cod-url-count",
+        "cod-unique-url-count",
+        "cod-empty-code-fence-count",
+        "cod-table-data-rows"
+      ],
+      "expect": {
+        "cod-marker": "SEARCH_LONG_GEOLOGY_SPECIAL_2026",
+        "cod-topic-count": 4,
+        "cod-h2-count": 31,
+        "cod-unique-h2-count": 31,
+        "cod-url-count": 31,
+        "cod-unique-url-count": 31,
+        "cod-empty-code-fence-count": 31,
+        "cod-table-data-rows": 31
+      },
+      "expected_absent_fields": [
+        "cod-frontmatter",
+        "cod-chat-mention",
+        "cod-csv-header"
+      ]
+    }
+  ]
+}

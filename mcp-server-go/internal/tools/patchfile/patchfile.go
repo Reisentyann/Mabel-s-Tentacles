@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/patchfile/patchfile.go —— MCP 工具 patch_file：基于唯一锚点文本的微创局部替换
-// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
+// 修改：2026-11-28（日期由 fresh-header.ps1 刷新）
 
 package patchfile
 
@@ -19,6 +19,8 @@ import (
 func init() {
 	tools.Register(register)
 }
+
+const maxPatchReadBytes = 10 << 20
 
 func register(s *server.MCPServer, deps tools.Deps) {
 	tool := mcp.NewTool("patch_file",
@@ -80,11 +82,17 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		}
 
 		// 读取当前文件内容（10MB 上限）
-		rf, err := deps.Manager.ReadByLogic(ctx, key, 10*1024*1024)
+		rf, err := deps.Manager.ReadByLogic(ctx, key, maxPatchReadBytes)
 		if err != nil {
 			slog.Error("patch_file read failed", "path", key, "session", sessionID, "error", err, "duration", time.Since(start).String())
 			tools.RecordOperation(ctx, deps.Store, sessionID, "patch_file", key, "failed", err.Error(), params)
 			return tools.ResultError("failed to read file: " + err.Error()), nil
+		}
+		if int64(len(rf.Content)) < rf.SizeBytes {
+			msg := fmt.Sprintf("patch_file supports files up to %d bytes; use a streaming editor for larger files", maxPatchReadBytes)
+			slog.Warn("patch_file file too large", "path", key, "session", sessionID, "size", rf.SizeBytes, "duration", time.Since(start).String())
+			tools.RecordOperation(ctx, deps.Store, sessionID, "patch_file", key, "failed", msg, params)
+			return tools.ResultError(msg), nil
 		}
 
 		original := string(rf.Content)

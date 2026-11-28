@@ -1,0 +1,320 @@
+{
+  "schema_version": 1,
+  "domain_id": "geology",
+  "domain_name": "地质",
+  "path_base": ".",
+  "generated_by": "subagent:domain-batch-earth-sky-v2",
+  "files": [
+    {
+      "path": "01-report.md",
+      "archetype": "markdown-report",
+      "bytes": 632,
+      "sha256": "9009562ddb2213d31fdfef402f92e00f78ed365a3a96f4d434bd3172c0af6186",
+      "marker": "SEARCH_DOMAIN_GEOLOGY_REPORT_2026",
+      "purpose": "验证 Markdown 报告、公共覆盖与结构字段",
+      "expected_coverage": [
+        "cod-basic-textish",
+        "cod-basic-mime",
+        "cod-basic-name-pattern",
+        "cod-basic-entropy",
+        "cod-text-at",
+        "cod-text-ver",
+        "cod-text-partial",
+        "cod-text-encoding",
+        "cod-text-lines",
+        "cod-text-chars",
+        "cod-text-cjk-ratio",
+        "cod-text-language",
+        "cod-text-title-line",
+        "cod-text-final-newline",
+        "cod-text-non-ascii-ratio",
+        "cod-text-upper-ratio",
+        "cod-text-word-count",
+        "cod-text-avg-word-len",
+        "cod-text-blank-ratio",
+        "cod-text-table-blocks",
+        "cod-text-table-rows",
+        "cod-text-table-cols",
+        "cod-text-list-items",
+        "cod-text-list-nesting-max",
+        "cod-text-code-lines",
+        "cod-text-quote-lines",
+        "cod-text-checkboxes",
+        "cod-text-indent-max",
+        "cod-text-trailing-space-lines",
+        "cod-text-consecutive-blank-max",
+        "cod-text-indent-style",
+        "cod-text-avg-line-len",
+        "cod-text-line-len-std",
+        "cod-text-digit-ratio",
+        "cod-text-timestamp-count",
+        "cod-text-repeat-line-ratio",
+        "cod-text-paragraphs",
+        "cod-text-avg-para-len",
+        "cod-text-sentences",
+        "cod-text-avg-sent-len",
+        "cod-text-dialog-ratio",
+        "cod-text-punct-density",
+        "cod-text-char-diversity",
+        "cod-text-url-count",
+        "cod-text-email-count",
+        "cod-text-mention-count",
+        "cod-text-hashtag-count",
+        "cod-text-emoji-count",
+        "cod-text-link-count",
+        "cod-text-eol",
+        "cod-text-has-bom",
+        "cod-text-longest-line",
+        "cod-text-minified",
+        "cod-text-timestamp-line-ratio",
+        "cod-text-top-keywords",
+        "cod-text-headings",
+        "cod-text-structure",
+        "cod-text-ordered-ratio",
+        "cod-text-link-domains",
+        "cod-text-link-domains-truncated",
+        "cod-text-code-languages",
+        "cod-text-code-languages-truncated",
+        "cod-text-section-paths",
+        "cod-text-section-paths-truncated",
+        "cod-text-table-headers",
+        "cod-text-table-headers-truncated",
+        "cod-text-bracket-balance"
+      ],
+      "expect": {
+        "cod-text-structure": [
+          "frontmatter",
+          "lists",
+          "code-blocks",
+          "tables",
+          "headings"
+        ],
+        "cod-text-table-blocks": 1,
+        "cod-text-table-rows": 3,
+        "cod-text-table-cols": 3,
+        "cod-text-list-items": 5,
+        "cod-text-list-nesting-max": 2,
+        "cod-text-ordered-ratio": 0.2,
+        "cod-text-checkboxes": 2,
+        "cod-text-code-lines": 1,
+        "cod-text-quote-lines": 1,
+        "cod-text-link-count": 1,
+        "cod-text-link-domains": [
+          "docs.example.org"
+        ],
+        "cod-text-code-languages": [
+          "json"
+        ],
+        "cod-text-table-headers": [
+          "metric",
+          "value",
+          "note"
+        ],
+        "cod-text-bracket-balance": 1
+      },
+      "expected_absent_fields": []
+    },
+    {
+      "path": "02-observation-log.txt",
+      "archetype": "timestamp-log",
+      "bytes": 770,
+      "sha256": "dc64d41a362cf4adb1fb4e587678651061f1c904df4db246e552b1ba09c738fd",
+      "marker": "SEARCH_DOMAIN_GEOLOGY_OBSERVATION-LOG_2026",
+      "purpose": "验证时间戳日志与精确重复行",
+      "expected_coverage": [
+        "cod-text-top-keywords",
+        "cod-text-time-span"
+      ],
+      "expect": {
+        "cod-text-lines": 9,
+        "cod-text-timestamp-count": 8,
+        "cod-text-time-span": 30,
+        "cod-text-timestamp-line-ratio": 1,
+        "cod-text-repeat-line-ratio": 0.25,
+        "cod-text-url-count": 1,
+        "cod-text-email-count": 1,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": [
+        "cod-text-shebang",
+        "cod-text-headings",
+        "cod-text-structure"
+      ]
+    },
+    {
+      "path": "03-collaboration-chat.txt",
+      "archetype": "social-chat",
+      "bytes": 633,
+      "sha256": "f7c91e7614a2717a53b17efbadc1fcca8a3202d38accecdc90fe35b5418261a6",
+      "marker": "SEARCH_DOMAIN_GEOLOGY_COLLABORATION-CHAT_2026",
+      "purpose": "验证混合语言聊天与社交标记",
+      "expected_coverage": [
+        "cod-text-top-keywords",
+        "cod-text-time-span"
+      ],
+      "expect": {
+        "cod-text-lines": 7,
+        "cod-text-language": "mixed",
+        "cod-text-timestamp-count": 6,
+        "cod-text-time-span": 120,
+        "cod-text-timestamp-line-ratio": 0,
+        "cod-text-mention-count": 6,
+        "cod-text-hashtag-count": 2,
+        "cod-text-emoji-count": 4,
+        "cod-text-url-count": 1,
+        "cod-text-email-count": 1,
+        "cod-text-link-count": 1,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": [
+        "cod-text-shebang",
+        "cod-text-headings",
+        "cod-text-structure"
+      ]
+    },
+    {
+      "path": "04-records.csv",
+      "archetype": "regular-csv",
+      "bytes": 366,
+      "sha256": "693ec02080437ae951ac50bac27dc0be83bd7d2617eee938bf0313d52ef36102",
+      "marker": "SEARCH_DOMAIN_GEOLOGY_RECORDS_2026",
+      "purpose": "验证规则 CSV 与括号配平",
+      "expected_coverage": [
+        "cod-text-top-keywords",
+        "cod-text-bracket-balance"
+      ],
+      "expect": {
+        "cod-text-lines": 7,
+        "cod-text-language": "mixed",
+        "cod-text-title-line": "id,domain,metric,value,note",
+        "cod-text-bracket-balance": 1,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": [
+        "cod-text-table-headers",
+        "cod-text-structure",
+        "cod-text-shebang"
+      ]
+    },
+    {
+      "path": "05-records-broken.csv",
+      "archetype": "broken-csv",
+      "bytes": 263,
+      "sha256": "baab3f3eb706c0c1fc0e78644b81872721b53504a2229217f81c46790b68795a",
+      "marker": "SEARCH_DOMAIN_GEOLOGY_RECORDS-BROKEN_2026",
+      "purpose": "验证损坏 CSV 列数与括号失衡",
+      "expected_coverage": [
+        "cod-text-bracket-balance"
+      ],
+      "expect": {
+        "cod-text-lines": 6,
+        "cod-text-title-line": "id,domain,metric,value,note",
+        "cod-text-bracket-balance": 0,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": [
+        "cod-text-table-headers",
+        "cod-text-structure",
+        "cod-text-shebang"
+      ]
+    },
+    {
+      "path": "06-minified.json",
+      "archetype": "minified-json",
+      "bytes": 1259,
+      "sha256": "cd268bc0fd949d2c3592bbe15f9ce2aae0981d8bbaf80084b77ef90c788539a2",
+      "marker": "SEARCH_DOMAIN_GEOLOGY_MINIFIED_2026",
+      "purpose": "验证单行压缩 JSON 与长行边界",
+      "expected_coverage": [
+        "cod-text-bracket-balance"
+      ],
+      "expect": {
+        "cod-text-lines": 1,
+        "cod-text-language": "en",
+        "cod-text-minified": true,
+        "cod-text-eol": "none",
+        "cod-text-final-newline": false,
+        "cod-text-bracket-balance": 1
+      },
+      "expected_absent_fields": [
+        "cod-text-headings",
+        "cod-text-structure",
+        "cod-text-shebang"
+      ]
+    },
+    {
+      "path": "07-boundary.txt",
+      "archetype": "mixed-eol-boundary",
+      "bytes": 335,
+      "sha256": "a413a83d30795ab6be20c68746c28a523a7396948d8471cead05028b805931e5",
+      "marker": "SEARCH_DOMAIN_GEOLOGY_BOUNDARY_2026",
+      "purpose": "验证混合行尾与连续空行",
+      "expected_coverage": [],
+      "expect": {
+        "cod-text-lines": 5,
+        "cod-text-blank-ratio": 0.4,
+        "cod-text-consecutive-blank-max": 2,
+        "cod-text-trailing-space-lines": 2,
+        "cod-text-eol": "mixed",
+        "cod-text-final-newline": false
+      },
+      "expected_absent_fields": [
+        "cod-text-shebang",
+        "cod-text-headings",
+        "cod-text-structure"
+      ]
+    },
+    {
+      "path": "08-glossary.md",
+      "archetype": "domain-special",
+      "bytes": 574,
+      "sha256": "37a164aa35f6ebbfdcc95df02633907df7e6af4bc946d108173afacbe554443a",
+      "marker": "SEARCH_DOMAIN_GEOLOGY_SPECIAL_2026",
+      "purpose": "验证领域专用变体",
+      "expected_coverage": [
+        "cod-text-top-keywords",
+        "cod-text-headings",
+        "cod-text-structure",
+        "cod-text-table-headers",
+        "cod-text-table-headers-truncated"
+      ],
+      "expect": {
+        "cod-text-language": "mixed",
+        "cod-text-table-blocks": 1,
+        "cod-text-table-rows": 3,
+        "cod-text-table-cols": 2,
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": []
+    },
+    {
+      "path": "09-pseudo-table.md",
+      "archetype": "pseudo-table-negative",
+      "bytes": 364,
+      "sha256": "a2dfb9e4c6f95f0557d53ae2310f1cf73fb581bafd52d13de34821487c7949e4",
+      "marker": "SEARCH_DOMAIN_GEOLOGY_PSEUDO-TABLE_2026",
+      "purpose": "验证伪表格负例与逐单元格换行",
+      "expected_coverage": [],
+      "expect": {
+        "cod-text-lines": 21,
+        "cod-text-language": "mixed",
+        "cod-text-title-line": "序号",
+        "cod-text-table-blocks": 0,
+        "cod-text-table-rows": 0,
+        "cod-text-table-cols": 0,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": [
+        "cod-text-table-headers",
+        "cod-text-structure",
+        "cod-text-headings",
+        "cod-text-shebang"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+序号
+领域
+指标
+数值
+说明
+1
+economics
+inflation
+2
+通货膨胀台账已核对，并保留一条用于字段回查的完整中文说明。
+2
+economics
+fiscal
+5
+SEARCH_DOMAIN_ECONOMICS_PSEUDO-TABLE_2026 财政收支材料已归档，并保留原始记录顺序。
+3
+economics
+market
+8
+市场指数与汇率变化记录已复核，最后一行以中文句号结束。

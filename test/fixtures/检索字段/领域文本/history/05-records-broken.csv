@@ -1,0 +1,5 @@
+id,domain,metric,value,note
+r1,history,dynasty (draft
+r2,history,artifact,approved,SEARCH_DOMAIN_HISTORY_RECORDS-BROKEN_2026 考古地层记录待修复，补充说明保留原始字段顺序并验证损坏行的列数边界。
+r3,archive
+r4,history,dating,pending

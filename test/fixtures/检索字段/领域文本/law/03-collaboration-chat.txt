@@ -1,0 +1,6 @@
+[2026-01-01T00:00:00] @law_editor “franchise 条款需要复核。” 😀 https://docs.example.org/law #franchise
+[2026-01-01T00:00:20] @wetland_officer “湿地许可材料已补齐。” 😊 wetland@example.org
+[2026-01-01T00:00:40] @charging_lead “楼道充电风险已记录。” 🧭 [办理指引](guide.html)
+[2026-01-01T00:01:00] @sorting_auditor “分类标识需要更新。” 📚 #sorting
+[2026-01-01T00:01:20] @transit_planner “公交线路数据已核对。” franchise 档案保持同步。
+[2026-01-01T00:02:00] @legal_reviewer “本轮法律检索完成。” marker=SEARCH_DOMAIN_LAW_COLLABORATION-CHAT_2026

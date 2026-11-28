@@ -1,0 +1,5 @@
+id,domain,metric,value,note
+r1,medicine,pressure (draft
+r2,medicine,dosage,approved,SEARCH_DOMAIN_MEDICINE_RECORDS-BROKEN_2026 药物代谢记录待修复，补充说明保留原始字段顺序并验证损坏行的列数边界。
+r3,epidemic
+r4,medicine,screening,pending

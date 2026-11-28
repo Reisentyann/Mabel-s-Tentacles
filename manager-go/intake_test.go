@@ -1,12 +1,14 @@
 // 文件：manager-go/intake_test.go —— 入库域 L1：新建重名保护、外部文件导入、修改与逻辑视图
-// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
+// 修改：2026-11-28（日期由 fresh-header.ps1 刷新）
 
 package manager_test
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -181,6 +183,161 @@ func TestImportFile(t *testing.T) {
 		t.Fatalf("stored import = %q", b)
 	}
 }
+
+func TestLargeWriteAndModify(t *testing.T) {
+	m, _, _, dir := newTestManager(t)
+	ctx := context.Background()
+	large := strings.Repeat("x", 5<<20+1)
+
+	written, err := m.WriteBytes(ctx, "large.bin", []byte(large))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if written.SizeBytes != int64(len(large)) {
+		t.Fatalf("write size = %d, want %d", written.SizeBytes, len(large))
+	}
+
+	if _, err := m.Write(ctx, "modified.txt", "start"); err != nil {
+		t.Fatal(err)
+	}
+	if err := m.Modify(ctx, "modified.txt", large, "append"); err != nil {
+		t.Fatal(err)
+	}
+	modified, err := m.ReadByLogic(ctx, "modified.txt", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(modified.Content) != len("start")+len(large) || !strings.HasSuffix(string(modified.Content), large) {
+		t.Fatalf("append result size = %d, want %d", len(modified.Content), len("start")+len(large))
+	}
+	if err := m.Modify(ctx, "modified.txt", large, "overwrite"); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(filepath.Join(dir, filepath.FromSlash(written.StorageRel)))
+	if err != nil || info.Size() != int64(len(large)) {
+		t.Fatalf("large write size = %v, err = %v", info, err)
+	}
+	modified, err = m.ReadByLogic(ctx, "modified.txt", 0)
+	if err != nil || string(modified.Content) != large {
+		t.Fatalf("overwrite result size = %d, err = %v", len(modified.Content), err)
+	}
+}
+
+func TestStreamingWriteAndCopyLargeFile(t *testing.T) {
+	m, _, _, _ := newTestManager(t)
+	ctx := context.Background()
+	const size = int64(5<<20 + 1)
+
+	wantHash := streamHash(t, largeTestReader(size))
+	written, err := m.WriteReader(ctx, "large.bin", largeTestReader(size))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if written.SizeBytes != size {
+		t.Fatalf("stream write size = %d, want %d", written.SizeBytes, size)
+	}
+	if got := storedHash(t, m, written.LogicPath); got != wantHash {
+		t.Fatalf("stream write hash = %x, want %x", got, wantHash)
+	}
+
+	copied, err := m.CopyByLogic(ctx, written.LogicPath, "copied.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if copied.SizeBytes != size || copied.UUID == written.UUID {
+		t.Fatalf("copy receipt = %+v", copied)
+	}
+	if got := storedHash(t, m, copied.LogicPath); got != wantHash {
+		t.Fatalf("copy hash = %x, want %x", got, wantHash)
+	}
+}
+
+func TestImportLargeFile(t *testing.T) {
+	m, _, _, _ := newTestManager(t)
+	ctx := context.Background()
+	const size = int64(5<<20 + 1)
+	source := filepath.Join(t.TempDir(), "large.bin")
+	f, err := os.Create(source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := io.CopyN(f, largeTestReader(size), size); err != nil {
+		f.Close()
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	imported, err := m.ImportFile(ctx, "imported.bin", source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantHash := streamHash(t, largeTestReader(size))
+	if imported.SizeBytes != size || storedHash(t, m, imported.LogicPath) != wantHash {
+		t.Fatalf("import receipt = %+v", imported)
+	}
+}
+
+type zeroReader struct{}
+
+func (zeroReader) Read(p []byte) (int, error) {
+	clear(p)
+	return len(p), nil
+}
+
+func largeTestReader(size int64) io.Reader {
+	return io.MultiReader(strings.NewReader("head"), io.LimitReader(zeroReader{}, size-8), strings.NewReader("tail"))
+}
+
+func streamHash(t *testing.T, r io.Reader) [sha256.Size]byte {
+	t.Helper()
+	h := sha256.New()
+	if _, err := io.Copy(h, r); err != nil {
+		t.Fatal(err)
+	}
+	var sum [sha256.Size]byte
+	copy(sum[:], h.Sum(nil))
+	return sum
+}
+
+func storedHash(t *testing.T, m *manager.Manager, logicPath string) [sha256.Size]byte {
+	t.Helper()
+	of, err := m.StreamByLogic(context.Background(), logicPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer of.Content.Close()
+	return streamHash(t, of.Content)
+}
+
+func TestWriteReaderFailureDoesNotPublish(t *testing.T) {
+	m, st, _, dir := newTestManager(t)
+	readErr := errors.New("injected read failure")
+	_, err := m.WriteReader(context.Background(), "failed.bin", io.MultiReader(strings.NewReader("partial"), failingReader{readErr}))
+	if !errors.Is(err, readErr) {
+		t.Fatalf("write error = %v", err)
+	}
+	if st.uuids["failed.bin"] != "" {
+		t.Fatal("failed intake still reserves the logic path")
+	}
+	matches, err := filepath.Glob(filepath.Join(dir, "*", "*.partial"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("partial evidence files = %v", matches)
+	}
+	for _, match := range matches {
+		if _, err := os.Stat(match[:len(match)-len(".partial")]); !os.IsNotExist(err) {
+			t.Fatalf("failed intake published a formal file: %v", err)
+		}
+	}
+}
+
+type failingReader struct{ err error }
+
+func (r failingReader) Read([]byte) (int, error) { return 0, r.err }
 
 func TestFailedIntakeReleasesName(t *testing.T) {
 	for _, importing := range []bool{false, true} {

@@ -1,0 +1,5 @@
+SEARCH_DOMAIN_GEOGRAPHY_BOUNDARY_2026 
+
+
+geography note: watershed, coastline, latitude, and terrain records use this boundary sample to verify exact carriage-return, line-feed, tab, and trailing-whitespace behavior.	
+The final economic boundary sentence remains open for review and deliberately omits a newline after the last visible character.

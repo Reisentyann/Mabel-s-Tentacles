@@ -1,0 +1,320 @@
+{
+  "schema_version": 1,
+  "domain_id": "education",
+  "domain_name": "教育",
+  "path_base": ".",
+  "generated_by": "subagent:HungerG",
+  "files": [
+    {
+      "path": "01-report.md",
+      "archetype": "markdown-report",
+      "bytes": 670,
+      "sha256": "89999e284def89f4e6173545995d647f4ad9f19bb2e472dbf647b59047684a41",
+      "marker": "SEARCH_DOMAIN_EDUCATION_REPORT_2026",
+      "purpose": "验证 Markdown 报告、公共覆盖与结构字段",
+      "expected_coverage": [
+        "cod-basic-textish",
+        "cod-basic-mime",
+        "cod-basic-name-pattern",
+        "cod-basic-entropy",
+        "cod-text-at",
+        "cod-text-ver",
+        "cod-text-partial",
+        "cod-text-encoding",
+        "cod-text-lines",
+        "cod-text-chars",
+        "cod-text-cjk-ratio",
+        "cod-text-language",
+        "cod-text-title-line",
+        "cod-text-final-newline",
+        "cod-text-non-ascii-ratio",
+        "cod-text-upper-ratio",
+        "cod-text-word-count",
+        "cod-text-avg-word-len",
+        "cod-text-blank-ratio",
+        "cod-text-table-blocks",
+        "cod-text-table-rows",
+        "cod-text-table-cols",
+        "cod-text-list-items",
+        "cod-text-list-nesting-max",
+        "cod-text-code-lines",
+        "cod-text-quote-lines",
+        "cod-text-checkboxes",
+        "cod-text-indent-max",
+        "cod-text-trailing-space-lines",
+        "cod-text-consecutive-blank-max",
+        "cod-text-indent-style",
+        "cod-text-avg-line-len",
+        "cod-text-line-len-std",
+        "cod-text-digit-ratio",
+        "cod-text-timestamp-count",
+        "cod-text-repeat-line-ratio",
+        "cod-text-paragraphs",
+        "cod-text-avg-para-len",
+        "cod-text-sentences",
+        "cod-text-avg-sent-len",
+        "cod-text-dialog-ratio",
+        "cod-text-punct-density",
+        "cod-text-char-diversity",
+        "cod-text-url-count",
+        "cod-text-email-count",
+        "cod-text-mention-count",
+        "cod-text-hashtag-count",
+        "cod-text-emoji-count",
+        "cod-text-link-count",
+        "cod-text-eol",
+        "cod-text-has-bom",
+        "cod-text-longest-line",
+        "cod-text-minified",
+        "cod-text-timestamp-line-ratio",
+        "cod-text-top-keywords",
+        "cod-text-headings",
+        "cod-text-structure",
+        "cod-text-ordered-ratio",
+        "cod-text-link-domains",
+        "cod-text-link-domains-truncated",
+        "cod-text-code-languages",
+        "cod-text-code-languages-truncated",
+        "cod-text-section-paths",
+        "cod-text-section-paths-truncated",
+        "cod-text-table-headers",
+        "cod-text-table-headers-truncated",
+        "cod-text-bracket-balance"
+      ],
+      "expect": {
+        "cod-text-structure": [
+          "frontmatter",
+          "lists",
+          "code-blocks",
+          "tables",
+          "headings"
+        ],
+        "cod-text-table-blocks": 1,
+        "cod-text-table-rows": 3,
+        "cod-text-table-cols": 3,
+        "cod-text-list-items": 5,
+        "cod-text-list-nesting-max": 2,
+        "cod-text-ordered-ratio": 0.2,
+        "cod-text-checkboxes": 2,
+        "cod-text-code-lines": 1,
+        "cod-text-quote-lines": 1,
+        "cod-text-link-count": 1,
+        "cod-text-link-domains": [
+          "docs.example.org"
+        ],
+        "cod-text-code-languages": [
+          "json"
+        ],
+        "cod-text-table-headers": [
+          "metric",
+          "value",
+          "note"
+        ],
+        "cod-text-bracket-balance": 1
+      },
+      "expected_absent_fields": []
+    },
+    {
+      "path": "02-observation-log.txt",
+      "archetype": "timestamp-log",
+      "bytes": 777,
+      "sha256": "24b111636c4febc79475b82ad0a3243d65e8042c1782acd4d923755261154e6a",
+      "marker": "SEARCH_DOMAIN_EDUCATION_OBSERVATION-LOG_2026",
+      "purpose": "验证时间戳日志与精确重复行",
+      "expected_coverage": [
+        "cod-text-top-keywords",
+        "cod-text-time-span"
+      ],
+      "expect": {
+        "cod-text-lines": 9,
+        "cod-text-timestamp-count": 8,
+        "cod-text-time-span": 30,
+        "cod-text-timestamp-line-ratio": 1,
+        "cod-text-repeat-line-ratio": 0.25,
+        "cod-text-url-count": 1,
+        "cod-text-email-count": 1,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": [
+        "cod-text-shebang",
+        "cod-text-headings",
+        "cod-text-structure"
+      ]
+    },
+    {
+      "path": "03-collaboration-chat.txt",
+      "archetype": "social-chat",
+      "bytes": 667,
+      "sha256": "1e6cd31ed2f5db440095c8c844358653164f808acf8a8ab9588f6c452f15eaf5",
+      "marker": "SEARCH_DOMAIN_EDUCATION_COLLABORATION-CHAT_2026",
+      "purpose": "验证混合语言聊天与社交标记",
+      "expected_coverage": [
+        "cod-text-top-keywords",
+        "cod-text-time-span"
+      ],
+      "expect": {
+        "cod-text-lines": 7,
+        "cod-text-language": "mixed",
+        "cod-text-timestamp-count": 6,
+        "cod-text-time-span": 120,
+        "cod-text-timestamp-line-ratio": 0,
+        "cod-text-mention-count": 6,
+        "cod-text-hashtag-count": 2,
+        "cod-text-emoji-count": 4,
+        "cod-text-url-count": 1,
+        "cod-text-email-count": 1,
+        "cod-text-link-count": 1,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": [
+        "cod-text-shebang",
+        "cod-text-headings",
+        "cod-text-structure"
+      ]
+    },
+    {
+      "path": "04-records.csv",
+      "archetype": "regular-csv",
+      "bytes": 392,
+      "sha256": "816a9b97ce9848d94f51c060ce4f213fe00962e3ccfcfe794bb1a818dc4b34f8",
+      "marker": "SEARCH_DOMAIN_EDUCATION_RECORDS_2026",
+      "purpose": "验证规则 CSV 与括号配平",
+      "expected_coverage": [
+        "cod-text-top-keywords",
+        "cod-text-bracket-balance"
+      ],
+      "expect": {
+        "cod-text-lines": 7,
+        "cod-text-language": "mixed",
+        "cod-text-title-line": "id,domain,metric,value,note",
+        "cod-text-bracket-balance": 1,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": [
+        "cod-text-table-headers",
+        "cod-text-structure",
+        "cod-text-shebang"
+      ]
+    },
+    {
+      "path": "05-records-broken.csv",
+      "archetype": "broken-csv",
+      "bytes": 278,
+      "sha256": "3bfd6408d0fd34695e5672bec4b0fd8f6b19b11fc290b3975f3fb55db7d7ebf3",
+      "marker": "SEARCH_DOMAIN_EDUCATION_RECORDS-BROKEN_2026",
+      "purpose": "验证损坏 CSV 列数与括号失衡",
+      "expected_coverage": [
+        "cod-text-bracket-balance"
+      ],
+      "expect": {
+        "cod-text-lines": 6,
+        "cod-text-title-line": "id,domain,metric,value,note",
+        "cod-text-bracket-balance": 0,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": [
+        "cod-text-table-headers",
+        "cod-text-structure",
+        "cod-text-shebang"
+      ]
+    },
+    {
+      "path": "06-minified.json",
+      "archetype": "minified-json",
+      "bytes": 1363,
+      "sha256": "aa0b8fbc1bddd10dfcdc9d45c9b1d97a1023bb31255faf39616704749322a786",
+      "marker": "SEARCH_DOMAIN_EDUCATION_MINIFIED_2026",
+      "purpose": "验证单行压缩 JSON 与长行边界",
+      "expected_coverage": [
+        "cod-text-bracket-balance"
+      ],
+      "expect": {
+        "cod-text-lines": 1,
+        "cod-text-language": "en",
+        "cod-text-minified": true,
+        "cod-text-eol": "none",
+        "cod-text-final-newline": false,
+        "cod-text-bracket-balance": 1
+      },
+      "expected_absent_fields": [
+        "cod-text-headings",
+        "cod-text-structure",
+        "cod-text-shebang"
+      ]
+    },
+    {
+      "path": "07-boundary.txt",
+      "archetype": "mixed-eol-boundary",
+      "bytes": 347,
+      "sha256": "2d9c1701f57c6048d7095ec11bf18bcffea2d2e99f0b930244c34bd756395503",
+      "marker": "SEARCH_DOMAIN_EDUCATION_BOUNDARY_2026",
+      "purpose": "验证混合行尾与连续空行",
+      "expected_coverage": [],
+      "expect": {
+        "cod-text-lines": 5,
+        "cod-text-blank-ratio": 0.4,
+        "cod-text-consecutive-blank-max": 2,
+        "cod-text-trailing-space-lines": 2,
+        "cod-text-eol": "mixed",
+        "cod-text-final-newline": false
+      },
+      "expected_absent_fields": [
+        "cod-text-shebang",
+        "cod-text-headings",
+        "cod-text-structure"
+      ]
+    },
+    {
+      "path": "08-glossary.md",
+      "archetype": "domain-special",
+      "bytes": 616,
+      "sha256": "68488a3d15e047a851a2456a09f5de88f6f0bc0142a3258fda546e97a419261f",
+      "marker": "SEARCH_DOMAIN_EDUCATION_SPECIAL_2026",
+      "purpose": "验证领域专用变体",
+      "expected_coverage": [
+        "cod-text-top-keywords",
+        "cod-text-headings",
+        "cod-text-structure",
+        "cod-text-table-headers",
+        "cod-text-table-headers-truncated"
+      ],
+      "expect": {
+        "cod-text-language": "mixed",
+        "cod-text-table-blocks": 1,
+        "cod-text-table-rows": 3,
+        "cod-text-table-cols": 2,
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": []
+    },
+    {
+      "path": "09-pseudo-table.md",
+      "archetype": "pseudo-table-negative",
+      "bytes": 382,
+      "sha256": "644a738e15130e5a7c00649b6f8052812e4e26d5127ba6df141ddc92c5e1d098",
+      "marker": "SEARCH_DOMAIN_EDUCATION_PSEUDO-TABLE_2026",
+      "purpose": "验证伪表格负例与逐单元格换行",
+      "expected_coverage": [],
+      "expect": {
+        "cod-text-lines": 21,
+        "cod-text-language": "mixed",
+        "cod-text-title-line": "序号",
+        "cod-text-table-blocks": 0,
+        "cod-text-table-rows": 0,
+        "cod-text-table-cols": 0,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": [
+        "cod-text-table-headers",
+        "cod-text-structure",
+        "cod-text-headings",
+        "cod-text-shebang"
+      ]
+    }
+  ]
+}

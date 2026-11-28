@@ -1,0 +1,5 @@
+id,domain,metric,value,note
+r1,astronomy,lunar (draft
+r2,astronomy,eclipse,approved,SEARCH_DOMAIN_ASTRONOMY_RECORDS-BROKEN_2026 火星逆行记录待修复，补充说明保留原始字段顺序并验证损坏行的列数边界。
+r3,parallax
+r4,astronomy,redshift,pending

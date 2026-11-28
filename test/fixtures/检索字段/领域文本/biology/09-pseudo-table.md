@@ -1,0 +1,20 @@
+序号
+领域
+指标
+数值
+说明
+1
+biology
+cell
+2
+细胞结构台账已核对，并保留一条用于字段回查的完整中文说明。
+2
+biology
+genome
+5
+SEARCH_DOMAIN_BIOLOGY_PSEUDO-TABLE_2026 遗传规律材料已归档，并保留原始记录顺序。
+3
+biology
+ecology
+8
+生态系统与物种观察记录已复核，最后一行以中文句号结束。

@@ -1,0 +1,203 @@
+{
+  "domain": "economics",
+  "encoding": "UTF-8",
+  "bom": false,
+  "topics": [
+    "通货膨胀",
+    "财政收支",
+    "市场指数",
+    "汇率变化"
+  ],
+  "files": [
+    {
+      "path": "01-report.md",
+      "bytes": 20960,
+      "sha256": "72116091dbdcc7d9e46c34967ee54c2e3790e55277d0a729ddc45d1cc22a5743",
+      "marker": "SEARCH_LONG_economics_REPORT_2026",
+      "purpose": "验证frontmatter、多级标题、嵌套列表、表格、引用、JSON代码块与链接的联合检索。",
+      "cod-topic": "cod-通货膨胀 | 财政收支 | 市场指数 | 汇率变化",
+      "cod-marker": "cod-SEARCH_LONG_economics_REPORT_2026",
+      "cod-objects": "cod-价格采价篮子 | 预算执行台账 | 指数样本组 | 汇率观察序列",
+      "cod-units": "cod-采价日 | 预算科目 | 指数周期 | 报价窗口",
+      "cod-keywords": "cod-inflation fiscal market exchange index budget rate",
+      "expect": {
+        "cod-encoding": "cod-UTF-8",
+        "cod-bom": "cod-absent",
+        "cod-frontmatter": "cod-present",
+        "cod-h1-count": "cod-1",
+        "cod-h2-count": "cod-5",
+        "cod-nested-list": "cod-present",
+        "cod-table": "cod-present",
+        "cod-blockquote": "cod-present",
+        "cod-json-fence": "cod-present",
+        "cod-link": "cod-https://example.invalid/economics/inflation"
+      },
+      "expected_absent_fields": []
+    },
+    {
+      "path": "02-observation-log.txt",
+      "bytes": 6314,
+      "sha256": "8345ec4a0b97495c68089cef17878e73ece8b3285ce6585e6e7042911a105e85",
+      "marker": "SEARCH_LONG_economics_OBSERVATION_LOG_2026",
+      "purpose": "验证恰好八条时间戳观察记录、末两条重复、URL与email定位。",
+      "cod-topic": "cod-通货膨胀 | 财政收支 | 市场指数 | 汇率变化",
+      "cod-marker": "cod-SEARCH_LONG_economics_OBSERVATION_LOG_2026",
+      "cod-objects": "cod-价格采价篮子 | 预算执行台账 | 指数样本组 | 汇率观察序列",
+      "cod-units": "cod-采价日 | 预算科目 | 指数周期 | 报价窗口",
+      "cod-keywords": "cod-inflation fiscal market exchange index budget rate",
+      "expect": {
+        "cod-encoding": "cod-UTF-8",
+        "cod-bom": "cod-absent",
+        "cod-line-count": "cod-8",
+        "cod-iso-timestamp-count": "cod-8",
+        "cod-last-lines-equal": "cod-true",
+        "cod-url-count": "cod-1",
+        "cod-url": "cod-https://example.invalid/economics/inflation/archive",
+        "cod-email-count": "cod-1",
+        "cod-email": "cod-prices@example.invalid"
+      },
+      "expected_absent_fields": []
+    },
+    {
+      "path": "03-collaboration-chat.txt",
+      "bytes": 5220,
+      "sha256": "d936cbb02ee4b474670642cbcf7b60e511f036b8e0d2ccea5ddf5f24270b4355",
+      "marker": "SEARCH_LONG_economics_COLLABORATION_CHAT_2026",
+      "purpose": "验证六条方括号时间戳协作消息、mention、hashtag、emoji及三种链接。",
+      "cod-topic": "cod-通货膨胀 | 财政收支 | 市场指数 | 汇率变化",
+      "cod-marker": "cod-SEARCH_LONG_economics_COLLABORATION_CHAT_2026",
+      "cod-objects": "cod-价格采价篮子 | 预算执行台账 | 指数样本组 | 汇率观察序列",
+      "cod-units": "cod-采价日 | 预算科目 | 指数周期 | 报价窗口",
+      "cod-keywords": "cod-inflation fiscal market exchange index budget rate",
+      "expect": {
+        "cod-encoding": "cod-UTF-8",
+        "cod-bom": "cod-absent",
+        "cod-line-count": "cod-6",
+        "cod-bracket-timestamp-count": "cod-6",
+        "cod-mention-count": "cod-9",
+        "cod-hashtag-count": "cod-2",
+        "cod-hashtags": "cod-检索字段 | cod-长文本",
+        "cod-emoji-count": "cod-4",
+        "cod-emoji": "cod-🔎 | cod-📌 | cod-✅ | cod-🧭",
+        "cod-url-count": "cod-1",
+        "cod-url": "cod-https://example.invalid/economics/inflation/handoff",
+        "cod-email-count": "cod-1",
+        "cod-email": "cod-rates@example.invalid",
+        "cod-markdown-link": "cod-[字段约定](https://example.invalid/economics/inflation/fields)"
+      },
+      "expected_absent_fields": []
+    },
+    {
+      "path": "04-records.csv",
+      "bytes": 8512,
+      "sha256": "6796c6c4fc5995c16642b873b7befe2415d1a50a9e0ca84cd2f0219ad8b9a48c",
+      "marker": "SEARCH_LONG_economics_RECORDS_2026",
+      "purpose": "验证标准五列表头、五条数据行与UTF-8中文长字段。",
+      "cod-topic": "cod-通货膨胀 | 财政收支 | 市场指数 | 汇率变化",
+      "cod-marker": "cod-SEARCH_LONG_economics_RECORDS_2026",
+      "cod-objects": "cod-价格采价篮子 | 预算执行台账 | 指数样本组 | 汇率观察序列",
+      "cod-units": "cod-采价日 | 预算科目 | 指数周期 | 报价窗口",
+      "cod-keywords": "cod-inflation fiscal market exchange index budget rate",
+      "expect": {
+        "cod-encoding": "cod-UTF-8",
+        "cod-bom": "cod-absent",
+        "cod-row-count": "cod-6",
+        "cod-column-count": "cod-5",
+        "cod-header": "cod-record_id,topic,object,metric,note",
+        "cod-marker-line": "cod-marker=SEARCH_LONG_economics_RECORDS_2026"
+      },
+      "expected_absent_fields": []
+    },
+    {
+      "path": "05-records-broken.csv",
+      "bytes": 9451,
+      "sha256": "ca7d9c21dd06149b2744899a23c6786056dc2819f28083642afd3a011543c804",
+      "marker": "SEARCH_LONG_economics_BROKEN_RECORDS_2026",
+      "purpose": "验证3/5/2/4列破损CSV的容错检索，并确认右括号缺失。",
+      "cod-topic": "cod-通货膨胀 | 财政收支 | 市场指数 | 汇率变化",
+      "cod-marker": "cod-SEARCH_LONG_economics_BROKEN_RECORDS_2026",
+      "cod-objects": "cod-价格采价篮子 | 预算执行台账 | 指数样本组 | 汇率观察序列",
+      "cod-units": "cod-采价日 | 预算科目 | 指数周期 | 报价窗口",
+      "cod-keywords": "cod-inflation fiscal market exchange index budget rate",
+      "expect": {
+        "cod-encoding": "cod-UTF-8",
+        "cod-bom": "cod-absent",
+        "cod-row-count": "cod-5",
+        "cod-data-column-counts": "cod-3 | cod-5 | cod-2 | cod-4",
+        "cod-marker-line": "cod-marker=SEARCH_LONG_economics_BROKEN_RECORDS_2026",
+        "cod-right-parenthesis-count": "cod-0"
+      },
+      "expected_absent_fields": []
+    },
+    {
+      "path": "06-minified.json",
+      "bytes": 15759,
+      "sha256": "8e1acbaaea5a202e42869a779b85aa89965214df0490e5312356bfcb900fb368",
+      "marker": "SEARCH_LONG_economics_MINIFIED_JSON_2026",
+      "purpose": "验证单行合法JSON、无末尾换行、超长Unicode字段与嵌套对象。",
+      "cod-topic": "cod-通货膨胀 | 财政收支 | 市场指数 | 汇率变化",
+      "cod-marker": "cod-SEARCH_LONG_economics_MINIFIED_JSON_2026",
+      "cod-objects": "cod-价格采价篮子 | 预算执行台账 | 指数样本组 | 汇率观察序列",
+      "cod-units": "cod-采价日 | 预算科目 | 指数周期 | 报价窗口",
+      "cod-keywords": "cod-inflation fiscal market exchange index budget rate",
+      "expect": {
+        "cod-encoding": "cod-UTF-8",
+        "cod-bom": "cod-absent",
+        "cod-line-count": "cod-1",
+        "cod-json-valid": "cod-true",
+        "cod-trailing-newline": "cod-absent",
+        "cod-rune-count-gt": "cod-1000"
+      },
+      "expected_absent_fields": []
+    },
+    {
+      "path": "07-boundary.txt",
+      "bytes": 13344,
+      "sha256": "da4bd14898ee69efb6d79f70580a5ad3129d2610066dd3dae1e3df4683ed5525",
+      "marker": "SEARCH_LONG_economics_BOUNDARY_2026",
+      "purpose": "验证混合换行、连续空行与无末尾换行的边界保留。",
+      "cod-topic": "cod-通货膨胀 | 财政收支 | 市场指数 | 汇率变化",
+      "cod-marker": "cod-SEARCH_LONG_economics_BOUNDARY_2026",
+      "cod-objects": "cod-价格采价篮子 | 预算执行台账 | 指数样本组 | 汇率观察序列",
+      "cod-units": "cod-采价日 | 预算科目 | 指数周期 | 报价窗口",
+      "cod-keywords": "cod-inflation fiscal market exchange index budget rate",
+      "expect": {
+        "cod-encoding": "cod-UTF-8",
+        "cod-bom": "cod-absent",
+        "cod-crlf": "cod-present",
+        "cod-lf": "cod-present",
+        "cod-cr": "cod-present",
+        "cod-consecutive-empty-lines": "cod-present",
+        "cod-trailing-newline": "cod-absent"
+      },
+      "expected_absent_fields": []
+    },
+    {
+      "path": "08-special.md",
+      "bytes": 21994,
+      "sha256": "6d84675c5534245adbeb8e8aa21a0206a3801fe13210d939fbb2a2dcc62dbfec",
+      "marker": "SEARCH_LONG_economics_SPECIAL_2026",
+      "purpose": "验证三十一个唯一H2、URL、空代码围栏与表格结构。",
+      "cod-topic": "cod-通货膨胀 | 财政收支 | 市场指数 | 汇率变化",
+      "cod-marker": "cod-SEARCH_LONG_economics_SPECIAL_2026",
+      "cod-objects": "cod-价格采价篮子 | 预算执行台账 | 指数样本组 | 汇率观察序列",
+      "cod-units": "cod-采价日 | 预算科目 | 指数周期 | 报价窗口",
+      "cod-keywords": "cod-inflation fiscal market exchange index budget rate",
+      "expect": {
+        "cod-encoding": "cod-UTF-8",
+        "cod-bom": "cod-absent",
+        "cod-h2-count": "cod-31",
+        "cod-h2-unique-count": "cod-31",
+        "cod-url-count": "cod-31",
+        "cod-url-unique-count": "cod-31",
+        "cod-empty-code-fence-count": "cod-31",
+        "cod-table-count": "cod-31"
+      },
+      "expected_absent_fields": [
+        "cod-duplicate-h2",
+        "cod-duplicate-url",
+        "cod-nonempty-code-fence"
+      ]
+    }
+  ]
+}

@@ -6,8 +6,10 @@
 ## 2. 目录结构
 - `init.sql`: 包含建表语句、索引创建、初始角色或触发器定义等原生 SQL 脚本。
 
-## 3. 架构优化建议 (Optimization Analysis)
-对于现代的复杂应用来说，完全依赖 `init.sql` 并非长久之计。建议在数据库管理流程上进行如下优化：
-1. **采用 Alembic 进行版本迁移**: 后端采用了 SQLAlchemy，强烈建议摒弃 `init.sql` 这种一次性的建表方式，转而使用 Alembic 工具（已在后端 requirements.txt 中列出）。将所有的表结构定义转化为可追溯的迁移脚本 (`migration versions`)。这样可以在保留现有数据的情况下安全地跟踪和部署表结构变更。
-2. **种子数据自动化 (Seed Scripts)**: 目前的 SQL 初始化不利于开发环境和生产环境的数据隔离。建议引入基于 Python 的 Seed 脚本（例如在后端项目中编写 `scripts/seed_data.py`），用于在开发环境中一键生成测试用户或默认业务配置项，而不去污染纯粹的结构 SQL。
-3. **权限最小化原则**: 在生产环境中，当前脚本一般以 `postgres` 超级用户权限运行并使用默认库。建议增加更为细粒度的角色授权逻辑，为业务微服务（如 Backend、MCP-Server）单独分配只具备 DML 和特定 DDL 权限的服务专用账号。
+## 3. 初始化与 schema 演进
+
+- **新环境**：PostgreSQL 容器首次初始化时执行 `init.sql`，建立基础表与索引。
+- **已有环境**：Go 后端启动时由 `mcp-server-go/internal/repo` 执行幂等迁移，包括 `CREATE TABLE IF NOT EXISTS` 和 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`，不再使用 Python/SQLAlchemy/Alembic。
+- **新增结构**：同步维护 `init.sql` 的全新环境基线和 repo 中已有环境的升级语句，并补充对应迁移测试。
+- **初始账号**：由后端启动流程按配置创建管理员，不使用 Python Seed 脚本。
+- **权限最小化**：生产环境应使用仅具备业务所需 DML/DDL 权限的数据库账号，避免应用使用超级用户。

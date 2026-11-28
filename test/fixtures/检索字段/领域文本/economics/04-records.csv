@@ -1,0 +1,6 @@
+id,domain,metric,value,note
+E01,economics,inflation,(12),inflation 物价观察档案已核对。
+E02,economics,fiscal,(8),fiscal 财政收支材料已归档。
+E03,economics,market,(5),market 指数成份记录已登记。
+E04,economics,exchange,(9),exchange 汇率变化台账已更新。
+E05,economics,review,(3),SEARCH_DOMAIN_ECONOMICS_RECORDS_2026 经济检索样本已校验。

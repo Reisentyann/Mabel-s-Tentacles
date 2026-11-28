@@ -1,0 +1,5 @@
+id,domain,metric,value,note
+r1,meteorology,front (draft
+r2,meteorology,pressure,approved,SEARCH_DOMAIN_METEOROLOGY_RECORDS-BROKEN_2026 气压变化记录待修复，补充说明保留原始字段顺序并验证损坏行的列数边界。
+r3,typhoon
+r4,meteorology,rainfall,pending

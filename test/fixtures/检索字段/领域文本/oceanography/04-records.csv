@@ -1,0 +1,6 @@
+id,domain,metric,value,note
+E01,oceanography,current,(12),current 洋流方向档案已核对。
+E02,oceanography,tide,(8),tide 潮汐周期材料已归档。
+E03,oceanography,salinity,(5),salinity 盐度分布记录已登记。
+E04,oceanography,abyss,(9),abyss 深海探测台账已更新。
+E05,oceanography,review,(3),SEARCH_DOMAIN_OCEANOGRAPHY_RECORDS_2026 海洋检索样本已校验。

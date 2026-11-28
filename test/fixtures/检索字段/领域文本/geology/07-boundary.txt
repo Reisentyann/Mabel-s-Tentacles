@@ -1,0 +1,5 @@
+SEARCH_DOMAIN_GEOLOGY_BOUNDARY_2026 
+
+
+geology note: stratum, fault, mineral, and volcano records use this boundary sample to verify exact carriage-return, line-feed, tab, and trailing-whitespace behavior.	
+The final economic boundary sentence remains open for review and deliberately omits a newline after the last visible character.

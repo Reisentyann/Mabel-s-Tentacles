@@ -1,0 +1,203 @@
+{
+  "domain": "education",
+  "encoding": "UTF-8",
+  "bom": false,
+  "topics": [
+    "课程设计",
+    "学习评价",
+    "课堂观察",
+    "考试分析"
+  ],
+  "files": [
+    {
+      "path": "01-report.md",
+      "bytes": 21234,
+      "sha256": "dac4d4b8f2bb417998d2a18a83180cf8f6e92c57f3d30856671d25f1f2758146",
+      "marker": "SEARCH_LONG_education_REPORT_2026",
+      "purpose": "验证frontmatter、多级标题、嵌套列表、表格、引用、JSON代码块与链接的联合检索。",
+      "cod-topic": "cod-课程设计 | 学习评价 | 课堂观察 | 考试分析",
+      "cod-marker": "cod-SEARCH_LONG_education_REPORT_2026",
+      "cod-objects": "cod-单元学习任务 | 表现性评价量规 | 课堂观察表 | 试卷双向细目表",
+      "cod-units": "cod-学习单元 | 评价任务 | 观察时段 | 题目编号",
+      "cod-keywords": "cod-curriculum assessment classroom exam learning evaluation",
+      "expect": {
+        "cod-encoding": "cod-UTF-8",
+        "cod-bom": "cod-absent",
+        "cod-frontmatter": "cod-present",
+        "cod-h1-count": "cod-1",
+        "cod-h2-count": "cod-5",
+        "cod-nested-list": "cod-present",
+        "cod-table": "cod-present",
+        "cod-blockquote": "cod-present",
+        "cod-json-fence": "cod-present",
+        "cod-link": "cod-https://example.invalid/education/course-design"
+      },
+      "expected_absent_fields": []
+    },
+    {
+      "path": "02-observation-log.txt",
+      "bytes": 6478,
+      "sha256": "316692a72d18aedf8d51f23cb126a3f67586659ac29d426db4833ace40463c16",
+      "marker": "SEARCH_LONG_education_OBSERVATION_LOG_2026",
+      "purpose": "验证恰好八条时间戳观察记录、末两条重复、URL与email定位。",
+      "cod-topic": "cod-课程设计 | 学习评价 | 课堂观察 | 考试分析",
+      "cod-marker": "cod-SEARCH_LONG_education_OBSERVATION_LOG_2026",
+      "cod-objects": "cod-单元学习任务 | 表现性评价量规 | 课堂观察表 | 试卷双向细目表",
+      "cod-units": "cod-学习单元 | 评价任务 | 观察时段 | 题目编号",
+      "cod-keywords": "cod-curriculum assessment classroom exam learning evaluation",
+      "expect": {
+        "cod-encoding": "cod-UTF-8",
+        "cod-bom": "cod-absent",
+        "cod-line-count": "cod-8",
+        "cod-iso-timestamp-count": "cod-8",
+        "cod-last-lines-equal": "cod-true",
+        "cod-url-count": "cod-1",
+        "cod-url": "cod-https://example.invalid/education/course-design/archive",
+        "cod-email-count": "cod-1",
+        "cod-email": "cod-curriculum@example.invalid"
+      },
+      "expected_absent_fields": []
+    },
+    {
+      "path": "03-collaboration-chat.txt",
+      "bytes": 5320,
+      "sha256": "ec6ca9f9e7c6a22234344e1fc30c694b972e2330e8fd39b2da7b47779969c43c",
+      "marker": "SEARCH_LONG_education_COLLABORATION_CHAT_2026",
+      "purpose": "验证六条方括号时间戳协作消息、mention、hashtag、emoji及三种链接。",
+      "cod-topic": "cod-课程设计 | 学习评价 | 课堂观察 | 考试分析",
+      "cod-marker": "cod-SEARCH_LONG_education_COLLABORATION_CHAT_2026",
+      "cod-objects": "cod-单元学习任务 | 表现性评价量规 | 课堂观察表 | 试卷双向细目表",
+      "cod-units": "cod-学习单元 | 评价任务 | 观察时段 | 题目编号",
+      "cod-keywords": "cod-curriculum assessment classroom exam learning evaluation",
+      "expect": {
+        "cod-encoding": "cod-UTF-8",
+        "cod-bom": "cod-absent",
+        "cod-line-count": "cod-6",
+        "cod-bracket-timestamp-count": "cod-6",
+        "cod-mention-count": "cod-9",
+        "cod-hashtag-count": "cod-2",
+        "cod-hashtags": "cod-检索字段 | cod-长文本",
+        "cod-emoji-count": "cod-4",
+        "cod-emoji": "cod-🔎 | cod-📌 | cod-✅ | cod-🧭",
+        "cod-url-count": "cod-1",
+        "cod-url": "cod-https://example.invalid/education/course-design/handoff",
+        "cod-email-count": "cod-1",
+        "cod-email": "cod-assessment@example.invalid",
+        "cod-markdown-link": "cod-[字段约定](https://example.invalid/education/course-design/fields)"
+      },
+      "expected_absent_fields": []
+    },
+    {
+      "path": "04-records.csv",
+      "bytes": 8686,
+      "sha256": "ed977a46366b3cef897c9ba3951b33e036650ee5fb74f6e6be3224abe8d4d596",
+      "marker": "SEARCH_LONG_education_RECORDS_2026",
+      "purpose": "验证标准五列表头、五条数据行与UTF-8中文长字段。",
+      "cod-topic": "cod-课程设计 | 学习评价 | 课堂观察 | 考试分析",
+      "cod-marker": "cod-SEARCH_LONG_education_RECORDS_2026",
+      "cod-objects": "cod-单元学习任务 | 表现性评价量规 | 课堂观察表 | 试卷双向细目表",
+      "cod-units": "cod-学习单元 | 评价任务 | 观察时段 | 题目编号",
+      "cod-keywords": "cod-curriculum assessment classroom exam learning evaluation",
+      "expect": {
+        "cod-encoding": "cod-UTF-8",
+        "cod-bom": "cod-absent",
+        "cod-row-count": "cod-6",
+        "cod-column-count": "cod-5",
+        "cod-header": "cod-record_id,topic,object,metric,note",
+        "cod-marker-line": "cod-marker=SEARCH_LONG_education_RECORDS_2026"
+      },
+      "expected_absent_fields": []
+    },
+    {
+      "path": "05-records-broken.csv",
+      "bytes": 9589,
+      "sha256": "12e09e803d0af74f6ca1a93206196a8e3296622123873fd5165204867b774918",
+      "marker": "SEARCH_LONG_education_BROKEN_RECORDS_2026",
+      "purpose": "验证3/5/2/4列破损CSV的容错检索，并确认右括号缺失。",
+      "cod-topic": "cod-课程设计 | 学习评价 | 课堂观察 | 考试分析",
+      "cod-marker": "cod-SEARCH_LONG_education_BROKEN_RECORDS_2026",
+      "cod-objects": "cod-单元学习任务 | 表现性评价量规 | 课堂观察表 | 试卷双向细目表",
+      "cod-units": "cod-学习单元 | 评价任务 | 观察时段 | 题目编号",
+      "cod-keywords": "cod-curriculum assessment classroom exam learning evaluation",
+      "expect": {
+        "cod-encoding": "cod-UTF-8",
+        "cod-bom": "cod-absent",
+        "cod-row-count": "cod-5",
+        "cod-data-column-counts": "cod-3 | cod-5 | cod-2 | cod-4",
+        "cod-marker-line": "cod-marker=SEARCH_LONG_education_BROKEN_RECORDS_2026",
+        "cod-right-parenthesis-count": "cod-0"
+      },
+      "expected_absent_fields": []
+    },
+    {
+      "path": "06-minified.json",
+      "bytes": 16083,
+      "sha256": "ff08e75b0cffa463043df0c68cb2924a935f53aa63be73975eee88b11ddb6594",
+      "marker": "SEARCH_LONG_education_MINIFIED_JSON_2026",
+      "purpose": "验证单行合法JSON、无末尾换行、超长Unicode字段与嵌套对象。",
+      "cod-topic": "cod-课程设计 | 学习评价 | 课堂观察 | 考试分析",
+      "cod-marker": "cod-SEARCH_LONG_education_MINIFIED_JSON_2026",
+      "cod-objects": "cod-单元学习任务 | 表现性评价量规 | 课堂观察表 | 试卷双向细目表",
+      "cod-units": "cod-学习单元 | 评价任务 | 观察时段 | 题目编号",
+      "cod-keywords": "cod-curriculum assessment classroom exam learning evaluation",
+      "expect": {
+        "cod-encoding": "cod-UTF-8",
+        "cod-bom": "cod-absent",
+        "cod-line-count": "cod-1",
+        "cod-json-valid": "cod-true",
+        "cod-trailing-newline": "cod-absent",
+        "cod-rune-count-gt": "cod-1000"
+      },
+      "expected_absent_fields": []
+    },
+    {
+      "path": "07-boundary.txt",
+      "bytes": 13467,
+      "sha256": "ff66a79d8201e4c337d413f3908718819e61b33e74effe49110a38b3675a5154",
+      "marker": "SEARCH_LONG_education_BOUNDARY_2026",
+      "purpose": "验证混合换行、连续空行与无末尾换行的边界保留。",
+      "cod-topic": "cod-课程设计 | 学习评价 | 课堂观察 | 考试分析",
+      "cod-marker": "cod-SEARCH_LONG_education_BOUNDARY_2026",
+      "cod-objects": "cod-单元学习任务 | 表现性评价量规 | 课堂观察表 | 试卷双向细目表",
+      "cod-units": "cod-学习单元 | 评价任务 | 观察时段 | 题目编号",
+      "cod-keywords": "cod-curriculum assessment classroom exam learning evaluation",
+      "expect": {
+        "cod-encoding": "cod-UTF-8",
+        "cod-bom": "cod-absent",
+        "cod-crlf": "cod-present",
+        "cod-lf": "cod-present",
+        "cod-cr": "cod-present",
+        "cod-consecutive-empty-lines": "cod-present",
+        "cod-trailing-newline": "cod-absent"
+      },
+      "expected_absent_fields": []
+    },
+    {
+      "path": "08-special.md",
+      "bytes": 22234,
+      "sha256": "230e5ed0cdcacb8af97d8e1a4ae39bd213ad38d912e341cb748872d83a939665",
+      "marker": "SEARCH_LONG_education_SPECIAL_2026",
+      "purpose": "验证三十一个唯一H2、URL、空代码围栏与表格结构。",
+      "cod-topic": "cod-课程设计 | 学习评价 | 课堂观察 | 考试分析",
+      "cod-marker": "cod-SEARCH_LONG_education_SPECIAL_2026",
+      "cod-objects": "cod-单元学习任务 | 表现性评价量规 | 课堂观察表 | 试卷双向细目表",
+      "cod-units": "cod-学习单元 | 评价任务 | 观察时段 | 题目编号",
+      "cod-keywords": "cod-curriculum assessment classroom exam learning evaluation",
+      "expect": {
+        "cod-encoding": "cod-UTF-8",
+        "cod-bom": "cod-absent",
+        "cod-h2-count": "cod-31",
+        "cod-h2-unique-count": "cod-31",
+        "cod-url-count": "cod-31",
+        "cod-url-unique-count": "cod-31",
+        "cod-empty-code-fence-count": "cod-31",
+        "cod-table-count": "cod-31"
+      },
+      "expected_absent_fields": [
+        "cod-duplicate-h2",
+        "cod-duplicate-url",
+        "cod-nonempty-code-fence"
+      ]
+    }
+  ]
+}

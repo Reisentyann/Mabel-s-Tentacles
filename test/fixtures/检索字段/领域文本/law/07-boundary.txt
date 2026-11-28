@@ -1,0 +1,5 @@
+SEARCH_DOMAIN_LAW_BOUNDARY_2026 
+
+
+law note: franchise, wetland, charging, and sorting records use this boundary sample to verify exact carriage-return, line-feed, tab, and trailing-whitespace behavior.	
+The final legal boundary sentence remains open for review and deliberately omits a newline after the last visible character.

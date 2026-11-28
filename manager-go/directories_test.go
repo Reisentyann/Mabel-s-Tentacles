@@ -1,5 +1,5 @@
 // 文件：manager-go/directories_test.go —— UUID 目录测试：同名不串件、空目录、导出权限与半文件恢复
-// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-11-28（日期由 fresh-header.ps1 刷新）
 
 package manager_test
 
@@ -107,6 +107,27 @@ func TestUUIDDirectoryMoveAndCopySameNames(t *testing.T) {
 	items, err := m.ListDirectory(ctx, "~alice/dest")
 	if err != nil || len(items) != 3 {
 		t.Fatalf("items=%v err=%v", items, err)
+	}
+}
+
+func TestCopyInDirectoryLargeFile(t *testing.T) {
+	st := &atomicDirectoryTestStore{&directoryTestStore{fakeStore: newFakeStore(), links: map[string][]manager.DirectoryEntry{}}}
+	st.dirs["~alice"] = true
+	st.dirs["~alice/dest"] = true
+	m := manager.New(st, t.TempDir(), nil, nil, manager.DownloadConfig{})
+	ctx := context.Background()
+	const size = int64(5<<20 + 1)
+
+	source, err := m.WriteReader(ctx, "~alice/source.bin", io.LimitReader(zeroReader{}, size))
+	if err != nil {
+		t.Fatal(err)
+	}
+	copied, err := m.CopyInDirectory(ctx, source.UUID, "~alice/dest", "large.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if copied.SizeBytes != size || copied.UUID == source.UUID || st.rows[copied.LogicPath].CopiedFrom != source.LogicPath {
+		t.Fatalf("copy receipt = %+v", copied)
 	}
 }
 

@@ -1,12 +1,11 @@
 // 文件：mcp-server-go/internal/api/metadata.go —— 元数据端点：搜索 / 查看元数据 / 描述（编排机同步入口）/ 复制（KindCopy 事件）
-// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
+// 修改：2026-11-28（日期由 fresh-header.ps1 刷新）
 
 package api
 
 import (
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -242,23 +241,14 @@ func (s *Server) copyFile(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "manager not wired")
 		return
 	}
-	of, err := s.manager.OpenByLogic(r.Context(), req.Source)
-	if err != nil {
-		writeError(w, http.StatusNotFound, err.Error())
-		return
-	}
-	content, rerr := io.ReadAll(of.Content)
-	of.Content.Close()
-	if rerr != nil {
-		writeError(w, http.StatusInternalServerError, rerr.Error())
-		return
-	}
-	copyReceipt, err := s.manager.Write(r.Context(), req.Target, string(content))
+	copyReceipt, err := s.manager.CopyByLogic(r.Context(), req.Source, req.Target)
 	if err != nil {
 		slog.Error("copy file failed", "method", r.Method, "path", r.URL.Path, "user", principalOf(r).Subject(), "source", req.Source, "target", req.Target, "error", err, "duration", time.Since(start).String())
 		status := http.StatusInternalServerError
 		if errors.Is(err, manager.ErrKeyExists) {
 			status = http.StatusConflict
+		} else if errors.Is(err, manager.ErrNotFound) || errors.Is(err, manager.ErrDeleted) || errors.Is(err, manager.ErrGhost) {
+			status = http.StatusNotFound
 		}
 		writeError(w, status, err.Error())
 		return

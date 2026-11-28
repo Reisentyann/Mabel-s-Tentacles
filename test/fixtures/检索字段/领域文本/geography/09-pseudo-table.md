@@ -1,0 +1,20 @@
+序号
+领域
+指标
+数值
+说明
+1
+geography
+watershed
+2
+河流流域台账已核对，并保留一条用于字段回查的完整中文说明。
+2
+geography
+coastline
+5
+SEARCH_DOMAIN_GEOGRAPHY_PSEUDO-TABLE_2026 海岸线变迁材料已归档，并保留原始记录顺序。
+3
+geography
+latitude
+8
+城市区位与地形剖面记录已复核，最后一行以中文句号结束。

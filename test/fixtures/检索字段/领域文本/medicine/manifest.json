@@ -1,0 +1,329 @@
+{
+  "schema_version": 1,
+  "domain_id": "medicine",
+  "domain_name": "医学健康",
+  "path_base": ".",
+  "generated_by": "subagent:domain-batch-life-ocean-v2",
+  "files": [
+    {
+      "path": "01-report.md",
+      "archetype": "markdown-report",
+      "bytes": 662,
+      "sha256": "aa5c5b04f598205017ed04188d1a7e48b3e97a951aa1c8fc2bd81f9aaada4a2f",
+      "marker": "SEARCH_DOMAIN_MEDICINE_REPORT_2026",
+      "purpose": "验证 Markdown 报告、批次字段覆盖与结构字段",
+      "expected_coverage": [
+        "cod-basic-textish",
+        "cod-basic-mime",
+        "cod-basic-name-pattern",
+        "cod-basic-entropy",
+        "cod-text-at",
+        "cod-text-ver",
+        "cod-text-partial",
+        "cod-text-encoding",
+        "cod-text-lines",
+        "cod-text-chars",
+        "cod-text-cjk-ratio",
+        "cod-text-language",
+        "cod-text-title-line",
+        "cod-text-final-newline",
+        "cod-text-non-ascii-ratio",
+        "cod-text-upper-ratio",
+        "cod-text-word-count",
+        "cod-text-avg-word-len",
+        "cod-text-blank-ratio",
+        "cod-text-table-blocks",
+        "cod-text-table-rows",
+        "cod-text-table-cols",
+        "cod-text-list-items",
+        "cod-text-list-nesting-max",
+        "cod-text-code-lines",
+        "cod-text-quote-lines",
+        "cod-text-checkboxes",
+        "cod-text-indent-max",
+        "cod-text-trailing-space-lines",
+        "cod-text-consecutive-blank-max",
+        "cod-text-indent-style",
+        "cod-text-avg-line-len",
+        "cod-text-line-len-std",
+        "cod-text-digit-ratio",
+        "cod-text-timestamp-count",
+        "cod-text-repeat-line-ratio",
+        "cod-text-paragraphs",
+        "cod-text-avg-para-len",
+        "cod-text-sentences",
+        "cod-text-avg-sent-len",
+        "cod-text-dialog-ratio",
+        "cod-text-punct-density",
+        "cod-text-char-diversity",
+        "cod-text-url-count",
+        "cod-text-email-count",
+        "cod-text-mention-count",
+        "cod-text-hashtag-count",
+        "cod-text-emoji-count",
+        "cod-text-link-count",
+        "cod-text-eol",
+        "cod-text-has-bom",
+        "cod-text-longest-line",
+        "cod-text-minified",
+        "cod-text-timestamp-line-ratio",
+        "cod-text-top-keywords",
+        "cod-text-headings",
+        "cod-text-structure",
+        "cod-text-ordered-ratio",
+        "cod-text-link-domains",
+        "cod-text-link-domains-truncated",
+        "cod-text-code-languages",
+        "cod-text-code-languages-truncated",
+        "cod-text-section-paths",
+        "cod-text-section-paths-truncated",
+        "cod-text-table-headers",
+        "cod-text-table-headers-truncated",
+        "cod-text-bracket-balance"
+      ],
+      "expect": {
+        "cod-text-structure": [
+          "frontmatter",
+          "lists",
+          "code-blocks",
+          "tables",
+          "headings"
+        ],
+        "cod-text-table-blocks": 1,
+        "cod-text-table-rows": 3,
+        "cod-text-table-cols": 3,
+        "cod-text-list-items": 5,
+        "cod-text-list-nesting-max": 2,
+        "cod-text-ordered-ratio": 0.2,
+        "cod-text-checkboxes": 2,
+        "cod-text-code-lines": 1,
+        "cod-text-quote-lines": 1,
+        "cod-text-link-count": 1,
+        "cod-text-link-domains": [
+          "docs.example.org"
+        ],
+        "cod-text-code-languages": [
+          "json"
+        ],
+        "cod-text-table-headers": [
+          "metric",
+          "value",
+          "note"
+        ],
+        "cod-text-bracket-balance": 1
+      },
+      "expected_absent_fields": [],
+      "notes": "由主代理依据固定模板生成；v2 子代理因清单体积误解停止，未自行写入文件。"
+    },
+    {
+      "path": "02-observation-log.txt",
+      "archetype": "timestamp-log",
+      "bytes": 782,
+      "sha256": "3064ef7730d0a533906e548ed91986487d7959894cf64217a6396e6193564f6a",
+      "marker": "SEARCH_DOMAIN_MEDICINE_OBSERVATION-LOG_2026",
+      "purpose": "验证时间戳日志与精确重复行",
+      "expected_coverage": [
+        "cod-text-top-keywords",
+        "cod-text-time-span"
+      ],
+      "expect": {
+        "cod-text-lines": 9,
+        "cod-text-timestamp-count": 8,
+        "cod-text-time-span": 30,
+        "cod-text-timestamp-line-ratio": 1,
+        "cod-text-repeat-line-ratio": 0.25,
+        "cod-text-url-count": 1,
+        "cod-text-email-count": 1,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": [
+        "cod-text-shebang",
+        "cod-text-headings",
+        "cod-text-structure"
+      ],
+      "notes": "由主代理依据固定模板生成；v2 子代理因清单体积误解停止，未自行写入文件。"
+    },
+    {
+      "path": "03-collaboration-chat.txt",
+      "archetype": "social-chat",
+      "bytes": 658,
+      "sha256": "f1736bc8bbe23394966b2757c2c51cfd3d1e36b68e0c8e155c171486f7ba0dbd",
+      "marker": "SEARCH_DOMAIN_MEDICINE_COLLABORATION-CHAT_2026",
+      "purpose": "验证混合语言聊天与社交标记",
+      "expected_coverage": [
+        "cod-text-top-keywords",
+        "cod-text-time-span"
+      ],
+      "expect": {
+        "cod-text-lines": 7,
+        "cod-text-language": "mixed",
+        "cod-text-timestamp-count": 6,
+        "cod-text-time-span": 120,
+        "cod-text-timestamp-line-ratio": 0,
+        "cod-text-mention-count": 6,
+        "cod-text-hashtag-count": 2,
+        "cod-text-emoji-count": 4,
+        "cod-text-url-count": 1,
+        "cod-text-email-count": 1,
+        "cod-text-link-count": 1,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": [
+        "cod-text-shebang",
+        "cod-text-headings",
+        "cod-text-structure"
+      ],
+      "notes": "由主代理依据固定模板生成；v2 子代理因清单体积误解停止，未自行写入文件。"
+    },
+    {
+      "path": "04-records.csv",
+      "archetype": "regular-csv",
+      "bytes": 391,
+      "sha256": "78324922cc7e1b24f8d0a85ff62bffa77dd47a6b34a75bcbacf1e4628660db90",
+      "marker": "SEARCH_DOMAIN_MEDICINE_RECORDS_2026",
+      "purpose": "验证规则 CSV 与括号配平",
+      "expected_coverage": [
+        "cod-text-top-keywords",
+        "cod-text-bracket-balance"
+      ],
+      "expect": {
+        "cod-text-lines": 7,
+        "cod-text-language": "mixed",
+        "cod-text-title-line": "id,domain,metric,value,note",
+        "cod-text-bracket-balance": 1,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": [
+        "cod-text-table-headers",
+        "cod-text-structure",
+        "cod-text-shebang"
+      ],
+      "notes": "由主代理依据固定模板生成；v2 子代理因清单体积误解停止，未自行写入文件。"
+    },
+    {
+      "path": "05-records-broken.csv",
+      "archetype": "broken-csv",
+      "bytes": 272,
+      "sha256": "c96c25bc5c9c989f9c402948e5d06c7b58b9f8d074effdfe6310019498be22de",
+      "marker": "SEARCH_DOMAIN_MEDICINE_RECORDS-BROKEN_2026",
+      "purpose": "验证损坏 CSV 列数与括号失衡",
+      "expected_coverage": [
+        "cod-text-bracket-balance"
+      ],
+      "expect": {
+        "cod-text-lines": 6,
+        "cod-text-title-line": "id,domain,metric,value,note",
+        "cod-text-bracket-balance": 0,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": [
+        "cod-text-table-headers",
+        "cod-text-structure",
+        "cod-text-shebang"
+      ],
+      "notes": "由主代理依据固定模板生成；v2 子代理因清单体积误解停止，未自行写入文件。"
+    },
+    {
+      "path": "06-minified.json",
+      "archetype": "minified-json",
+      "bytes": 1371,
+      "sha256": "68096d0591d6a27bc888e556432ec7f3aefbb31665d8e4a563a77d7d15512ae0",
+      "marker": "SEARCH_DOMAIN_MEDICINE_MINIFIED_2026",
+      "purpose": "验证单行压缩 JSON 与长行边界",
+      "expected_coverage": [
+        "cod-text-bracket-balance"
+      ],
+      "expect": {
+        "cod-text-lines": 1,
+        "cod-text-language": "en",
+        "cod-text-minified": true,
+        "cod-text-eol": "none",
+        "cod-text-final-newline": false,
+        "cod-text-bracket-balance": 1
+      },
+      "expected_absent_fields": [
+        "cod-text-headings",
+        "cod-text-structure",
+        "cod-text-shebang"
+      ],
+      "notes": "由主代理依据固定模板生成；v2 子代理因清单体积误解停止，未自行写入文件。"
+    },
+    {
+      "path": "07-boundary.txt",
+      "archetype": "mixed-eol-boundary",
+      "bytes": 342,
+      "sha256": "8aac9fcad79e2ceed46aa86c31302c971790795b5ffd6b5d67e8d8f49f601d91",
+      "marker": "SEARCH_DOMAIN_MEDICINE_BOUNDARY_2026",
+      "purpose": "验证混合行尾与连续空行",
+      "expected_coverage": [],
+      "expect": {
+        "cod-text-lines": 5,
+        "cod-text-blank-ratio": 0.4,
+        "cod-text-consecutive-blank-max": 2,
+        "cod-text-trailing-space-lines": 2,
+        "cod-text-eol": "mixed",
+        "cod-text-final-newline": false
+      },
+      "expected_absent_fields": [
+        "cod-text-shebang",
+        "cod-text-headings",
+        "cod-text-structure"
+      ],
+      "notes": "由主代理依据固定模板生成；v2 子代理因清单体积误解停止，未自行写入文件。"
+    },
+    {
+      "path": "08-glossary.md",
+      "archetype": "domain-special",
+      "bytes": 2877,
+      "sha256": "58cf88e1c522105392c55949c6097c2a41895c22a0c6e8ee7d05fb85d88133e5",
+      "marker": "SEARCH_DOMAIN_MEDICINE_SPECIAL_2026",
+      "purpose": "验证医学健康专用变体",
+      "expected_coverage": [
+        "cod-text-top-keywords",
+        "cod-text-headings",
+        "cod-text-structure",
+        "cod-text-table-headers",
+        "cod-text-table-headers-truncated"
+      ],
+      "expect": {
+        "cod-text-language": "mixed",
+        "cod-text-table-blocks": 1,
+        "cod-text-table-rows": 3,
+        "cod-text-table-cols": 2,
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": [],
+      "notes": "由主代理依据固定模板生成；v2 子代理因清单体积误解停止，未自行写入文件。"
+    },
+    {
+      "path": "09-pseudo-table.md",
+      "archetype": "pseudo-table-negative",
+      "bytes": 374,
+      "sha256": "d7dda12ecd5a181765b3b825043ddf9594d04bc7104ac4001bb27c8eb7f0bf59",
+      "marker": "SEARCH_DOMAIN_MEDICINE_PSEUDO-TABLE_2026",
+      "purpose": "验证伪表格负例与逐单元格换行",
+      "expected_coverage": [],
+      "expect": {
+        "cod-text-lines": 21,
+        "cod-text-language": "mixed",
+        "cod-text-title-line": "序号",
+        "cod-text-table-blocks": 0,
+        "cod-text-table-rows": 0,
+        "cod-text-table-cols": 0,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": [
+        "cod-text-table-headers",
+        "cod-text-structure",
+        "cod-text-headings",
+        "cod-text-shebang"
+      ],
+      "notes": "由主代理依据固定模板生成；v2 子代理因清单体积误解停止，未自行写入文件。"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+序号
+领域
+指标
+数值
+说明
+1
+astronomy
+lunar
+2
+月球环形山观测台账已核对，并保留一条用于字段回查的完整中文说明。
+2
+astronomy
+eclipse
+5
+SEARCH_DOMAIN_ASTRONOMY_PSEUDO-TABLE_2026 火星逆行材料已归档，并保留原始记录顺序。
+3
+astronomy
+parallax
+8
+木星卫星食与深空巡天记录已复核，最后一行以中文句号结束。

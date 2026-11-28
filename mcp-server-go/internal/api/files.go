@@ -1,9 +1,10 @@
 // 文件：mcp-server-go/internal/api/files.go —— 文件端点：可见性裁剪的目录树 / 单文件下载（自证：静态 token 或 JWT）/ zip 打包
-// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
+// 修改：2026-11-28（日期由 fresh-header.ps1 刷新）
 
 package api
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -389,7 +390,7 @@ func (s *Server) uploadFile(w http.ResponseWriter, r *http.Request) {
 		visibility  string
 		tags        []string
 		attrs       map[string]any
-		payload     []byte
+		upload      io.Reader
 	)
 
 	ct := r.Header.Get("Content-Type")
@@ -398,18 +399,14 @@ func (s *Server) uploadFile(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "invalid multipart form: "+err.Error())
 			return
 		}
+		defer r.MultipartForm.RemoveAll()
 		f, hdr, err := r.FormFile("file")
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "missing 'file' in form")
 			return
 		}
 		defer f.Close()
-		data, err := io.ReadAll(io.LimitReader(f, 5<<20+1))
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "read upload failed: "+err.Error())
-			return
-		}
-		payload = data
+		upload = f
 		logicPath = strings.TrimSpace(r.FormValue("path"))
 		if logicPath == "" && hdr != nil {
 			logicPath = hdr.Filename
@@ -470,9 +467,9 @@ func (s *Server) uploadFile(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusBadRequest, "invalid content_base64")
 				return
 			}
-			payload = b
+			upload = bytes.NewReader(b)
 		} else {
-			payload = []byte(body.Content)
+			upload = strings.NewReader(body.Content)
 		}
 	}
 
@@ -492,9 +489,9 @@ func (s *Server) uploadFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	receipt, err := s.manager.WriteBytes(r.Context(), logicPath, payload)
+	receipt, err := s.manager.WriteReader(r.Context(), logicPath, upload)
 	if err != nil {
-		slog.Error("upload file failed", "method", r.Method, "path", logicPath, "user", principalOf(r).Subject(), "bytes", len(payload), "error", err, "duration", time.Since(start).String())
+		slog.Error("upload file failed", "method", r.Method, "path", logicPath, "user", principalOf(r).Subject(), "error", err, "duration", time.Since(start).String())
 		status := http.StatusBadRequest
 		if errors.Is(err, manager.ErrKeyExists) {
 			status = http.StatusConflict

@@ -1,0 +1,6 @@
+id,domain,metric,value,note
+E01,geology,stratum,(12),stratum 地层年代档案已核对。
+E02,geology,fault,(8),fault 断层活动材料已归档。
+E03,geology,mineral,(5),mineral 矿物鉴定记录已登记。
+E04,geology,volcano,(9),volcano 火山喷发台账已更新。
+E05,geology,review,(3),SEARCH_DOMAIN_GEOLOGY_RECORDS_2026 地质检索样本已校验。

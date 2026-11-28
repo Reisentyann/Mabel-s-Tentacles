@@ -1,0 +1,6 @@
+id,domain,metric,value,note
+D01,education,curriculum,(12),curriculum 课程设计档案已核对。
+D02,education,assessment,(8),assessment 学习评价材料已归档。
+D03,education,classroom,(5),classroom 课堂观察记录已登记。
+D04,education,exam,(9),exam 考试分析台账已更新。
+D05,education,review,(3),SEARCH_DOMAIN_EDUCATION_RECORDS_2026 教育检索样本已校验。

@@ -1,0 +1,348 @@
+{
+  "schema_version": 1,
+  "root": "test/fixtures/检索字段/领域文本",
+  "purpose": "用领域内容承载可查询的确定性文本字段；每领域固定 8 个 archetype，禁止自由扩写或生成大型二进制。",
+  "limits": {
+    "min_file_bytes": 256,
+    "max_file_bytes": 8192,
+    "max_domain_bytes": 65536,
+    "max_total_bytes": 1048576,
+    "encoding": "utf-8",
+    "allow_bom": false
+  },
+  "marker_pattern": "SEARCH_DOMAIN_<DOMAIN_ID_UPPER>_<ARCHETYPE_UPPER>_2026",
+  "legacy_reference": {
+    "source": "C:\\Users\\Reisentyan\\Downloads\\幻觉",
+    "reuse": [
+      "调查摘要式 Markdown：H2 路径、两列表格、问题段落和引用块。",
+      "服务日志：时间戳、重复 run_id/conversation_id、多行提示词和长行。",
+      "伪表格负例：每个单元格单独成行，不含管道符，不应被识别为 Markdown 表格。"
+    ],
+    "do_not_reuse": ["大于 8 KiB 的原始日志", "未经核实的法律结论", "图片、压缩包和网页二进制资源"]
+  },
+  "domains": [
+    {"id":"astronomy","name":"天文","special":"shebang","topics":["月球环形山观测","火星逆行","木星卫星食","深空巡天"],"terms":["lunar","eclipse","parallax","redshift"]},
+    {"id":"geography","name":"地理","special":"long-index","topics":["河流流域","海岸线变迁","城市区位","地形剖面"],"terms":["watershed","coastline","latitude","terrain"]},
+    {"id":"geology","name":"地质","special":"glossary","topics":["地层年代","断层活动","矿物鉴定","火山喷发"],"terms":["stratum","fault","mineral","volcano"]},
+    {"id":"meteorology","name":"气象","special":"crlf","topics":["锋面移动","气压变化","台风路径","降水概率"],"terms":["front","pressure","typhoon","rainfall"]},
+    {"id":"oceanography","name":"海洋","special":"shebang","topics":["洋流方向","潮汐周期","盐度分布","深海探测"],"terms":["current","tide","salinity","abyss"]},
+    {"id":"biology","name":"生物","special":"long-index","topics":["细胞结构","遗传规律","生态系统","物种观察"],"terms":["cell","genome","ecology","species"]},
+    {"id":"medicine","name":"医学健康","special":"glossary","topics":["血压测量","药物代谢","流行病监测","健康体检"],"terms":["pressure","dosage","epidemic","screening"]},
+    {"id":"history","name":"历史考古","special":"crlf","topics":["朝代纪年","考古地层","古籍文献","遗址年代"],"terms":["dynasty","artifact","archive","dating"]},
+    {"id":"law","name":"法律","special":"shebang","topics":["公交线路特许经营","湿地公园游船审批","楼道电动自行车充电","生活垃圾分类"],"terms":["franchise","wetland","charging","sorting"]},
+    {"id":"economics","name":"经济金融","special":"long-index","topics":["通货膨胀","财政收支","市场指数","汇率变化"],"terms":["inflation","fiscal","market","exchange"]},
+    {"id":"education","name":"教育","special":"glossary","topics":["课程设计","学习评价","课堂观察","考试分析"],"terms":["curriculum","assessment","classroom","exam"]},
+    {"id":"computing","name":"计算机","special":"crlf","topics":["倒排索引","缓存失效","网络协议","排序算法"],"terms":["index","cache","protocol","sorting"]}
+  ],
+  "common_coverage": [
+    "cod-basic-textish",
+    "cod-basic-mime",
+    "cod-basic-name-pattern",
+    "cod-basic-entropy",
+    "cod-text-at",
+    "cod-text-ver",
+    "cod-text-partial",
+    "cod-text-encoding",
+    "cod-text-lines",
+    "cod-text-chars",
+    "cod-text-cjk-ratio",
+    "cod-text-language",
+    "cod-text-title-line",
+    "cod-text-final-newline",
+    "cod-text-non-ascii-ratio",
+    "cod-text-upper-ratio",
+    "cod-text-word-count",
+    "cod-text-avg-word-len",
+    "cod-text-blank-ratio",
+    "cod-text-table-blocks",
+    "cod-text-table-rows",
+    "cod-text-table-cols",
+    "cod-text-list-items",
+    "cod-text-list-nesting-max",
+    "cod-text-code-lines",
+    "cod-text-quote-lines",
+    "cod-text-checkboxes",
+    "cod-text-indent-max",
+    "cod-text-trailing-space-lines",
+    "cod-text-consecutive-blank-max",
+    "cod-text-indent-style",
+    "cod-text-avg-line-len",
+    "cod-text-line-len-std",
+    "cod-text-digit-ratio",
+    "cod-text-timestamp-count",
+    "cod-text-repeat-line-ratio",
+    "cod-text-paragraphs",
+    "cod-text-avg-para-len",
+    "cod-text-sentences",
+    "cod-text-avg-sent-len",
+    "cod-text-dialog-ratio",
+    "cod-text-punct-density",
+    "cod-text-char-diversity",
+    "cod-text-url-count",
+    "cod-text-email-count",
+    "cod-text-mention-count",
+    "cod-text-hashtag-count",
+    "cod-text-emoji-count",
+    "cod-text-link-count",
+    "cod-text-eol",
+    "cod-text-has-bom",
+    "cod-text-longest-line",
+    "cod-text-minified",
+    "cod-text-timestamp-line-ratio"
+  ],
+  "archetypes": {
+    "01-report.md": {
+      "kind": "markdown-report",
+      "requirements": [
+        "首行 ---，YAML frontmatter 至少 title/domain 两键，第二个 --- 后空行。",
+        "一个 H1、一个 H2；H2 下依次为普通无序项、两空格嵌套无序项、一个有序项、一个未完成 checkbox、一个完成 checkbox。",
+        "一个 > 引用行；一个三列表格（表头 metric|value|note，分隔行，一行数据）。",
+        "一个 json 围栏块，块内恰好一行合法 JSON；一个 Markdown 链接指向 https://docs.example.org/<domain>。",
+        "全文至少出现两次领域英文 term，保证 top-keywords 非空。"
+      ],
+      "extra_coverage": ["cod-text-top-keywords","cod-text-headings","cod-text-structure","cod-text-ordered-ratio","cod-text-link-domains","cod-text-link-domains-truncated","cod-text-code-languages","cod-text-code-languages-truncated","cod-text-section-paths","cod-text-section-paths-truncated","cod-text-table-headers","cod-text-table-headers-truncated","cod-text-bracket-balance"],
+      "expect": {
+        "cod-text-structure": ["frontmatter","lists","code-blocks","tables","headings"],
+        "cod-text-table-blocks": 1,
+        "cod-text-table-rows": 3,
+        "cod-text-table-cols": 3,
+        "cod-text-list-items": 5,
+        "cod-text-list-nesting-max": 2,
+        "cod-text-ordered-ratio": 0.2,
+        "cod-text-checkboxes": 2,
+        "cod-text-code-lines": 1,
+        "cod-text-quote-lines": 1,
+        "cod-text-link-count": 1,
+        "cod-text-link-domains": ["docs.example.org"],
+        "cod-text-code-languages": ["json"],
+        "cod-text-table-headers": ["metric","value","note"],
+        "cod-text-bracket-balance": 1
+      }
+    },
+    "02-observation-log.txt": {
+      "kind": "timestamp-log",
+      "requirements": [
+        "恰好 8 个物理行，每行以 2026-01-01T00:00:00 到 2026-01-01T00:00:30 的 ISO 时间戳开头，时间非递减。",
+        "第 6 行与第 8 行完全相同，形成一组精确重复行；URL 和 email 分别放在两个非重复行中，各出现一次。",
+        "文件以单个 LF 结尾；内容为英文。"
+      ],
+      "extra_coverage": ["cod-text-top-keywords","cod-text-time-span"],
+      "expect": {
+        "cod-text-lines": 9,
+        "cod-text-timestamp-count": 8,
+        "cod-text-time-span": 30,
+        "cod-text-timestamp-line-ratio": 1,
+        "cod-text-repeat-line-ratio": 0.25,
+        "cod-text-url-count": 1,
+        "cod-text-email-count": 1,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": ["cod-text-shebang","cod-text-headings","cod-text-structure"]
+    },
+    "03-collaboration-chat.txt": {
+      "kind": "social-chat",
+      "requirements": [
+        "恰好 6 个物理行，每行以 [2026-01-01T00:00:00] 这类方括号时间戳开头，时间跨度为 120 秒。",
+        "每行恰好一个空格前缀的 @mention；恰好两行各含一个空格前缀的 #hashtag。",
+        "全文恰好四个 emoji；恰好一个 URL、一个 email、一个 Markdown 链接。",
+        "至少两行使用中文引号对话，文件以 LF 结尾。"
+      ],
+      "extra_coverage": ["cod-text-top-keywords","cod-text-time-span"],
+      "expect": {
+        "cod-text-lines": 7,
+        "cod-text-language": "mixed",
+        "cod-text-timestamp-count": 6,
+        "cod-text-time-span": 120,
+        "cod-text-timestamp-line-ratio": 0,
+        "cod-text-mention-count": 6,
+        "cod-text-hashtag-count": 2,
+        "cod-text-emoji-count": 4,
+        "cod-text-url-count": 1,
+        "cod-text-email-count": 1,
+        "cod-text-link-count": 1,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": ["cod-text-shebang","cod-text-headings","cod-text-structure"]
+    },
+    "04-records.csv": {
+      "kind": "regular-csv",
+      "requirements": [
+        "表头固定为 id,domain,metric,value,note；恰好 5 条数据行，每条 5 列。",
+        "每条 note 使用中文并形成中英混合；每行 value 含一对配平括号。",
+        "文件以 LF 结尾。"
+      ],
+      "extra_coverage": ["cod-text-top-keywords","cod-text-bracket-balance"],
+      "expect": {
+        "cod-text-lines": 7,
+        "cod-text-language": "mixed",
+        "cod-text-title-line": "id,domain,metric,value,note",
+        "cod-text-bracket-balance": 1,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": ["cod-text-table-headers","cod-text-structure","cod-text-shebang"]
+    },
+    "05-records-broken.csv": {
+      "kind": "broken-csv",
+      "requirements": [
+        "表头固定为 id,domain,metric,value,note；恰好 4 条数据行，列数依次为 3、5、2、4。",
+        "其中一行含一个未配平的左括号，全文不含右括号。",
+        "文件以 LF 结尾。"
+      ],
+      "extra_coverage": ["cod-text-bracket-balance"],
+      "expect": {
+        "cod-text-lines": 6,
+        "cod-text-title-line": "id,domain,metric,value,note",
+        "cod-text-bracket-balance": 0,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": ["cod-text-table-headers","cod-text-structure","cod-text-shebang"]
+    },
+    "06-minified.json": {
+      "kind": "minified-json",
+      "requirements": [
+        "合法单行 JSON 对象，无末尾换行；最长行必须超过 500 rune。",
+        "包含 marker、domain、summary 三键；summary 用重复领域句子填充长度。",
+        "JSON 括号必须配平。"
+      ],
+      "extra_coverage": ["cod-text-bracket-balance"],
+      "expect": {
+        "cod-text-lines": 1,
+        "cod-text-language": "en",
+        "cod-text-minified": true,
+        "cod-text-eol": "none",
+        "cod-text-final-newline": false,
+        "cod-text-bracket-balance": 1
+      },
+      "expected_absent_fields": ["cod-text-headings","cod-text-structure","cod-text-shebang"]
+    },
+    "07-boundary.txt": {
+      "kind": "mixed-eol-boundary",
+      "requirements": [
+        "字节结构严格为：<marker> + 空格 + CRLF + LF + LF + <domain note> + tab + LF + last line。",
+        "最后一字节不是换行；全文恰好两个行尾空白和两个连续空行。"
+      ],
+      "extra_coverage": [],
+      "expect": {
+        "cod-text-lines": 5,
+        "cod-text-blank-ratio": 0.4,
+        "cod-text-consecutive-blank-max": 2,
+        "cod-text-trailing-space-lines": 2,
+        "cod-text-eol": "mixed",
+        "cod-text-final-newline": false
+      },
+      "expected_absent_fields": ["cod-text-shebang","cod-text-headings","cod-text-structure"]
+    },
+    "08-special.txt": {
+      "kind": "domain-special",
+      "requirements": ["按 domain.special 选择 shebang、long-index、glossary、crlf 之一；不得替换为其他类型。"],
+      "variants": {
+        "shebang": {
+          "filename": "08-shebang.txt",
+          "requirements": ["首行严格为 #!/usr/bin/env <domain>-notes；第二行是 marker；后续至少 6 行英文领域短句，重复 term 与全大写标记。"],
+          "extra_coverage": ["cod-text-shebang","cod-text-top-keywords"],
+          "expect": {"cod-text-final-newline": true,"cod-text-eol":"lf"}
+        },
+        "long-index": {
+          "filename": "08-long-index.md",
+          "requirements": [
+            "一个 H1 和恰好 31 个唯一 H2；每个 H2 下恰好一个唯一 https://<domain>-<nn>.example.org URL。",
+            "恰好 31 个空围栏块，围栏语言依次为 lang01 到 lang31。",
+            "一个 31 列表格：表头 cell01 到 cell31，分隔行 31 个 ---，一行数据。",
+            "文件以 LF 结尾。"
+          ],
+          "extra_coverage": ["cod-text-headings","cod-text-structure","cod-text-link-domains","cod-text-link-domains-truncated","cod-text-code-languages","cod-text-code-languages-truncated","cod-text-section-paths","cod-text-section-paths-truncated","cod-text-table-headers","cod-text-table-headers-truncated"],
+          "expect": {
+            "cod-text-table-blocks": 1,
+            "cod-text-table-rows": 3,
+            "cod-text-table-cols": 31,
+            "cod-text-link-domains-truncated": true,
+            "cod-text-code-languages-truncated": true,
+            "cod-text-section-paths-truncated": true,
+            "cod-text-table-headers-truncated": true,
+            "cod-text-eol": "lf",
+            "cod-text-final-newline": true
+          }
+        },
+        "glossary": {
+          "filename": "08-glossary.md",
+          "requirements": ["H1 标题；至少 8 个中文术语条目，每行重复领域 term 一次；至少两个中文引号句；含一个两列表格。"],
+          "extra_coverage": ["cod-text-top-keywords","cod-text-headings","cod-text-structure","cod-text-table-headers","cod-text-table-headers-truncated"],
+          "expect": {"cod-text-language":"mixed","cod-text-table-blocks":1,"cod-text-table-rows":3,"cod-text-table-cols":2,"cod-text-final-newline":true}
+        },
+        "crlf": {
+          "filename": "08-crlf.md",
+          "requirements": ["H1、一个 H2、恰好 3 个无序列表项、一个 > 引用行、一个两列表格；所有换行均为 CRLF，文件以 CRLF 结尾。"],
+          "extra_coverage": ["cod-text-top-keywords","cod-text-headings","cod-text-structure","cod-text-table-headers","cod-text-table-headers-truncated"],
+          "expect": {
+            "cod-text-structure": ["lists","tables","headings"],
+            "cod-text-list-items": 3,
+            "cod-text-quote-lines": 1,
+            "cod-text-table-blocks": 1,
+            "cod-text-table-rows": 3,
+            "cod-text-table-cols": 2,
+            "cod-text-eol": "crlf",
+            "cod-text-final-newline": true
+          }
+        }
+      }
+    },
+    "09-pseudo-table.md": {
+      "kind": "pseudo-table-negative",
+      "requirements": [
+        "模拟旧式逐单元格换行表格：5 列表头每格单独一行，恰好 3 条数据记录，每条 5 格、每格单独一行。",
+        "不含任何管道符 |；marker 放在某条记录的说明单元格行内；最后一行以中文句号结束。",
+        "文件以 LF 结尾。"
+      ],
+      "extra_coverage": [],
+      "expect": {
+        "cod-text-lines": 21,
+        "cod-text-language": "mixed",
+        "cod-text-title-line": "序号",
+        "cod-text-table-blocks": 0,
+        "cod-text-table-rows": 0,
+        "cod-text-table-cols": 0,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": ["cod-text-table-headers","cod-text-structure","cod-text-headings","cod-text-shebang"]
+    }
+  },
+  "manifest_schema": {
+    "schema_version": 1,
+    "domain_id": "<id>",
+    "domain_name": "<中文名>",
+    "path_base": ".",
+    "generated_by": "subagent:<agent-name>",
+    "files": [
+      {
+        "path": "01-report.md",
+        "archetype": "markdown-report",
+        "bytes": 1234,
+        "sha256": "<64 hex>",
+        "marker": "SEARCH_DOMAIN_<ID>_REPORT_2026",
+        "purpose": "<中文说明该文件用于验证什么>",
+        "expected_coverage": "<本文件预期出现且经实际分析可验证的完整 cod-* 字段名数组>",
+        "expect": {"<完整 cod-* 字段名>": "<精确值>"},
+        "expected_absent_fields": [],
+        "notes": "<可选：边界或限制>"
+      }
+    ]
+  },
+  "hard_rules": [
+    "只写指定 domain 目录和该目录的 manifest.json；不得修改 describer、indexer、其他领域或现有夹具。",
+    "不得读取 .env、data、logs、旧内容、旧文件或任何凭据。",
+    "不得联网、安装依赖、启动 Docker、运行全量测试或生成大于 8 KiB 的文件。",
+    "所有文件 UTF-8 无 BOM；不得生成图片、音视频、压缩包或大型二进制。",
+    "marker 必须唯一且同时出现在文件和 manifest 中。",
+    "common_coverage 仅用于批次字段覆盖设计，不要求每个文件清单逐项列出；按实际文件内容填写 expected_coverage。",
+    "expected_coverage 必须使用完整 cod-* 字段名；只列本文件预期出现且可精确验证的字段，避免无条件堆叠不存在的条件字段。",
+    "expect 只写模板明确要求且可精确验证的值；不得猜测字数、熵、平均行长等统计值。",
+    "每个文件至少包含一个句末字符 . ! ? 。 ！ ？，保证 cod-text-avg-sent-len 可产出。",
+    "除 05-records-broken.csv、06-minified.json、07-boundary.txt 外，extra_coverage 含 cod-text-top-keywords 的文件必须重复至少一个长度大于等于 3 的英文 term，或重复一个中文二元词至少两次。",
+    "完成后返回：领域名、文件数、总字节、最大文件、manifest 路径、已知偏差。"
+  ]
+}

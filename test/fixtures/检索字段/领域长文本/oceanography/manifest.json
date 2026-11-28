@@ -1,0 +1,270 @@
+{
+  "cod-domain": "oceanography",
+  "cod-domain-name": "海洋学",
+  "cod-encoding": "UTF-8",
+  "cod-bom": false,
+  "cod-file-count": 8,
+  "cod-topics": [
+    "洋流方向",
+    "潮汐周期",
+    "盐度分布",
+    "深海探测"
+  ],
+  "files": [
+    {
+      "path": "01-report.md",
+      "bytes": 10968,
+      "sha256": "6fdb903c05e4055fdf9be5f8edd6ac91fb3af131db0ed4c1305cdf58a35c2445",
+      "marker": "SEARCH_LONG_OCEANOGRAPHY_REPORT_2026",
+      "purpose": "验证frontmatter、多级标题、嵌套列表、表格、引用、JSON围栏与链接的联合检索，覆盖海洋学的四个主题",
+      "expected_fields": [
+        "cod-marker",
+        "cod-topic-count",
+        "cod-frontmatter",
+        "cod-h1-count",
+        "cod-h2-count",
+        "cod-nested-list",
+        "cod-table-data-rows",
+        "cod-blockquote-count",
+        "cod-json-fence-count",
+        "cod-markdown-link-count"
+      ],
+      "expect": {
+        "cod-marker": "SEARCH_LONG_OCEANOGRAPHY_REPORT_2026",
+        "cod-topic-count": 4,
+        "cod-frontmatter": true,
+        "cod-h1-count": 1,
+        "cod-h2-count": 5,
+        "cod-nested-list": true,
+        "cod-table-data-rows": 4,
+        "cod-blockquote-count": 1,
+        "cod-json-fence-count": 1,
+        "cod-markdown-link-count": 1
+      },
+      "expected_absent_fields": [
+        "cod-chat-mention",
+        "cod-broken-csv-columns",
+        "cod-minified-json"
+      ]
+    },
+    {
+      "path": "02-observation-log.txt",
+      "bytes": 8007,
+      "sha256": "9771d5fd861e652281972261c8950419fbff5d854d75e665681ce9cc7dbf1f2b",
+      "marker": "SEARCH_LONG_OCEANOGRAPHY_OBSERVATION_LOG_2026",
+      "purpose": "验证八行ISO时间戳、重复末行、URL与email的长文本索引，覆盖海洋学的四个主题",
+      "expected_fields": [
+        "cod-marker",
+        "cod-topic-count",
+        "cod-line-count",
+        "cod-iso-timestamp-count",
+        "cod-last-two-lines-identical",
+        "cod-url-count",
+        "cod-email-count"
+      ],
+      "expect": {
+        "cod-marker": "SEARCH_LONG_OCEANOGRAPHY_OBSERVATION_LOG_2026",
+        "cod-topic-count": 4,
+        "cod-line-count": 8,
+        "cod-iso-timestamp-count": 8,
+        "cod-last-two-lines-identical": true,
+        "cod-url-count": 1,
+        "cod-email-count": 1
+      },
+      "expected_absent_fields": [
+        "cod-frontmatter",
+        "cod-markdown-table",
+        "cod-markdown-link"
+      ]
+    },
+    {
+      "path": "03-collaboration-chat.txt",
+      "bytes": 6327,
+      "sha256": "3bb81bd7347b256b772c1edf699f8f47999264880c2c7a460b0e54bbf41aa420",
+      "marker": "SEARCH_LONG_OCEANOGRAPHY_COLLABORATION_CHAT_2026",
+      "purpose": "验证六行方括号时间戳、mention、hashtag、emoji与链接提取，覆盖海洋学的四个主题",
+      "expected_fields": [
+        "cod-marker",
+        "cod-topic-count",
+        "cod-line-count",
+        "cod-bracket-timestamp-count",
+        "cod-mention-count",
+        "cod-hashtag-line-count",
+        "cod-emoji-count",
+        "cod-url-count",
+        "cod-email-count",
+        "cod-markdown-link-count"
+      ],
+      "expect": {
+        "cod-marker": "SEARCH_LONG_OCEANOGRAPHY_COLLABORATION_CHAT_2026",
+        "cod-topic-count": 4,
+        "cod-line-count": 6,
+        "cod-bracket-timestamp-count": 6,
+        "cod-mention-count": 7,
+        "cod-hashtag-line-count": 2,
+        "cod-emoji-count": 4,
+        "cod-url-count": 2,
+        "cod-email-count": 1,
+        "cod-markdown-link-count": 1
+      },
+      "expected_absent_fields": [
+        "cod-frontmatter",
+        "cod-json-object",
+        "cod-csv-header"
+      ]
+    },
+    {
+      "path": "04-records.csv",
+      "bytes": 5306,
+      "sha256": "4f4f78aaea512021cf4d2e04f0a194f9128e626cb29de075a10bdc0c16713fc2",
+      "marker": "SEARCH_LONG_OCEANOGRAPHY_RECORDS_2026",
+      "purpose": "验证五列表头与五条完整CSV数据记录，覆盖海洋学的四个主题",
+      "expected_fields": [
+        "cod-marker",
+        "cod-topic-count",
+        "cod-line-count",
+        "cod-header-column-count",
+        "cod-data-row-count",
+        "cod-data-column-counts"
+      ],
+      "expect": {
+        "cod-marker": "SEARCH_LONG_OCEANOGRAPHY_RECORDS_2026",
+        "cod-topic-count": 4,
+        "cod-line-count": 6,
+        "cod-header-column-count": 5,
+        "cod-data-row-count": 5,
+        "cod-data-column-counts": [
+          5,
+          5,
+          5,
+          5,
+          5
+        ]
+      },
+      "expected_absent_fields": [
+        "cod-chat-mention",
+        "cod-json-object",
+        "cod-code-fence"
+      ]
+    },
+    {
+      "path": "05-records-broken.csv",
+      "bytes": 5132,
+      "sha256": "3bece4605a29588513d7fc616fdae10d6f72efe8c7e1fff6c47f132eb37b3deb",
+      "marker": "SEARCH_LONG_OCEANOGRAPHY_RECORDS_BROKEN_2026",
+      "purpose": "验证3/5/2/4列残缺CSV且全文没有右括号，覆盖海洋学的四个主题",
+      "expected_fields": [
+        "cod-marker",
+        "cod-topic-count",
+        "cod-line-count",
+        "cod-column-counts",
+        "cod-right-parenthesis-count"
+      ],
+      "expect": {
+        "cod-marker": "SEARCH_LONG_OCEANOGRAPHY_RECORDS_BROKEN_2026",
+        "cod-topic-count": 4,
+        "cod-line-count": 4,
+        "cod-column-counts": [
+          3,
+          5,
+          2,
+          4
+        ],
+        "cod-right-parenthesis-count": 0
+      },
+      "expected_absent_fields": [
+        "cod-csv-header",
+        "cod-right-parenthesis",
+        "cod-frontmatter"
+      ]
+    },
+    {
+      "path": "06-minified.json",
+      "bytes": 5297,
+      "sha256": "ad748a0df75457241e883b9ceb8b3dcaf18e1ed8b983b3d2e7bd70fe63a51dd5",
+      "marker": "SEARCH_LONG_OCEANOGRAPHY_MINIFIED_JSON_2026",
+      "purpose": "验证单行合法JSON、无末尾换行及超长rune计数，覆盖海洋学的四个主题",
+      "expected_fields": [
+        "cod-marker",
+        "cod-topic-count",
+        "cod-line-count",
+        "cod-json-valid",
+        "cod-rune-count",
+        "cod-trailing-newline"
+      ],
+      "expect": {
+        "cod-marker": "SEARCH_LONG_OCEANOGRAPHY_MINIFIED_JSON_2026",
+        "cod-topic-count": 4,
+        "cod-line-count": 1,
+        "cod-json-valid": true,
+        "cod-rune-count": 2799,
+        "cod-trailing-newline": false
+      },
+      "expected_absent_fields": [
+        "cod-frontmatter",
+        "cod-markdown-table",
+        "cod-chat-mention"
+      ]
+    },
+    {
+      "path": "07-boundary.txt",
+      "bytes": 7631,
+      "sha256": "b37b7b323023ae50a0078be2d316e6fc7b985256950ff33f36696ebbe223bf92",
+      "marker": "SEARCH_LONG_OCEANOGRAPHY_BOUNDARY_2026",
+      "purpose": "验证CRLF与LF混用、连续空行和末尾无换行，覆盖海洋学的四个主题",
+      "expected_fields": [
+        "cod-marker",
+        "cod-topic-count",
+        "cod-has-crlf",
+        "cod-has-lf",
+        "cod-trailing-newline",
+        "cod-max-consecutive-empty-lines"
+      ],
+      "expect": {
+        "cod-marker": "SEARCH_LONG_OCEANOGRAPHY_BOUNDARY_2026",
+        "cod-topic-count": 4,
+        "cod-has-crlf": true,
+        "cod-has-lf": true,
+        "cod-trailing-newline": false,
+        "cod-max-consecutive-empty-lines": 2
+      },
+      "expected_absent_fields": [
+        "cod-frontmatter",
+        "cod-csv-header",
+        "cod-json-object"
+      ]
+    },
+    {
+      "path": "08-special.md",
+      "bytes": 21487,
+      "sha256": "6fec3fd7ebf700ddabb934789cd4defd6b4bb7a64bc6026c226e18f47bd1a0aa",
+      "marker": "SEARCH_LONG_OCEANOGRAPHY_SPECIAL_2026",
+      "purpose": "验证三十一个唯一H2、URL、空代码围栏与表格行，覆盖海洋学的四个主题",
+      "expected_fields": [
+        "cod-marker",
+        "cod-topic-count",
+        "cod-h2-count",
+        "cod-unique-h2-count",
+        "cod-url-count",
+        "cod-unique-url-count",
+        "cod-empty-code-fence-count",
+        "cod-table-data-rows"
+      ],
+      "expect": {
+        "cod-marker": "SEARCH_LONG_OCEANOGRAPHY_SPECIAL_2026",
+        "cod-topic-count": 4,
+        "cod-h2-count": 31,
+        "cod-unique-h2-count": 31,
+        "cod-url-count": 31,
+        "cod-unique-url-count": 31,
+        "cod-empty-code-fence-count": 31,
+        "cod-table-data-rows": 31
+      },
+      "expected_absent_fields": [
+        "cod-frontmatter",
+        "cod-chat-mention",
+        "cod-csv-header"
+      ]
+    }
+  ]
+}

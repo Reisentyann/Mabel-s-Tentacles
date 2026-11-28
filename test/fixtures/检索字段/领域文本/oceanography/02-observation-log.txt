@@ -1,0 +1,8 @@
+2026-01-01T00:00:00Z run_id=OCEA-RUN-01 marker=SEARCH_DOMAIN_OCEANOGRAPHY_OBSERVATION-LOG_2026 event=report current scope recorded.
+2026-01-01T00:00:05Z run_id=OCEA-RUN-01 source=https://docs.example.org/oceanography/current data page archived.
+2026-01-01T00:00:10Z run_id=OCEA-RUN-01 contact=tide@example.org revenue table requested.
+2026-01-01T00:00:15Z run_id=OCEA-RUN-01 conversation_id=OCEA-CONV-01 tide balance assigned.
+2026-01-01T00:00:20Z run_id=OCEA-RUN-01 event=update salinity constituents photographed.
+2026-01-01T00:00:30Z run_id=OCEA-RUN-01 event=checkpoint abyss rates stable.
+2026-01-01T00:00:30Z run_id=OCEA-RUN-01 conversation_id=OCEA-CONV-01 reviewer confirmed the tide table.
+2026-01-01T00:00:30Z run_id=OCEA-RUN-01 event=checkpoint abyss rates stable.

@@ -1,5 +1,5 @@
 // 文件：mcp-server-go/internal/tools/writefile/writefile.go —— MCP 工具 write_file：写文件 + 内联描述字段随编排机事件异步落库
-// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
+// 修改：2026-11-28（日期由 fresh-header.ps1 刷新）
 
 package writefile
 
@@ -187,7 +187,8 @@ func register(s *server.MCPServer, deps tools.Deps) {
 func registerUpload(s *server.MCPServer, deps tools.Deps) {
 	tool := mcp.NewTool("upload_file",
 		mcp.WithDescription("Upload an image or binary/archive file into your workspace, and automatically run the describer engine (extracting image resolution, aspect ratio, color palette, brightness, EXIF, etc.) and index it. "+
-			"[BOUNDARY] Provide EITHER 'content_base64' (raw base64 or data:image/...;base64,... URL, max 5MB decoded) OR 'source_path' (a local file path on the server machine to import). "+
+			"[BOUNDARY] Provide EITHER 'content_base64' (raw base64 or data:image/...;base64,... URL) OR 'source_path' (a local file path on the server machine to import). "+
+			"For large files, prefer source_path to avoid Base64 memory overhead. "+
 			"For plain text files, prefer write_file. Pass title/description/tags/attributes inline so the uploaded image or file is immediately searchable."),
 		mcp.WithString("file_path",
 			mcp.Description("Target logical path in your workspace (must include extension, e.g. 'images/avatar.png' or ' illustrations/mabel.webp'). Also accepts 'path'."),
@@ -196,7 +197,7 @@ func registerUpload(s *server.MCPServer, deps tools.Deps) {
 			mcp.Description("Alias for file_path."),
 		),
 		mcp.WithString("content_base64",
-			mcp.Description("Base64-encoded file bytes (or full data URL like 'data:image/png;base64,iVBOR...'). Max 5MB after decoding."),
+			mcp.Description("Base64-encoded file bytes (or full data URL like 'data:image/png;base64,iVBOR...'). For large files, prefer source_path."),
 		),
 		mcp.WithString("source_path",
 			mcp.Description("Alternative to content_base64: absolute or relative path of an existing local file on the host to import into Mabel (admin/master key only for arbitrary host paths)."),

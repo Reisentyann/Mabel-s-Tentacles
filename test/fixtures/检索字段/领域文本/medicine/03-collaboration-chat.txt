@@ -1,0 +1,6 @@
+[2026-01-01T00:00:00] @pressure_editor “pressure 数据需要复核。” 😀 https://docs.example.org/medicine #pressure
+[2026-01-01T00:00:20] @dosage_officer “药物代谢已补齐。” 😊 dosage@example.org
+[2026-01-01T00:00:40] @epidemic_lead “市场指数口径已记录。” 🧭 [办理指引](guide.html)
+[2026-01-01T00:01:00] @screening_auditor “汇率标签需要更新。” 📚 #screening
+[2026-01-01T00:01:20] @data_planner “医学健康指标序列已核对。” pressure 档案保持同步。
+[2026-01-01T00:02:00] @senior_reviewer “本轮医学健康检索完成。” marker=SEARCH_DOMAIN_MEDICINE_COLLABORATION-CHAT_2026

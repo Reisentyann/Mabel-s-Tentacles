@@ -1,0 +1,61 @@
+computing boundary fixture
+cod-marker=SEARCH_LONG_COMPUTING_BOUNDARY_2026
+cod-encoding=UTF-8
+cod-purpose=验证混合换行、连续空行、末行无换行与四个计算主题的字段抽取
+
+第一组使用 CRLF 记录倒排索引边界。inverted index 的 term dictionary 在提交前不可见，posting list 的位置必须落在字段范围内。
+cod-document-id=boundary-index-001
+cod-index-term=cache invalidation
+cod-cache-generation=130
+cod-protocol-sequence=8101
+cod-sort-key=score desc,document id asc
+中文查询“缓存失效”与英文关键词进入同一 analyzer，短语过滤依赖位置交集，而不是字符串包含。
+segment merge 读取固定 commit point，删除标记优先于 posting，刷新失败时继续使用上一个完整快照。
+cod-evidence=同分文档由 stable sort 保持顺序，document id 作为第二关键字，避免合并段顺序改变输出。
+
+
+第二组使用 LF 记录缓存失效边界。cache invalidation 的 generation 必须单调增长，重复广播可以重复执行。
+cod-document-id=boundary-cache-002
+cod-cache-policy=versioned singleflight
+cod-cache-generation=131
+cod-protocol-sequence=8102
+cod-sort-key=generation desc,document id asc
+写入后先提交数据再发布失效消息，消费者落后代际时删除缓存，定期对账负责补齐丢失广播。
+旧回源请求携带 generation=130，即使网络延迟使其最后到达，版本条件仍会阻止旧值覆盖新值。
+negative cache 只覆盖不存在的 document id，TTL 设为四十五秒，新文档创建后主动清除负缓存。
+热点键使用 singleflight 合并并发回源，等待共享结果时仍受总 deadline 约束，不能无限占用线程。
+cod-evidence=缓存命中率上升不代表一致性正确，必须同时核对 cod-cache-generation 与 payload version。
+
+第三组使用 LF 记录网络协议边界。network protocol 在 TCP 字节流上使用长度前缀确定消息边界。
+cod-document-id=boundary-protocol-003
+cod-protocol-version=3
+cod-cache-generation=131
+cod-protocol-sequence=8103
+cod-sort-key=stream id asc,sequence asc
+接收端先检查 maximum frame size、payload length 与 checksum，再执行反序列化，异常长度不得触发超大分配。
+sequence 在 stream id 内连续，重复帧去重，丢片超过重组 deadline 后释放 buffer，应用层不交付半条消息。
+connection timeout、read timeout 与总 deadline 分别计量，retry 只覆盖可重试错误并使用 exponential backoff with jitter。
+写请求保持相同 cod-idempotency-key，服务端保存请求摘要与响应摘要，重复请求返回首次结果。
+cod-evidence=发送窗口与接收消费能力共同决定背压，高水位暂停、低水位恢复，零窗口需要定期探测。
+
+第四组再次使用 CRLF，记录排序算法与联合验收。sorting algorithm 的比较器必须构成全序。
+cod-document-id=boundary-sort-004
+cod-algorithm=three-way quicksort plus stable merge
+cod-cache-generation=132
+cod-protocol-sequence=8104
+cod-sort-key=score desc,document id asc,version desc
+重复 score 较多时使用三路划分减少交换，TopK 使用堆排序，全量稳定输出使用归并，外部数据先产生有序 run。
+排序后检查 key 单调、总数守恒、重复对象去重，游标保存最后一条完整 sort key，而不是易变 offset。
+cod-evidence=四个主题共享 document id，索引负责召回，缓存负责新值，协议负责顺序，排序负责确定输出。
+
+边界断言一：cod-utf8-no-bom=true，文件可以按 UTF-8 解码，开头不存在 BOM 字节。
+边界断言二：cod-newline-styles=CRLF,LF，任一种换行都不作为字段值的一部分。
+边界断言三：cod-consecutive-blank-lines=2，空行用于分隔观察组，但不会终止后续字段抽取。
+边界断言四：cod-final-newline=false，最后一个字符是中文句号，不附加 LF 或 CRLF。
+边界断言五：cod-right-parenthesis=absent，边界样本只使用逗号、分号、冒号和中文句号。
+边界断言六：cod-cross-topic-links=index-cache-protocol-sort，每个主题都能关联到相邻主题的版本与顺序证据。
+联合复核时先比较 cod-protocol-sequence 是否连续，再比较 cod-cache-generation 是否落后，最后验证 cod-sort-key 的全序。
+若 inverted index 找全文档但缓存仍返回旧 payload，或协议重组后顺序错乱，都不能把错误归因于 sorting algorithm。
+若排序结果确定但分页游标只保存 offset，并发写入仍可能漏项重项，因此完整 sort key 是必要字段。
+本样本保留故意出现的换行差异，不提供自动修复，不读取环境变量，不包含凭据，不引用运行日志。
+最终记录以 cod-review-state=ready 结束，表示结构边界可被模板精确验证，而不是表示业务查询永远无错。附加边界说明：连续两个空行只作为观察组分隔，不得吞掉后续 cod-document-id；混合换行归一化后才计算行号，原始字节仍用于 sha256；末行无换行必须与文件大小同时核验。四个主题的版本字段、顺序字段和排序键保留在原行内，不因为换行差异而合并或拆分，空值继续保持缺失。

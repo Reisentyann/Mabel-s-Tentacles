@@ -77,7 +77,7 @@ go.mod 与源码；新加模块记得同步 Dockerfile 的两段 COPY。
 - describer 插件 `init()` 自注册——插件架构本体
 - 测试内联助手（如 authz_test.go 的 `strPtr`：纯取地址，语义与 `common.StrPtr`
   的空串→nil 不同）——测试就近可读性优先
-- 口径常量（5MB/512B 等）——正主在 describer，引用正主而不是搬进 common
+- 分析/缓存口径常量（5MB/512B 等）——正主在 describer，引用正主而不是搬进 common；文件本体大小上限不使用这些常量
 
 **待收编候选**（后续批次做了就划掉）：
 
@@ -94,4 +94,4 @@ go.mod 与源码；新加模块记得同步 Dockerfile 的两段 COPY。
 - 要读文件头/限读/算哈希 → **先查 `fsutil` 三件套**，口径参数从 describer 常量传入
 - 要"空串→nil 指针"或解引用 → **先查 `ptr`**
 - 要取客户端 IP → **先查 `httpx.ClientIP`**（HTTP 与 MCP 两侧同口径）
-- 5MB/512B 数字 → **引用 `describer.MaxFullBytes`/`MaxHeadBytes` 正主**，不写字面量
+- 分析/缓存预算中的 5MB/512B 数字 → **引用 `describer.MaxFullBytes`/`MaxHeadBytes` 正主**，不写字面量；文件本体大小上限与之解耦

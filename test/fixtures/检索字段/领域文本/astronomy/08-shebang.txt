@@ -1,0 +1,8 @@
+#!/usr/bin/env astronomy-notes
+SEARCH_DOMAIN_ASTRONOMY_SPECIAL_2026
+LUNAR 天文 NOTE: The lunar register lists the 月球环形山观测 review.
+ECLIPSE 天文 NOTE: The eclipse file records the 火星逆行 source.
+PARALLAX 天文 NOTE: The parallax inspection marks the 木星卫星食 observation.
+REDSHIFT 天文 NOTE: The redshift ledger separates four 天文 records.
+天文 REVIEW NOTE: Each lunar term points to a dated source.
+RETRIEVAL NOTE: The eclipse and parallax records share one case identifier.

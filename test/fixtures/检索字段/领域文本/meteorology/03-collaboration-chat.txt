@@ -1,0 +1,6 @@
+[2026-01-01T00:00:00] @front_editor “front 数据需要复核。” 😀 https://docs.example.org/meteorology #front
+[2026-01-01T00:00:20] @pressure_officer “气压变化已补齐。” 😊 pressure@example.org
+[2026-01-01T00:00:40] @typhoon_lead “市场指数口径已记录。” 🧭 [办理指引](guide.html)
+[2026-01-01T00:01:00] @rainfall_auditor “汇率标签需要更新。” 📚 #rainfall
+[2026-01-01T00:01:20] @data_planner “气象指标序列已核对。” front 档案保持同步。
+[2026-01-01T00:02:00] @senior_reviewer “本轮气象检索完成。” marker=SEARCH_DOMAIN_METEOROLOGY_COLLABORATION-CHAT_2026

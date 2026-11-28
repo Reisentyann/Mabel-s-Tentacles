@@ -1,0 +1,8 @@
+2026-11-24T10:00:00Z INFO [search] SEARCH_LOG_2026 service started
+2026-11-24T10:00:05Z INFO [search] SEARCH_LOG_2026 cache warmed
+2026-11-24T10:00:10Z WARN [search] SEARCH_LOG_2026 retry scheduled
+2026-11-24T10:00:15Z ERROR [search] SEARCH_LOG_2026 upstream timeout
+2026-11-24T10:00:05Z INFO [search] SEARCH_LOG_2026 cache warmed
+2026-11-24T10:00:25Z DEBUG [search] SEARCH_LOG_2026 trace complete
+2026-11-24T10:00:30Z INFO [search] SEARCH_LOG_2026 healthcheck passed
+2026-11-24T10:00:15Z ERROR [search] SEARCH_LOG_2026 upstream timeout

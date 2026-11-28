@@ -1,0 +1,6 @@
+id,domain,metric,value,note
+E01,history,dynasty,(12),dynasty 朝代纪年档案已核对。
+E02,history,artifact,(8),artifact 考古地层材料已归档。
+E03,history,archive,(5),archive 古籍文献记录已登记。
+E04,history,dating,(9),dating 遗址年代台账已更新。
+E05,history,review,(3),SEARCH_DOMAIN_HISTORY_RECORDS_2026 历史考古检索样本已校验。

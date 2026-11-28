@@ -1,0 +1,5 @@
+id,domain,metric,value,note
+r1,law,franchise (draft
+r2,law,wetland,approved,SEARCH_DOMAIN_LAW_RECORDS-BROKEN_2026 湿地许可记录待修复，补充说明保留原始字段顺序并验证损坏行的列数边界备查。
+r3,charging
+r4,law,sorting,pending

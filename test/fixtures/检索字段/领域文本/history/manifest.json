@@ -1,0 +1,336 @@
+{
+  "schema_version": 1,
+  "domain_id": "history",
+  "domain_name": "历史考古",
+  "path_base": ".",
+  "generated_by": "subagent:domain-batch-life-ocean-v2",
+  "files": [
+    {
+      "path": "01-report.md",
+      "archetype": "markdown-report",
+      "bytes": 652,
+      "sha256": "4bbf16f345f678a922cb7dc653da3ff51e28da448b1b3329491253e167f2a08c",
+      "marker": "SEARCH_DOMAIN_HISTORY_REPORT_2026",
+      "purpose": "验证 Markdown 报告、批次字段覆盖与结构字段",
+      "expected_coverage": [
+        "cod-basic-textish",
+        "cod-basic-mime",
+        "cod-basic-name-pattern",
+        "cod-basic-entropy",
+        "cod-text-at",
+        "cod-text-ver",
+        "cod-text-partial",
+        "cod-text-encoding",
+        "cod-text-lines",
+        "cod-text-chars",
+        "cod-text-cjk-ratio",
+        "cod-text-language",
+        "cod-text-title-line",
+        "cod-text-final-newline",
+        "cod-text-non-ascii-ratio",
+        "cod-text-upper-ratio",
+        "cod-text-word-count",
+        "cod-text-avg-word-len",
+        "cod-text-blank-ratio",
+        "cod-text-table-blocks",
+        "cod-text-table-rows",
+        "cod-text-table-cols",
+        "cod-text-list-items",
+        "cod-text-list-nesting-max",
+        "cod-text-code-lines",
+        "cod-text-quote-lines",
+        "cod-text-checkboxes",
+        "cod-text-indent-max",
+        "cod-text-trailing-space-lines",
+        "cod-text-consecutive-blank-max",
+        "cod-text-indent-style",
+        "cod-text-avg-line-len",
+        "cod-text-line-len-std",
+        "cod-text-digit-ratio",
+        "cod-text-timestamp-count",
+        "cod-text-repeat-line-ratio",
+        "cod-text-paragraphs",
+        "cod-text-avg-para-len",
+        "cod-text-sentences",
+        "cod-text-avg-sent-len",
+        "cod-text-dialog-ratio",
+        "cod-text-punct-density",
+        "cod-text-char-diversity",
+        "cod-text-url-count",
+        "cod-text-email-count",
+        "cod-text-mention-count",
+        "cod-text-hashtag-count",
+        "cod-text-emoji-count",
+        "cod-text-link-count",
+        "cod-text-eol",
+        "cod-text-has-bom",
+        "cod-text-longest-line",
+        "cod-text-minified",
+        "cod-text-timestamp-line-ratio",
+        "cod-text-top-keywords",
+        "cod-text-headings",
+        "cod-text-structure",
+        "cod-text-ordered-ratio",
+        "cod-text-link-domains",
+        "cod-text-link-domains-truncated",
+        "cod-text-code-languages",
+        "cod-text-code-languages-truncated",
+        "cod-text-section-paths",
+        "cod-text-section-paths-truncated",
+        "cod-text-table-headers",
+        "cod-text-table-headers-truncated",
+        "cod-text-bracket-balance"
+      ],
+      "expect": {
+        "cod-text-structure": [
+          "frontmatter",
+          "lists",
+          "code-blocks",
+          "tables",
+          "headings"
+        ],
+        "cod-text-table-blocks": 1,
+        "cod-text-table-rows": 3,
+        "cod-text-table-cols": 3,
+        "cod-text-list-items": 5,
+        "cod-text-list-nesting-max": 2,
+        "cod-text-ordered-ratio": 0.2,
+        "cod-text-checkboxes": 2,
+        "cod-text-code-lines": 1,
+        "cod-text-quote-lines": 1,
+        "cod-text-link-count": 1,
+        "cod-text-link-domains": [
+          "docs.example.org"
+        ],
+        "cod-text-code-languages": [
+          "json"
+        ],
+        "cod-text-table-headers": [
+          "metric",
+          "value",
+          "note"
+        ],
+        "cod-text-bracket-balance": 1
+      },
+      "expected_absent_fields": [],
+      "notes": "由主代理依据固定模板生成；v2 子代理因清单体积误解停止，未自行写入文件。"
+    },
+    {
+      "path": "02-observation-log.txt",
+      "archetype": "timestamp-log",
+      "bytes": 777,
+      "sha256": "51f9fa60a5d5d14abee4a76290ed473f1149627811221277578197712ee49944",
+      "marker": "SEARCH_DOMAIN_HISTORY_OBSERVATION-LOG_2026",
+      "purpose": "验证时间戳日志与精确重复行",
+      "expected_coverage": [
+        "cod-text-top-keywords",
+        "cod-text-time-span"
+      ],
+      "expect": {
+        "cod-text-lines": 9,
+        "cod-text-timestamp-count": 8,
+        "cod-text-time-span": 30,
+        "cod-text-timestamp-line-ratio": 1,
+        "cod-text-repeat-line-ratio": 0.25,
+        "cod-text-url-count": 1,
+        "cod-text-email-count": 1,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": [
+        "cod-text-shebang",
+        "cod-text-headings",
+        "cod-text-structure"
+      ],
+      "notes": "由主代理依据固定模板生成；v2 子代理因清单体积误解停止，未自行写入文件。"
+    },
+    {
+      "path": "03-collaboration-chat.txt",
+      "archetype": "social-chat",
+      "bytes": 649,
+      "sha256": "6951e1478a8afd495150d9045824fd5886ad9c5a1e4d94b9b3e5792d4a4bbc4d",
+      "marker": "SEARCH_DOMAIN_HISTORY_COLLABORATION-CHAT_2026",
+      "purpose": "验证混合语言聊天与社交标记",
+      "expected_coverage": [
+        "cod-text-top-keywords",
+        "cod-text-time-span"
+      ],
+      "expect": {
+        "cod-text-lines": 7,
+        "cod-text-language": "mixed",
+        "cod-text-timestamp-count": 6,
+        "cod-text-time-span": 120,
+        "cod-text-timestamp-line-ratio": 0,
+        "cod-text-mention-count": 6,
+        "cod-text-hashtag-count": 2,
+        "cod-text-emoji-count": 4,
+        "cod-text-url-count": 1,
+        "cod-text-email-count": 1,
+        "cod-text-link-count": 1,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": [
+        "cod-text-shebang",
+        "cod-text-headings",
+        "cod-text-structure"
+      ],
+      "notes": "由主代理依据固定模板生成；v2 子代理因清单体积误解停止，未自行写入文件。"
+    },
+    {
+      "path": "04-records.csv",
+      "archetype": "regular-csv",
+      "bytes": 376,
+      "sha256": "f7c2b030066f841f04d6133b3f7f49eb27237ceccebe204847276204cd38d863",
+      "marker": "SEARCH_DOMAIN_HISTORY_RECORDS_2026",
+      "purpose": "验证规则 CSV 与括号配平",
+      "expected_coverage": [
+        "cod-text-top-keywords",
+        "cod-text-bracket-balance"
+      ],
+      "expect": {
+        "cod-text-lines": 7,
+        "cod-text-language": "mixed",
+        "cod-text-title-line": "id,domain,metric,value,note",
+        "cod-text-bracket-balance": 1,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": [
+        "cod-text-table-headers",
+        "cod-text-structure",
+        "cod-text-shebang"
+      ],
+      "notes": "由主代理依据固定模板生成；v2 子代理因清单体积误解停止，未自行写入文件。"
+    },
+    {
+      "path": "05-records-broken.csv",
+      "archetype": "broken-csv",
+      "bytes": 265,
+      "sha256": "caf4f11a328c134ebf10af7342626eabdb2939ebaea5c2c001c38782c57d8e7c",
+      "marker": "SEARCH_DOMAIN_HISTORY_RECORDS-BROKEN_2026",
+      "purpose": "验证损坏 CSV 列数与括号失衡",
+      "expected_coverage": [
+        "cod-text-bracket-balance"
+      ],
+      "expect": {
+        "cod-text-lines": 6,
+        "cod-text-title-line": "id,domain,metric,value,note",
+        "cod-text-bracket-balance": 0,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": [
+        "cod-text-table-headers",
+        "cod-text-structure",
+        "cod-text-shebang"
+      ],
+      "notes": "由主代理依据固定模板生成；v2 子代理因清单体积误解停止，未自行写入文件。"
+    },
+    {
+      "path": "06-minified.json",
+      "archetype": "minified-json",
+      "bytes": 1339,
+      "sha256": "273a84ca1b66a11677f91b8431e5379e75a283fe1caf57f0fdf8ca38d813c407",
+      "marker": "SEARCH_DOMAIN_HISTORY_MINIFIED_2026",
+      "purpose": "验证单行压缩 JSON 与长行边界",
+      "expected_coverage": [
+        "cod-text-bracket-balance"
+      ],
+      "expect": {
+        "cod-text-lines": 1,
+        "cod-text-language": "en",
+        "cod-text-minified": true,
+        "cod-text-eol": "none",
+        "cod-text-final-newline": false,
+        "cod-text-bracket-balance": 1
+      },
+      "expected_absent_fields": [
+        "cod-text-headings",
+        "cod-text-structure",
+        "cod-text-shebang"
+      ],
+      "notes": "由主代理依据固定模板生成；v2 子代理因清单体积误解停止，未自行写入文件。"
+    },
+    {
+      "path": "07-boundary.txt",
+      "archetype": "mixed-eol-boundary",
+      "bytes": 337,
+      "sha256": "bf494bb1aadee4de419b3ddab8140a2f1207a275a7cc87d5ea35530b8b4449e9",
+      "marker": "SEARCH_DOMAIN_HISTORY_BOUNDARY_2026",
+      "purpose": "验证混合行尾与连续空行",
+      "expected_coverage": [],
+      "expect": {
+        "cod-text-lines": 5,
+        "cod-text-blank-ratio": 0.4,
+        "cod-text-consecutive-blank-max": 2,
+        "cod-text-trailing-space-lines": 2,
+        "cod-text-eol": "mixed",
+        "cod-text-final-newline": false
+      },
+      "expected_absent_fields": [
+        "cod-text-shebang",
+        "cod-text-headings",
+        "cod-text-structure"
+      ],
+      "notes": "由主代理依据固定模板生成；v2 子代理因清单体积误解停止，未自行写入文件。"
+    },
+    {
+      "path": "08-crlf.md",
+      "archetype": "domain-special",
+      "bytes": 2824,
+      "sha256": "d6b2f7e7adc3021b522e36bb43ed3f7a3c1514013cd528b02f0e163df970e27d",
+      "marker": "SEARCH_DOMAIN_HISTORY_SPECIAL_2026",
+      "purpose": "验证历史考古专用变体",
+      "expected_coverage": [
+        "cod-text-top-keywords",
+        "cod-text-headings",
+        "cod-text-structure",
+        "cod-text-table-headers",
+        "cod-text-table-headers-truncated"
+      ],
+      "expect": {
+        "cod-text-structure": [
+          "lists",
+          "tables",
+          "headings"
+        ],
+        "cod-text-list-items": 3,
+        "cod-text-quote-lines": 1,
+        "cod-text-table-blocks": 1,
+        "cod-text-table-rows": 3,
+        "cod-text-table-cols": 2,
+        "cod-text-eol": "crlf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": [],
+      "notes": "由主代理依据固定模板生成；v2 子代理因清单体积误解停止，未自行写入文件。"
+    },
+    {
+      "path": "09-pseudo-table.md",
+      "archetype": "pseudo-table-negative",
+      "bytes": 367,
+      "sha256": "879cbc2cb4a40c3f09d0317c4350bf06bb1df40d3d3ed09b187557f26d108127",
+      "marker": "SEARCH_DOMAIN_HISTORY_PSEUDO-TABLE_2026",
+      "purpose": "验证伪表格负例与逐单元格换行",
+      "expected_coverage": [],
+      "expect": {
+        "cod-text-lines": 21,
+        "cod-text-language": "mixed",
+        "cod-text-title-line": "序号",
+        "cod-text-table-blocks": 0,
+        "cod-text-table-rows": 0,
+        "cod-text-table-cols": 0,
+        "cod-text-eol": "lf",
+        "cod-text-final-newline": true
+      },
+      "expected_absent_fields": [
+        "cod-text-table-headers",
+        "cod-text-structure",
+        "cod-text-headings",
+        "cod-text-shebang"
+      ],
+      "notes": "由主代理依据固定模板生成；v2 子代理因清单体积误解停止，未自行写入文件。"
+    }
+  ]
+}

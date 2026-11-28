@@ -1,0 +1,5 @@
+SEARCH_DOMAIN_COMPUTING_BOUNDARY_2026 
+
+
+computing note: index, cache, protocol, and sorting records use this boundary sample to verify exact carriage-return, line-feed, tab, and trailing-whitespace behavior.	
+The final computing boundary sentence remains open for review and deliberately omits a newline after the last visible character.

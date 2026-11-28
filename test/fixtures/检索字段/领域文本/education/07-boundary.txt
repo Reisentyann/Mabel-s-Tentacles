@@ -1,0 +1,5 @@
+SEARCH_DOMAIN_EDUCATION_BOUNDARY_2026 
+
+
+education note: curriculum, assessment, classroom, and exam records use this boundary sample to verify exact carriage-return, line-feed, tab, and trailing-whitespace behavior.	
+The final education boundary sentence remains open for review and deliberately omits a newline after the last visible character.

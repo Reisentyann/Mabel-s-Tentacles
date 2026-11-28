@@ -1,0 +1,5 @@
+SEARCH_DOMAIN_MEDICINE_BOUNDARY_2026 
+
+
+medicine note: pressure, dosage, epidemic, and screening records use this boundary sample to verify exact carriage-return, line-feed, tab, and trailing-whitespace behavior.	
+The final economic boundary sentence remains open for review and deliberately omits a newline after the last visible character.

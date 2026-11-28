@@ -1,5 +1,5 @@
 // 文件：manager-go/intake.go —— 入库域：文本写入与外部文件导入（逻辑键 + uuid 派生物理随机路径）
-// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
+// 修改：2026-11-28（日期由 fresh-header.ps1 刷新）
 
 package manager
 
@@ -12,13 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/Reisentyann/Mabel-s-Tentacles/describer-go"
 )
-
-// maxIntakeBytes 单次写入内容上限（= describer.MaxFullBytes 单一来源，
-// 与分析预算同口径：值得入库的分析粒度）。
-const maxIntakeBytes = describer.MaxFullBytes
 
 // WriteReceipt 入库回执：uuid（后续操作凭证）+ 逻辑键 + 物理相对路径
 // （审计/排障用，agent 场景不依赖它）。
@@ -47,23 +41,51 @@ func (m *Manager) Write(ctx context.Context, logicPath, content string) (*WriteR
 }
 
 // WriteBytes 字节级新文件入库口（图片/归档/二进制文件上传）：Reserve 原子占位 →
-// uuid 派生物理路径 → 落盘。与 Write 同享 5MB 上限、重名保护与 .partial 硬链接发布。
+// uuid 派生物理路径 → 落盘。与 Write 同享重名保护与 .partial 硬链接发布。
 func (m *Manager) WriteBytes(ctx context.Context, logicPath string, data []byte) (*WriteReceipt, error) {
 	if err := validLogicPath(logicPath); err != nil {
 		return nil, err
 	}
-	if len(data) > maxIntakeBytes {
-		return nil, fmt.Errorf("security error: file content exceeds 5MB limit")
+	if err := m.ensureFilePathAvailable(ctx, logicPath); err != nil {
+		return nil, err
+	}
+	return m.storeNewFile(ctx, logicPath, func(abs string) (int64, error) {
+		n, err := publishNewFile(abs, bytes.NewReader(data))
+		if err != nil {
+			return n, fmt.Errorf("write file: %w", err)
+		}
+		return n, nil
+	})
+}
+
+// WriteReader 流式创建新文件，不将内容整体读入内存。
+func (m *Manager) WriteReader(ctx context.Context, logicPath string, src io.Reader) (*WriteReceipt, error) {
+	if err := validLogicPath(logicPath); err != nil {
+		return nil, err
+	}
+	if src == nil {
+		return nil, fmt.Errorf("write file: source reader is nil")
 	}
 	if err := m.ensureFilePathAvailable(ctx, logicPath); err != nil {
 		return nil, err
 	}
-	return m.storeNewFile(ctx, logicPath, int64(len(data)), func(abs string) error {
-		if err := publishNewFile(abs, bytes.NewReader(data)); err != nil {
-			return fmt.Errorf("write file: %w", err)
+	return m.storeNewFile(ctx, logicPath, func(abs string) (int64, error) {
+		n, err := publishNewFile(abs, src)
+		if err != nil {
+			return n, fmt.Errorf("write file: %w", err)
 		}
-		return nil
+		return n, nil
 	})
+}
+
+// CopyByLogic 将源文件流式复制到未占用的新逻辑键。
+func (m *Manager) CopyByLogic(ctx context.Context, source, target string) (*WriteReceipt, error) {
+	of, err := m.StreamByLogic(ctx, source)
+	if err != nil {
+		return nil, err
+	}
+	defer of.Content.Close()
+	return m.WriteReader(ctx, target, of.Content)
 }
 
 // ImportFile 将本地普通文件流式复制到新 UUID 的物理路径并发布。
@@ -87,11 +109,12 @@ func (m *Manager) ImportFile(ctx context.Context, logicPath, sourcePath string) 
 		return nil, fmt.Errorf("import file: source is not a regular file")
 	}
 
-	r, err := m.storeNewFile(ctx, logicPath, info.Size(), func(abs string) error {
-		if err := transferImportedFile(sourcePath, abs); err != nil {
-			return fmt.Errorf("store imported file: %w", err)
+	r, err := m.storeNewFile(ctx, logicPath, func(abs string) (int64, error) {
+		n, err := transferImportedFile(sourcePath, abs)
+		if err != nil {
+			return n, fmt.Errorf("store imported file: %w", err)
 		}
-		return nil
+		return n, nil
 	})
 	if err != nil {
 		return nil, err
@@ -102,7 +125,7 @@ func (m *Manager) ImportFile(ctx context.Context, logicPath, sourcePath string) 
 // storeNewFile 统一占位、物理发布与状态确认。publish 只有完整发布成功才返回 nil。
 // 发布前失败归档占位；发布后确认失败保留 pending，供启动恢复。
 // 来源校验和各入口的逻辑路径占用规则由调用方执行。
-func (m *Manager) storeNewFile(ctx context.Context, logicPath string, size int64, publish func(string) error) (_ *WriteReceipt, resultErr error) {
+func (m *Manager) storeNewFile(ctx context.Context, logicPath string, publish func(string) (int64, error)) (_ *WriteReceipt, resultErr error) {
 	m.intake.RLock()
 	defer m.intake.RUnlock()
 	uuid, err := m.store.ReserveMeta(ctx, logicPath)
@@ -126,7 +149,8 @@ func (m *Manager) storeNewFile(ctx context.Context, logicPath string, size int64
 	if err := os.MkdirAll(filepath.Dir(abs), 0o755); err != nil {
 		return nil, fmt.Errorf("create directory: %w", err)
 	}
-	if err := publish(abs); err != nil {
+	size, err := publish(abs)
+	if err != nil {
 		return nil, err
 	}
 	stored = true
@@ -137,10 +161,10 @@ func (m *Manager) storeNewFile(ctx context.Context, logicPath string, size int64
 }
 
 // transferImportedFile 流式复制源文件，排他发布目标并保留源文件。
-func transferImportedFile(sourcePath, targetPath string) error {
+func transferImportedFile(sourcePath, targetPath string) (int64, error) {
 	in, err := os.Open(sourcePath)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer in.Close()
 
@@ -149,25 +173,25 @@ func transferImportedFile(sourcePath, targetPath string) error {
 
 // publishNewFile 正式路径只在完整写入并同步后出现。硬链接发布排他且不覆盖，
 // 临时文件保留作证据；不支持硬链接的文件系统明确失败，不降级到非原子覆盖。
-func publishNewFile(targetPath string, src io.Reader) error {
+func publishNewFile(targetPath string, src io.Reader) (int64, error) {
 	out, err := os.OpenFile(targetPath+".partial", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	_, copyErr := io.Copy(out, src)
+	n, copyErr := io.Copy(out, src)
 	var syncErr error
 	if copyErr == nil {
 		syncErr = out.Sync()
 	}
 	closeErr := out.Close()
 	if err := errors.Join(copyErr, syncErr, closeErr); err != nil {
-		return err
+		return n, err
 	}
 	if err := os.Link(targetPath+".partial", targetPath); err != nil {
-		return fmt.Errorf("publish file: %w", err)
+		return n, fmt.Errorf("publish file: %w", err)
 	}
 	// 临时目录项仅作为写入证据，不参与读取和启动发布判断。
-	return nil
+	return n, nil
 }
 
 func (m *Manager) ensureFilePathAvailable(ctx context.Context, logicPath string) error {

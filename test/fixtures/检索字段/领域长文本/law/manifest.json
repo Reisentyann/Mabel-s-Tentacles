@@ -1,0 +1,203 @@
+{
+  "domain": "law",
+  "encoding": "UTF-8",
+  "bom": false,
+  "topics": [
+    "公交线路特许经营",
+    "湿地公园游船审批",
+    "楼道电动自行车充电",
+    "生活垃圾分类"
+  ],
+  "files": [
+    {
+      "path": "01-report.md",
+      "bytes": 21259,
+      "sha256": "f638b5ab2b15301f78b4bee93f21bfcf16030d321c1954c433fc39a422e3ee9d",
+      "marker": "SEARCH_LONG_law_REPORT_2026",
+      "purpose": "验证frontmatter、多级标题、嵌套列表、表格、引用、JSON代码块与链接的联合检索。",
+      "cod-topic": "cod-公交线路特许经营 | 湿地公园游船审批 | 楼道电动自行车充电 | 生活垃圾分类",
+      "cod-marker": "cod-SEARCH_LONG_law_REPORT_2026",
+      "cod-objects": "cod-线路车辆 | 游船码头 | 集中充电柜 | 分类投放点",
+      "cod-units": "cod-线路 | 航次 | 楼栋单元 | 投放时段",
+      "cod-keywords": "cod-permit inspection facility survey review record",
+      "expect": {
+        "cod-encoding": "cod-UTF-8",
+        "cod-bom": "cod-absent",
+        "cod-frontmatter": "cod-present",
+        "cod-h1-count": "cod-1",
+        "cod-h2-count": "cod-5",
+        "cod-nested-list": "cod-present",
+        "cod-table": "cod-present",
+        "cod-blockquote": "cod-present",
+        "cod-json-fence": "cod-present",
+        "cod-link": "cod-https://example.invalid/law/transit-franchise"
+      },
+      "expected_absent_fields": []
+    },
+    {
+      "path": "02-observation-log.txt",
+      "bytes": 6470,
+      "sha256": "4982be4baf6ed094b75f2adb141b3b8fe5211302a897cf9b8f7862abab06ddf7",
+      "marker": "SEARCH_LONG_law_OBSERVATION_LOG_2026",
+      "purpose": "验证恰好八条时间戳观察记录、末两条重复、URL与email定位。",
+      "cod-topic": "cod-公交线路特许经营 | 湿地公园游船审批 | 楼道电动自行车充电 | 生活垃圾分类",
+      "cod-marker": "cod-SEARCH_LONG_law_OBSERVATION_LOG_2026",
+      "cod-objects": "cod-线路车辆 | 游船码头 | 集中充电柜 | 分类投放点",
+      "cod-units": "cod-线路 | 航次 | 楼栋单元 | 投放时段",
+      "cod-keywords": "cod-permit inspection facility survey review record",
+      "expect": {
+        "cod-encoding": "cod-UTF-8",
+        "cod-bom": "cod-absent",
+        "cod-line-count": "cod-8",
+        "cod-iso-timestamp-count": "cod-8",
+        "cod-last-lines-equal": "cod-true",
+        "cod-url-count": "cod-1",
+        "cod-url": "cod-https://example.invalid/law/transit-franchise/archive",
+        "cod-email-count": "cod-1",
+        "cod-email": "cod-transit@example.invalid"
+      },
+      "expected_absent_fields": []
+    },
+    {
+      "path": "03-collaboration-chat.txt",
+      "bytes": 5286,
+      "sha256": "9583ebfc323f4538807b9a884307dc9f16b378f6b2425fa58e1c228462602029",
+      "marker": "SEARCH_LONG_law_COLLABORATION_CHAT_2026",
+      "purpose": "验证六条方括号时间戳协作消息、mention、hashtag、emoji及三种链接。",
+      "cod-topic": "cod-公交线路特许经营 | 湿地公园游船审批 | 楼道电动自行车充电 | 生活垃圾分类",
+      "cod-marker": "cod-SEARCH_LONG_law_COLLABORATION_CHAT_2026",
+      "cod-objects": "cod-线路车辆 | 游船码头 | 集中充电柜 | 分类投放点",
+      "cod-units": "cod-线路 | 航次 | 楼栋单元 | 投放时段",
+      "cod-keywords": "cod-permit inspection facility survey review record",
+      "expect": {
+        "cod-encoding": "cod-UTF-8",
+        "cod-bom": "cod-absent",
+        "cod-line-count": "cod-6",
+        "cod-bracket-timestamp-count": "cod-6",
+        "cod-mention-count": "cod-9",
+        "cod-hashtag-count": "cod-2",
+        "cod-hashtags": "cod-检索字段 | cod-长文本",
+        "cod-emoji-count": "cod-4",
+        "cod-emoji": "cod-🔎 | cod-📌 | cod-✅ | cod-🧭",
+        "cod-url-count": "cod-1",
+        "cod-url": "cod-https://example.invalid/law/transit-franchise/handoff",
+        "cod-email-count": "cod-1",
+        "cod-email": "cod-wetland@example.invalid",
+        "cod-markdown-link": "cod-[字段约定](https://example.invalid/law/transit-franchise/fields)"
+      },
+      "expected_absent_fields": []
+    },
+    {
+      "path": "04-records.csv",
+      "bytes": 8512,
+      "sha256": "22d835b09a1934a6c97c504b704033a791a0e3eab46681c609e00693f267fb60",
+      "marker": "SEARCH_LONG_law_RECORDS_2026",
+      "purpose": "验证标准五列表头、五条数据行与UTF-8中文长字段。",
+      "cod-topic": "cod-公交线路特许经营 | 湿地公园游船审批 | 楼道电动自行车充电 | 生活垃圾分类",
+      "cod-marker": "cod-SEARCH_LONG_law_RECORDS_2026",
+      "cod-objects": "cod-线路车辆 | 游船码头 | 集中充电柜 | 分类投放点",
+      "cod-units": "cod-线路 | 航次 | 楼栋单元 | 投放时段",
+      "cod-keywords": "cod-permit inspection facility survey review record",
+      "expect": {
+        "cod-encoding": "cod-UTF-8",
+        "cod-bom": "cod-absent",
+        "cod-row-count": "cod-6",
+        "cod-column-count": "cod-5",
+        "cod-header": "cod-record_id,topic,object,metric,note",
+        "cod-marker-line": "cod-marker=SEARCH_LONG_law_RECORDS_2026"
+      },
+      "expected_absent_fields": []
+    },
+    {
+      "path": "05-records-broken.csv",
+      "bytes": 9466,
+      "sha256": "23301cc58aac953ba336dcee62998121f1d4171bd798f079e93ddc35644350c8",
+      "marker": "SEARCH_LONG_law_BROKEN_RECORDS_2026",
+      "purpose": "验证3/5/2/4列破损CSV的容错检索，并确认右括号缺失。",
+      "cod-topic": "cod-公交线路特许经营 | 湿地公园游船审批 | 楼道电动自行车充电 | 生活垃圾分类",
+      "cod-marker": "cod-SEARCH_LONG_law_BROKEN_RECORDS_2026",
+      "cod-objects": "cod-线路车辆 | 游船码头 | 集中充电柜 | 分类投放点",
+      "cod-units": "cod-线路 | 航次 | 楼栋单元 | 投放时段",
+      "cod-keywords": "cod-permit inspection facility survey review record",
+      "expect": {
+        "cod-encoding": "cod-UTF-8",
+        "cod-bom": "cod-absent",
+        "cod-row-count": "cod-5",
+        "cod-data-column-counts": "cod-3 | cod-5 | cod-2 | cod-4",
+        "cod-marker-line": "cod-marker=SEARCH_LONG_law_BROKEN_RECORDS_2026",
+        "cod-right-parenthesis-count": "cod-0"
+      },
+      "expected_absent_fields": []
+    },
+    {
+      "path": "06-minified.json",
+      "bytes": 15960,
+      "sha256": "3a5c6a8974de837fc84bb75c7d15babbecb1b45ff927f0a7ff10390c3773474c",
+      "marker": "SEARCH_LONG_law_MINIFIED_JSON_2026",
+      "purpose": "验证单行合法JSON、无末尾换行、超长Unicode字段与嵌套对象。",
+      "cod-topic": "cod-公交线路特许经营 | 湿地公园游船审批 | 楼道电动自行车充电 | 生活垃圾分类",
+      "cod-marker": "cod-SEARCH_LONG_law_MINIFIED_JSON_2026",
+      "cod-objects": "cod-线路车辆 | 游船码头 | 集中充电柜 | 分类投放点",
+      "cod-units": "cod-线路 | 航次 | 楼栋单元 | 投放时段",
+      "cod-keywords": "cod-permit inspection facility survey review record",
+      "expect": {
+        "cod-encoding": "cod-UTF-8",
+        "cod-bom": "cod-absent",
+        "cod-line-count": "cod-1",
+        "cod-json-valid": "cod-true",
+        "cod-trailing-newline": "cod-absent",
+        "cod-rune-count-gt": "cod-1000"
+      },
+      "expected_absent_fields": []
+    },
+    {
+      "path": "07-boundary.txt",
+      "bytes": 13386,
+      "sha256": "7b3e6af99dba590aeb10d8076458e675ec368f6305094ef887cc507bd6311d14",
+      "marker": "SEARCH_LONG_law_BOUNDARY_2026",
+      "purpose": "验证混合换行、连续空行与无末尾换行的边界保留。",
+      "cod-topic": "cod-公交线路特许经营 | 湿地公园游船审批 | 楼道电动自行车充电 | 生活垃圾分类",
+      "cod-marker": "cod-SEARCH_LONG_law_BOUNDARY_2026",
+      "cod-objects": "cod-线路车辆 | 游船码头 | 集中充电柜 | 分类投放点",
+      "cod-units": "cod-线路 | 航次 | 楼栋单元 | 投放时段",
+      "cod-keywords": "cod-permit inspection facility survey review record",
+      "expect": {
+        "cod-encoding": "cod-UTF-8",
+        "cod-bom": "cod-absent",
+        "cod-crlf": "cod-present",
+        "cod-lf": "cod-present",
+        "cod-cr": "cod-present",
+        "cod-consecutive-empty-lines": "cod-present",
+        "cod-trailing-newline": "cod-absent"
+      },
+      "expected_absent_fields": []
+    },
+    {
+      "path": "08-special.md",
+      "bytes": 22744,
+      "sha256": "0cd02d91c44d80b801b0220e27e5b12f799cfc056142e18e7d35e2dbf1722267",
+      "marker": "SEARCH_LONG_law_SPECIAL_2026",
+      "purpose": "验证三十一个唯一H2、URL、空代码围栏与表格结构。",
+      "cod-topic": "cod-公交线路特许经营 | 湿地公园游船审批 | 楼道电动自行车充电 | 生活垃圾分类",
+      "cod-marker": "cod-SEARCH_LONG_law_SPECIAL_2026",
+      "cod-objects": "cod-线路车辆 | 游船码头 | 集中充电柜 | 分类投放点",
+      "cod-units": "cod-线路 | 航次 | 楼栋单元 | 投放时段",
+      "cod-keywords": "cod-permit inspection facility survey review record",
+      "expect": {
+        "cod-encoding": "cod-UTF-8",
+        "cod-bom": "cod-absent",
+        "cod-h2-count": "cod-31",
+        "cod-h2-unique-count": "cod-31",
+        "cod-url-count": "cod-31",
+        "cod-url-unique-count": "cod-31",
+        "cod-empty-code-fence-count": "cod-31",
+        "cod-table-count": "cod-31"
+      },
+      "expected_absent_fields": [
+        "cod-duplicate-h2",
+        "cod-duplicate-url",
+        "cod-nonempty-code-fence"
+      ]
+    }
+  ]
+}

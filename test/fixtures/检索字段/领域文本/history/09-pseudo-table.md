@@ -1,0 +1,20 @@
+序号
+领域
+指标
+数值
+说明
+1
+history
+dynasty
+2
+朝代纪年台账已核对，并保留一条用于字段回查的完整中文说明。
+2
+history
+artifact
+5
+SEARCH_DOMAIN_HISTORY_PSEUDO-TABLE_2026 考古地层材料已归档，并保留原始记录顺序。
+3
+history
+archive
+8
+古籍文献与遗址年代记录已复核，最后一行以中文句号结束。

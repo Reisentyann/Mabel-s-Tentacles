@@ -1,0 +1,211 @@
+{
+  "schema_version": 1,
+  "path_base": ".",
+  "generator": "test/tools/search-fixture-generators/images/main.go",
+  "common_image_fields": [
+    "cod-image-width",
+    "cod-image-height",
+    "cod-image-aspect",
+    "cod-image-orientation",
+    "cod-image-megapixels",
+    "cod-image-brightness",
+    "cod-image-contrast",
+    "cod-image-dark",
+    "cod-image-light",
+    "cod-image-warm-ratio",
+    "cod-image-cool-ratio",
+    "cod-image-skin-tone-ratio",
+    "cod-image-alpha-ratio",
+    "cod-image-color-count",
+    "cod-image-flat-ratio",
+    "cod-image-entropy",
+    "cod-image-palette",
+    "cod-image-dominant",
+    "cod-image-saturation",
+    "cod-image-family",
+    "cod-image-edge-density",
+    "cod-image-sharpness",
+    "cod-image-symmetry"
+  ],
+  "fixture_bytes": 1247,
+  "files": [
+    {
+      "path": "solid-warm.png",
+      "media_type": "image/png",
+      "bytes": 82,
+      "sha256": "6b24aecb33507a0bace4bf71bc69d9fdc79836b3d504f7d3637f89059ead0c62",
+      "dimensions": {
+        "width": 8,
+        "height": 8
+      },
+      "decodable": true,
+      "common_image_fields_apply": true,
+      "expected_fields": {
+        "cod-image-alpha-ratio": 0,
+        "cod-image-aspect": "1:1",
+        "cod-image-color-count": 1,
+        "cod-image-cool-ratio": 0,
+        "cod-image-dominant": "#e78a3c",
+        "cod-image-entropy": 0,
+        "cod-image-family": "orange",
+        "cod-image-flat-ratio": 1,
+        "cod-image-height": 8,
+        "cod-image-orientation": "square",
+        "cod-image-warm-ratio": 1,
+        "cod-image-width": 8
+      },
+      "expected_absent_fields": [
+        "cod-image-has-alpha",
+        "sp-cod-png-prompt",
+        "sp-cod-png-parameters",
+        "cod-image-taken-at",
+        "cod-image-camera",
+        "cod-image-software",
+        "cod-image-animated",
+        "cod-image-frames"
+      ],
+      "purpose": "8×8 暖色纯色不透明 PNG；用于尺寸、纯色/扁平率、暖色与无透明通道检索。"
+    },
+    {
+      "path": "transparent.png",
+      "media_type": "image/png",
+      "bytes": 100,
+      "sha256": "3779acd07332d02a6ccc421007589431c1774f95008dc140c94ae5879b8c0635",
+      "dimensions": {
+        "width": 4,
+        "height": 4
+      },
+      "decodable": true,
+      "common_image_fields_apply": true,
+      "expected_fields": {
+        "cod-image-alpha-ratio": 0.5,
+        "cod-image-color-count": 2,
+        "cod-image-cool-ratio": 0.5,
+        "cod-image-entropy": 1,
+        "cod-image-flat-ratio": 1,
+        "cod-image-has-alpha": true,
+        "cod-image-height": 4,
+        "cod-image-warm-ratio": 0.5,
+        "cod-image-width": 4
+      },
+      "expected_absent_fields": [
+        "sp-cod-png-prompt",
+        "sp-cod-png-parameters",
+        "cod-image-taken-at",
+        "cod-image-camera",
+        "cod-image-software",
+        "cod-image-animated",
+        "cod-image-frames"
+      ],
+      "purpose": "4×4 棋盘格 PNG，一半像素 Alpha=96；用于 has-alpha 与 alpha-ratio 检索。"
+    },
+    {
+      "path": "metadata.png",
+      "media_type": "image/png",
+      "bytes": 168,
+      "sha256": "b3b70b91795dc775b978ad2d2a63e7ac43253820f8ddf865bc30dedad2da61f1",
+      "dimensions": {
+        "width": 8,
+        "height": 8
+      },
+      "decodable": true,
+      "common_image_fields_apply": true,
+      "expected_fields": {
+        "cod-image-alpha-ratio": 0,
+        "cod-image-color-count": 1,
+        "cod-image-dominant": "#7030a0",
+        "cod-image-family": "purple",
+        "cod-image-flat-ratio": 1,
+        "cod-image-height": 8,
+        "cod-image-width": 8,
+        "sp-cod-png-parameters": "SEARCH_PNG_PARAMS_2026",
+        "sp-cod-png-prompt": "SEARCH_PNG_PROMPT_2026"
+      },
+      "expected_absent_fields": [
+        "cod-image-has-alpha",
+        "cod-image-taken-at",
+        "cod-image-camera",
+        "cod-image-software",
+        "cod-image-animated",
+        "cod-image-frames"
+      ],
+      "purpose": "8×8 PNG 内嵌 prompt/parameters tEXt；用唯一标记验证 sp-cod-png-* 检索。"
+    },
+    {
+      "path": "exif-sample.jpg",
+      "media_type": "image/jpeg",
+      "bytes": 769,
+      "sha256": "8eff499737e4c7080e4806ef197d280606d2fec303d4035ecf63f8f6180ae3bf",
+      "dimensions": {
+        "width": 8,
+        "height": 8
+      },
+      "decodable": true,
+      "common_image_fields_apply": true,
+      "expected_fields": {
+        "cod-image-camera": "SEARCH_CAMERA_2026 SEARCH_MODEL_2026",
+        "cod-image-height": 8,
+        "cod-image-software": "SEARCH_SOFTWARE_2026",
+        "cod-image-taken-at": 1795523696,
+        "cod-image-width": 8
+      },
+      "expected_absent_fields": [
+        "sp-cod-png-prompt",
+        "sp-cod-png-parameters",
+        "cod-image-animated",
+        "cod-image-frames"
+      ],
+      "purpose": "8×8 JPEG 内嵌最小 EXIF；验证 camera/software/taken-at 固定字段及唯一相机标记。"
+    },
+    {
+      "path": "animated.gif",
+      "media_type": "image/gif",
+      "bytes": 95,
+      "sha256": "9cddf8ddbbf77c086e8b541f1e718b1930d3d46ea7132591cd3f25ce0cfde2a1",
+      "dimensions": {
+        "width": 4,
+        "height": 4
+      },
+      "frames": 2,
+      "decodable": true,
+      "common_image_fields_apply": true,
+      "expected_fields": {
+        "cod-image-animated": true,
+        "cod-image-color-count": 1,
+        "cod-image-dominant": "#e63946",
+        "cod-image-frames": 2,
+        "cod-image-height": 4,
+        "cod-image-width": 4
+      },
+      "expected_absent_fields": [
+        "cod-image-has-alpha",
+        "sp-cod-png-prompt",
+        "sp-cod-png-parameters",
+        "cod-image-taken-at",
+        "cod-image-camera",
+        "cod-image-software"
+      ],
+      "purpose": "4×4 两帧 GIF，红/蓝纯色帧；验证多帧 animated/frames。"
+    },
+    {
+      "path": "corrupt.png",
+      "media_type": "image/png",
+      "bytes": 33,
+      "sha256": "9a7d0043385318795925f91868dc4191c25972b465b580e78a8332b02db9f2e0",
+      "decodable": false,
+      "common_image_fields_apply": false,
+      "all_common_image_fields_absent": true,
+      "expected_fields": {
+        "cod-basic-mime": "image/png",
+        "cod-image-ver": 3
+      },
+      "expected_absent_fields": [
+        "sp-cod-png-prompt",
+        "sp-cod-png-parameters",
+        "cod-image-animated",
+        "cod-image-frames"
+      ],
+      "purpose": "保留 PNG 魔数，IHDR 尺寸为 0 且 CRC 损坏；验证 MIME 命中 image 后解码失败、图像事实为零。"
+    }
+  ]
+}

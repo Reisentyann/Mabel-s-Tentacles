@@ -1,0 +1,6 @@
+id,domain,metric,value,note
+C01,computing,index,(12),index 倒排索引档案已核对。
+C02,computing,cache,(8),cache 缓存失效材料已归档。
+C03,computing,protocol,(5),protocol 网络协议记录已登记。
+C04,computing,sorting,(9),sorting 排序算法台账已更新。
+C05,computing,review,(3),SEARCH_DOMAIN_COMPUTING_RECORDS_2026 计算检索样本已校验。

@@ -1,0 +1,6 @@
+[2026-01-01T00:00:00] @curriculum_editor “curriculum 数据需要复核。” 😀 https://docs.example.org/education #curriculum
+[2026-01-01T00:00:20] @assessment_officer “学习评价量规已补齐。” 😊 assessment@example.org
+[2026-01-01T00:00:40] @classroom_lead “课堂观察口径已记录。” 🧭 [办理指引](guide.html)
+[2026-01-01T00:01:00] @exam_auditor “考试分析标签需要更新。” 📚 #exam
+[2026-01-01T00:01:20] @data_planner “教育指标序列已核对。” curriculum 档案保持同步。
+[2026-01-01T00:02:00] @senior_reviewer “本轮教育检索完成。” marker=SEARCH_DOMAIN_EDUCATION_COLLABORATION-CHAT_2026

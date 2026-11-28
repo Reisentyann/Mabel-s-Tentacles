@@ -1,0 +1,5 @@
+id,domain,metric,value,note
+r1,oceanography,current (draft
+r2,oceanography,tide,approved,SEARCH_DOMAIN_OCEANOGRAPHY_RECORDS-BROKEN_2026 潮汐周期记录待修复，补充说明保留原始字段顺序并验证损坏行的列数边界。
+r3,salinity
+r4,oceanography,abyss,pending

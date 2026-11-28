@@ -1,0 +1,6 @@
+id,domain,metric,value,note
+E01,geography,watershed,(12),watershed 河流流域档案已核对。
+E02,geography,coastline,(8),coastline 海岸线变迁材料已归档。
+E03,geography,latitude,(5),latitude 城市区位记录已登记。
+E04,geography,terrain,(9),terrain 地形剖面台账已更新。
+E05,geography,review,(3),SEARCH_DOMAIN_GEOGRAPHY_RECORDS_2026 地理检索样本已校验。

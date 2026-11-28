@@ -1,0 +1,5 @@
+id,domain,metric,value,note
+r1,economics,inflation (draft
+r2,economics,fiscal,approved,SEARCH_DOMAIN_ECONOMICS_RECORDS-BROKEN_2026 财政收支记录待修复，补充说明保留原始字段顺序并验证损坏行的列数边界。
+r3,market
+r4,economics,exchange,pending

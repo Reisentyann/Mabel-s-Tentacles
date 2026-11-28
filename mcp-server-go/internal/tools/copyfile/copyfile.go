@@ -1,11 +1,10 @@
 // 文件：mcp-server-go/internal/tools/copyfile/copyfile.go —— MCP 工具 copy_file：内容 + 元数据一起复制（KindCopy 事件喂索引）
-// 修改：2026-10-14（日期由 fresh-header.ps1 刷新）
+// 修改：2026-11-28（日期由 fresh-header.ps1 刷新）
 
 package copyfile
 
 import (
 	"context"
-	"io"
 	"log/slog"
 	"time"
 
@@ -73,16 +72,7 @@ func register(s *server.MCPServer, deps tools.Deps) {
 		if deps.Manager == nil {
 			return tools.ResultError("manager not wired"), nil
 		}
-		of, err := deps.Manager.OpenByLogic(ctx, src)
-		if err != nil {
-			return tools.ResultError(err.Error()), nil
-		}
-		content, rerr := io.ReadAll(of.Content)
-		of.Content.Close()
-		if rerr != nil {
-			return tools.ResultError(rerr.Error()), nil
-		}
-		copyReceipt, err := deps.Manager.Write(ctx, dst, string(content))
+		copyReceipt, err := deps.Manager.CopyByLogic(ctx, src, dst)
 		if err != nil {
 			slog.Error("copy_file failed", "tool", "copy_file", "source", src, "target", dst, "session", sessionID, "error", err, "duration", time.Since(start).String())
 			tools.RecordOperation(ctx, deps.Store, sessionID, "copy_file", dst, "failed", err.Error(), map[string]any{"source": src})
@@ -122,7 +112,7 @@ func register(s *server.MCPServer, deps tools.Deps) {
 			}
 		}
 
-		slog.Info("copy_file ok", "source", src, "target", dst, "bytes", len(content), "session", sessionID, "duration", time.Since(start).String())
+		slog.Info("copy_file ok", "source", src, "target", dst, "bytes", copyReceipt.SizeBytes, "session", sessionID, "duration", time.Since(start).String())
 		tools.RecordOperation(ctx, deps.Store, sessionID, "copy_file", dst, "success", "", map[string]any{"source": source})
 		return tools.Result(map[string]any{"success": true, "message": "Successfully copied " + src + " to " + dst}), nil
 	})

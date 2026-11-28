@@ -1,0 +1,6 @@
+[2026-01-01T00:00:00] @dynasty_editor “dynasty 数据需要复核。” 😀 https://docs.example.org/history #dynasty
+[2026-01-01T00:00:20] @artifact_officer “考古地层已补齐。” 😊 artifact@example.org
+[2026-01-01T00:00:40] @archive_lead “市场指数口径已记录。” 🧭 [办理指引](guide.html)
+[2026-01-01T00:01:00] @dating_auditor “汇率标签需要更新。” 📚 #dating
+[2026-01-01T00:01:20] @data_planner “历史考古指标序列已核对。” dynasty 档案保持同步。
+[2026-01-01T00:02:00] @senior_reviewer “本轮历史考古检索完成。” marker=SEARCH_DOMAIN_HISTORY_COLLABORATION-CHAT_2026

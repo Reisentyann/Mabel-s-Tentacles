@@ -1,0 +1,6 @@
+id,domain,metric,value,note
+E01,biology,cell,(12),cell 细胞结构档案已核对。
+E02,biology,genome,(8),genome 遗传规律材料已归档。
+E03,biology,ecology,(5),ecology 生态系统记录已登记。
+E04,biology,species,(9),species 物种观察台账已更新。
+E05,biology,review,(3),SEARCH_DOMAIN_BIOLOGY_RECORDS_2026 生物检索样本已校验。

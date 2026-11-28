@@ -1,0 +1,6 @@
+id,domain,metric,value,note
+E01,meteorology,front,(12),front 锋面移动档案已核对。
+E02,meteorology,pressure,(8),pressure 气压变化材料已归档。
+E03,meteorology,typhoon,(5),typhoon 台风路径记录已登记。
+E04,meteorology,rainfall,(9),rainfall 降水概率台账已更新。
+E05,meteorology,review,(3),SEARCH_DOMAIN_METEOROLOGY_RECORDS_2026 气象检索样本已校验。

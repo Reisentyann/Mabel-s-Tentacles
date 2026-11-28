@@ -1,0 +1,1 @@
+﻿SEARCH_UTF8_BOM 文本编码：UTF-8 BOM，你好。

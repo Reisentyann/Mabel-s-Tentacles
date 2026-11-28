@@ -1,5 +1,5 @@
 // 文件：manager-go/directories.go —— 逻辑目录、UUID 目录项与同名文件存取
-// 修改：2026-10-08（日期由 fresh-header.ps1 刷新）
+// 修改：2026-11-28（日期由 fresh-header.ps1 刷新）
 
 package manager
 
@@ -217,8 +217,8 @@ func linkDirectoryIntake(ctx context.Context, s DirectoryStore, parentUUID, uuid
 	return nil
 }
 
-// CopyInDirectory 复制源文件内容，并由占位事务固定目录和复制谱系。
-// 内容受写入预算限制，存储必须支持原子目录入库。
+// CopyInDirectory 流式复制源文件内容，并由占位事务固定目录和复制谱系。
+// 存储必须支持原子目录入库。
 func (m *Manager) CopyInDirectory(ctx context.Context, sourceUUID, parentUUID, name string) (*WriteReceipt, error) {
 	if _, ok := m.store.(atomicDirectoryIntakeStore); !ok {
 		return nil, fmt.Errorf("manager: atomic directory copy unavailable")
@@ -241,20 +241,18 @@ func (m *Manager) CopyInDirectory(ctx context.Context, sourceUUID, parentUUID, n
 	if ref.IsDeleted {
 		return nil, ErrDeleted
 	}
-	src, err := m.Read(ctx, sourceUUID, maxIntakeBytes+1)
+	src, err := m.StreamByLogic(ctx, ref.Path)
 	if err != nil {
 		return nil, err
 	}
-	if len(src.Content) > maxIntakeBytes {
-		return nil, fmt.Errorf("directory copy exceeds content limit")
-	}
+	defer src.Content.Close()
 	key, err := newDirectoryFilePath(parent, name)
 	if err != nil {
 		return nil, err
 	}
 	ctx = WithDirectoryIntake(ctx, parentUUID, name)
 	ctx = WithDirectoryCopy(ctx, sourceUUID)
-	return m.Write(ctx, key, string(src.Content))
+	return m.WriteReader(ctx, key, src.Content)
 }
 
 // ListDirectory 列出目录的直接子项。

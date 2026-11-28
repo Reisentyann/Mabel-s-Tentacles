@@ -1,0 +1,6 @@
+id,name,department,note
+1,林岚,检索组,SEARCH_CSV_REGULAR alpha
+2,周宁,索引组,regular row
+3,苏禾,平台组,balanced (value)
+4,陈宇,质量组,utf8 text
+5,顾遥,文档组,regular final row

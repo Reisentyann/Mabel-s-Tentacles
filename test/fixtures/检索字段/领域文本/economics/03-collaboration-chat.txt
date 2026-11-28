@@ -1,0 +1,6 @@
+[2026-01-01T00:00:00] @inflation_editor “inflation 数据需要复核。” 😀 https://docs.example.org/economics #inflation
+[2026-01-01T00:00:20] @fiscal_officer “财政收支表已补齐。” 😊 fiscal@example.org
+[2026-01-01T00:00:40] @market_lead “市场指数口径已记录。” 🧭 [办理指引](guide.html)
+[2026-01-01T00:01:00] @exchange_auditor “汇率标签需要更新。” 📚 #exchange
+[2026-01-01T00:01:20] @data_planner “经济指标序列已核对。” inflation 档案保持同步。
+[2026-01-01T00:02:00] @senior_reviewer “本轮经济检索完成。” marker=SEARCH_DOMAIN_ECONOMICS_COLLABORATION-CHAT_2026

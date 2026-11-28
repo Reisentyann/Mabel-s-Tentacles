@@ -1,0 +1,6 @@
+id,domain,metric,value,note
+E01,medicine,pressure,(12),pressure 血压测量档案已核对。
+E02,medicine,dosage,(8),dosage 药物代谢材料已归档。
+E03,medicine,epidemic,(5),epidemic 流行病监测记录已登记。
+E04,medicine,screening,(9),screening 健康体检台账已更新。
+E05,medicine,review,(3),SEARCH_DOMAIN_MEDICINE_RECORDS_2026 医学健康检索样本已校验。

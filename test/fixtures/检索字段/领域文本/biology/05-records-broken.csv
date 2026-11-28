@@ -1,0 +1,5 @@
+id,domain,metric,value,note
+r1,biology,cell (draft
+r2,biology,genome,approved,SEARCH_DOMAIN_BIOLOGY_RECORDS-BROKEN_2026 遗传规律记录待修复，补充说明保留原始字段顺序并验证损坏行的列数边界。
+r3,ecology
+r4,biology,species,pending

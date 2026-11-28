@@ -1,0 +1,20 @@
+序号
+领域
+指标
+数值
+说明
+1
+computing
+index
+2
+倒排索引台账已核对，并保留一条用于字段回查的完整中文说明。
+2
+computing
+cache
+5
+SEARCH_DOMAIN_COMPUTING_PSEUDO-TABLE_2026 缓存失效材料已归档，并保留原始记录顺序。
+3
+computing
+protocol
+8
+网络协议与排序算法记录已复核，最后一行以中文句号结束。

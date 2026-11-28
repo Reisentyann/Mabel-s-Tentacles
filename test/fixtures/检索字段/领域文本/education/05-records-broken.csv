@@ -1,0 +1,5 @@
+id,domain,metric,value,note
+r1,education,curriculum (draft
+r2,education,assessment,approved,SEARCH_DOMAIN_EDUCATION_RECORDS-BROKEN_2026 学习评价记录待修复，补充说明保留原始字段顺序并验证损坏行的列数边界。
+r3,classroom
+r4,education,exam,pending

@@ -1,0 +1,5 @@
+id,domain,metric,value,note
+r1,computing,index (draft
+r2,computing,cache,approved,SEARCH_DOMAIN_COMPUTING_RECORDS-BROKEN_2026 缓存失效记录待修复，补充说明保留原始字段顺序并验证损坏行的列数边界。
+r3,protocol
+r4,computing,sorting,pending

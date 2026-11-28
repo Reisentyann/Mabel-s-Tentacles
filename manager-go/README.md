@@ -39,6 +39,16 @@
 - 单实例的修改、移动和打开阶段由同一互斥锁协调。使用后不可复制 Manager。
 - `Open` 返回的流由调用方关闭。导出失败时调用方应丢弃不完整 ZIP。
 
+## 文件大小与流式入口
+
+管理机不设置文件本体的统一大小上限。`Write`、`WriteBytes` 和 `Modify` 的内容由调用方
+先放入内存；大文件应使用 `WriteReader`、`ImportFile`、`CopyByLogic` 或 `CopyInDirectory`
+流式落盘。HTTP 大文件上传使用 `multipart/form-data`，MCP 大文件优先使用 `source_path`，
+避免 JSON/Base64 的额外内存占用。
+
+`describer.MaxFullBytes` 的 5 MiB 仍只是分析截断预算，取件缓存的单条目上限也仍为
+5 MiB；两者都不限制正式文件大小。
+
 ## 文件维护与索引同步
 
 修改与移动仅负责文件发布，由编排机维护门面记录持久化任务并刷新属性和索引。

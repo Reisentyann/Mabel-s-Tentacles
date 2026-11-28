@@ -1,0 +1,5 @@
+id,domain,metric,value,note
+r1,geology,stratum (draft
+r2,geology,fault,approved,SEARCH_DOMAIN_GEOLOGY_RECORDS-BROKEN_2026 断层活动记录待修复，补充说明保留原始字段顺序并验证损坏行的列数边界。
+r3,mineral
+r4,geology,volcano,pending

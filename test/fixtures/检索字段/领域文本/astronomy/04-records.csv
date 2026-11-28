@@ -1,0 +1,6 @@
+id,domain,metric,value,note
+E01,astronomy,lunar,(12),lunar 月球环形山观测档案已核对。
+E02,astronomy,eclipse,(8),eclipse 火星逆行材料已归档。
+E03,astronomy,parallax,(5),parallax 木星卫星食记录已登记。
+E04,astronomy,redshift,(9),redshift 深空巡天台账已更新。
+E05,astronomy,review,(3),SEARCH_DOMAIN_ASTRONOMY_RECORDS_2026 天文检索样本已校验。

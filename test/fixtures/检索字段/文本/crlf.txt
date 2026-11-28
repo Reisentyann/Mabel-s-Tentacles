@@ -1,0 +1,3 @@
+SEARCH_CRLF_2026 first line
+SEARCH_CRLF_2026 second line
+SEARCH_CRLF_2026 third line
